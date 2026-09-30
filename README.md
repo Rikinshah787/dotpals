@@ -39,6 +39,9 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
+- **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, or two agents editing the same file.
+- **The notch**: an island at the top of your screen with every agent, its live plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. Hide the pal and the notch takes over.
+- **Context and limits**: the pal gets worried as a session's context window fills up and cheers after it compacts. Usage bars show your 5-hour and weekly limits with reset times (for Claude, run `dotpals statusline` once).
 - **Summary**: one card per request, with what you asked, what the agent said it did, and a tally such as *Changed 3 files · Ran 5 commands, 1 failed · Used 1 skill*. **Show steps** lists every step as a short sentence.
 - **Tools**: every tool call as it happens. Click one to see the exact command and output, or the lines an edit changed.
 - **Files**: every file read, changed, created or deleted, with diffs. Click to open it in VS Code.
@@ -62,6 +65,16 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 <p align="center">
   <img src="docs/sessions.png" width="820" alt="The dashboard's Sessions page: a session list, and one session's requests with the agent's summary, changed files, commands and skills">
 </p>
+
+## The notch
+
+<p align="center"><img src="docs/notch.png" width="460" alt="The notch, open: Codex needs your OK to run npm install, Claude is on step 2 of 4 of its plan, another Claude session is done, and usage bars show Claude at 42% of its 5-hour limit and Codex at 91%"></p>
+
+A small island that hangs from the top of your screen. Closed, it shows a dot per agent, what the newest one is doing, and a ring for your 5-hour usage. Hover over it and it opens: every agent with its plan, its context window and your usage limits, plus buttons to bring back the pal or open the dashboard.
+
+By default it appears when you hide the pal. You can keep it on always or never show it, from the tray or with `dotpals notch --auto | --off`.
+
+Claude Code shares its usage limits only with a status line command, so run `dotpals statusline` once to see them. If you already have a status line, it keeps showing yours; `dotpals statusline --off` puts everything back. Codex's limits come straight from its logs.
 
 ## Make your own pal
 
@@ -108,6 +121,24 @@ Restart Claude Code, then run **`/dotpals:pals`**. The first time, it offers to 
 ### Codex
 
 There's nothing to install on the Codex side. dotpals follows Codex's session logs (`~/.codex/sessions`), so the Codex CLI, IDE extension and app all show up while the pal is running. The one-command setup starts it at login.
+
+### Cursor, Gemini CLI, OpenCode and GitHub Copilot CLI
+
+Open the dashboard's **Agents** page and press **Connect** on the agent you use. Each card shows whether the agent is installed, whether it's connected, and when its last event arrived.
+
+- **Connect** adds one small command, or a plugin for OpenCode, to that agent's own config. It backs up the original first, merges instead of overwriting, and leaves a file it can't read untouched.
+- **Disconnect** takes out only what dotpals added.
+- **Send a test event** runs the real command. If it reaches dotpals, a pal says hello.
+- The switch on each card turns an agent off without disconnecting it.
+
+The Connect button changes these files:
+
+| Agent | What Connect changes |
+| ----- | -------------------- |
+| Cursor | `~/.cursor/hooks.json`. Cursor reloads it on save |
+| Gemini CLI | `~/.gemini/settings.json` (Gemini CLI 0.26 or newer, in folders you've trusted) |
+| OpenCode | adds `~/.config/opencode/plugins/dotpals.js`. Restart OpenCode to load it |
+| GitHub Copilot CLI | adds `~/.copilot/hooks/dotpals.json` |
 
 ### Any other agent
 
@@ -161,7 +192,15 @@ The bridge is harness-agnostic. Each agent tool connects through an adapter in [
 | ------- | --------------- | ----- |
 | **Claude Code** | Hooks for live state (including permission prompts), plus the session transcript, so the history is complete even if the pal opened late | [The plugin](#claude-code) |
 | **Codex** (CLI, IDE extension, app) | Follows Codex's session logs in `~/.codex/sessions` | None. Keep the pal running (tray: *Open when I log in*). `DOTPALS_CODEX=0` turns it off |
-| **Anything else** | POST JSON to `http://127.0.0.1:5175/event` | A few lines in your agent loop, a hook script or a wrapper |
+| **Cursor** (editor and CLI) | [Hooks](https://cursor.com/docs/hooks) in `~/.cursor/hooks.json`: prompts, commands, file edits, MCP calls, replies, stop. Only hooks that watch are used; none of them can approve or block anything | **Connect** on the dashboard's Agents page |
+| **Gemini CLI** | [Hooks](https://geminicli.com/docs/hooks/) in `~/.gemini/settings.json`: prompts, every tool call, permission prompts, replies | **Connect** on the Agents page |
+| **OpenCode** | A [plugin](https://opencode.ai/docs/plugins/) in `~/.config/opencode/plugins/`: prompts, tool calls, permission prompts, the end of each turn | **Connect** on the Agents page, then restart OpenCode |
+| **GitHub Copilot CLI** | [Hooks](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference) in `~/.copilot/hooks/dotpals.json`: prompts, tool calls, permission prompts, stop | **Connect** on the Agents page |
+| **Anything else** | POST JSON to `http://127.0.0.1:5175/event` | A few lines in your agent loop, a hook script or a wrapper. The Agents page has copy-paste snippets for curl, PowerShell, Node, Python and the shell |
+
+Every integration can be switched off on the Agents page, or in `~/.dotpals/config.json` with `{ "agents": { "cursor": false } }`. The ids are `claude`, `codex`, `cursor`, `gemini`, `opencode`, `copilot` and `generic`.
+
+The hook-based integrations run `node ~/.dotpals/app/bridge/hook.js <agent>`, so Node has to be on your `PATH`. The command posts to `POST /hook?agent=<id>`, and the matching module in [bridge/adapters/](bridge/adapters) turns the events into activity. To add another agent, write a module there with the same shape (`id`, `name`, `detect()`, `connect()`, `disconnect()`, `apply()`; see [bridge/adapters/index.js](bridge/adapters/index.js)) and list it in `index.js`.
 
 ### The event format
 

@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dotpals · See what your coding agent actually did</title>
+  <meta name="description" content="A small floating pal that watches Claude Code, Codex or any coding agent and tells you in plain words what it did: files changed, commands run, what failed. Free, open source, local.">
+  <meta name="theme-color" content="#0b0a0e">
+  <meta name="color-scheme" content="dark">
+  <link rel="canonical" href="https://rikinshah787.github.io/dotpals/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="dotpals">
+  <meta property="og:title" content="dotpals · See what your coding agent actually did">
+  <meta property="og:description" content="Hundreds of tool calls become a few plain lines: what changed, what ran, what failed. A floating pal for Claude Code, Codex and any agent. Open source, and nothing leaves your computer.">
+  <meta property="og:url" content="https://rikinshah787.github.io/dotpals/">
+  <meta property="og:image" content="https://rikinshah787.github.io/dotpals/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="dotpals: three little pals peeking over a ledge next to a summary that reads Changed 5 files, Tests failed twice then passed, Committed and pushed">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="dotpals · See what your coding agent actually did">
+  <meta name="twitter:description" content="A floating pal that tells you in plain words what Claude Code, Codex or any agent did. Open source, local, MIT.">
+  <meta name="twitter:image" content="https://rikinshah787.github.io/dotpals/og.png">
+  <meta name="twitter:image:alt" content="dotpals: little pals next to a plain-language summary of an agent's work">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%231e88ff' d='M6 64V40C6 20 18 10 32 10s26 10 26 30v24z'/%3E%3Cellipse cx='25' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3Cellipse cx='39' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Geist:wght@400..600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="modulepreload" href="./src/index.js">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <a class="brand" href="#top" aria-label="dotpals, back to top">
+      <dot-pal character="blu" size="34" static label="dotpals"></dot-pal>
+      <span class="brand-name">dotpals</span>
+    </a>
+
+    <!-- The notch: hover (or tap) to open. Driven by the hero pals below. -->
+    <div class="notch" id="heroNotch" data-tone="work">
+      <button class="notch-pill" type="button" aria-expanded="false" aria-controls="heroNotchPanel" aria-label="Agent status island. Open to see every agent and usage limits.">
+        <span class="notch-dots" aria-hidden="true"></span>
+        <span class="notch-text">Claude · 2/4 · Detecting the system setting</span>
+        <span class="notch-ring" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><circle class="v" cx="10" cy="10" r="7.5" pathLength="100"/></svg></span>
+      </button>
+      <div class="notch-panel" id="heroNotchPanel">
+        <div class="notch-inner">
+          <ul class="notch-agents"></ul>
+          <div class="notch-usage" aria-label="Usage limits"></div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="Primary">
+      <a href="#story">Story</a>
+      <a href="#notch">Notch</a>
+      <a href="#agents">Agents</a>
+      <a href="#make">Make a pal</a>
+      <a class="btn btn-star btn-sm" href="https://github.com/Rikinshah787/dotpals"><span aria-hidden="true">⭐</span><span>Star<span class="hide-sm"> on GitHub</span></span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- ================= HERO ================= -->
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="wrap hero-copy">
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · out now</p>
+        <h1 id="hero-title">See what your coding agent <em>actually</em> did.</h1>
+        <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and tells you in plain words what happened: the files it changed, the commands it ran, what failed, and what the agent says it did.</p>
+
+        <div class="cta">
+          <div class="install" data-copy="npx --allow-git=all github:rikinshah787/dotpals setup">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code>npx --allow-git=all github:rikinshah787/dotpals setup</code>
+            <button class="copy-btn" type="button" aria-label="Copy the install command">Copy</button>
+          </div>
+          <a class="btn btn-star" href="https://github.com/Rikinshah787/dotpals"><span aria-hidden="true">⭐</span> Star on GitHub</a>
+        </div>
+        <p class="fine">One command on Windows, macOS or Linux. Free, and everything stays on your computer.</p>
+      </div>
+
+      <div class="ledge hero-ledge" aria-label="Three agents at work">
+        <div class="ledge-row">
+          <figure class="lp" data-agent="A">
+            <dot-pal character="blu" size="150" label="Claude's pal"></dot-pal>
+            <figcaption><i style="--c: var(--claude)"></i>Claude <span>· acme-web</span></figcaption>
+          </figure>
+          <figure class="lp" data-agent="B">
+            <dot-pal character="grok" size="150" label="Codex's pal"></dot-pal>
+            <figcaption><i style="--c: var(--codex)"></i>Codex <span>· api-server</span></figcaption>
+          </figure>
+          <figure class="lp lp-3" data-agent="C">
+            <dot-pal character="muse" size="150" label="Your agent's pal"></dot-pal>
+            <figcaption><i style="--c: var(--mine)"></i>my-agent <span>· docs</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 1. STORY ================= -->
+    <section class="story" id="story" aria-labelledby="story-title">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="kicker"><span>01</span> The story view</p>
+          <h2 id="story-title">Four hundred tool calls. <em>Five lines.</em></h2>
+          <p>A single request can read dozens of files, edit a handful, run the tests, retry and push. dotpals folds all of it into a few chapters you can read in five seconds, next to what the agent says it did.</p>
+          <p>And it flags what deserves a second look:</p>
+          <ul class="ticks warn-ticks">
+            <li>it touched <code>.env</code> or another file that usually holds secrets</li>
+            <li>it force-pushed, ran a recursive delete or threw away changes</li>
+            <li>the same command failed 3 times in a row</li>
+          </ul>
+          <p class="muted small">Every step is still one click away, with the exact command, its output and the diff.</p>
+        </div>
+
+        <div class="story-track">
+          <div class="story-sticky">
+            <article class="story-card" aria-label="Example summary of one request">
+              <header class="sc-head">
+                <div>
+                  <p class="sc-meta"><i style="--c: var(--claude)"></i>Claude · acme-web</p>
+                  <p class="sc-ask"><span>You asked</span> Add a dark mode toggle to the settings page</p>
+                </div>
+                <p class="sc-count" aria-hidden="true"><b class="sc-n">400</b><span class="sc-unit">tool calls</span></p>
+              </header>
+
+              <div class="sc-body">
+                <ol class="sc-log" aria-hidden="true"></ol>
+
+                <div class="sc-story">
+                  <p class="sc-says"><b>Claude:</b> Added a Dark mode toggle under Settings → Display. The choice is saved and applied on load, with a new dark.css. All tests pass.</p>
+                  <ol class="chapters">
+                    <li class="ch" data-type="explore"><span class="ch-ico" aria-hidden="true">◎</span><span class="ch-t">Looked through 38 files</span><span class="ch-d">src/ · test/ · docs/</span></li>
+                    <li class="ch" data-type="change"><span class="ch-ico" aria-hidden="true">✎</span><span class="ch-t">Changed 5 files <span class="add">+42</span> <span class="del">−7</span></span><span class="ch-d">Settings.tsx, useTheme.ts, dark.css and 2 more</span></li>
+                    <li class="ch" data-type="test"><span class="ch-ico" aria-hidden="true">✓</span><span class="ch-t">Tests failed twice, then passed</span><span class="ch-d">npm test · 3 runs</span></li>
+                    <li class="ch" data-type="install"><span class="ch-ico" aria-hidden="true">⤓</span><span class="ch-t">Installed packages</span><span class="ch-d">npm install</span></li>
+                    <li class="ch" data-type="ship"><span class="ch-ico" aria-hidden="true">↑</span><span class="ch-t">Committed and pushed</span><span class="ch-d">“Add dark mode toggle”</span></li>
+                  </ol>
+                  <div class="flags">
+                    <p class="flags-h">Worth a second look</p>
+                    <ul>
+                      <li>Changed .env, which usually holds secrets</li>
+                      <li>Force-pushed to git</li>
+                      <li>The same command failed 3 times: “npm run e2e”</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="sc-pal"><dot-pal character="blu" size="74" static label="Claude's pal"></dot-pal></div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 2. NOTCH ================= -->
+    <section class="section notch-sec" id="notch" aria-labelledby="notch-title">
+      <div class="wrap two">
+        <div class="copy">
+          <p class="kicker"><span>02</span> The notch</p>
+          <h2 id="notch-title">Every agent, in one <em>island</em> at the top of your screen.</h2>
+          <p>A slim island shows every running agent and its live plan, like <b>2/4 · Detecting the system setting</b>, plus your usage limits: Claude and Codex, 5-hour and weekly, with the time each one resets.</p>
+          <ul class="ticks">
+            <li><b>Opens on hover.</b> Out of the way until you want it.</li>
+            <li><b class="amber">Glows amber</b> when an agent needs your OK.</li>
+            <li><b class="green">Flashes green</b> when an agent is done.</li>
+          </ul>
+          <div class="seg" role="group" aria-label="Try the notch">
+            <button type="button" data-demo="wait">Needs you</button>
+            <button type="button" data-demo="done">Finished</button>
+            <button type="button" data-demo="work">Back to work</button>
+          </div>
+        </div>
+
+        <div class="screen" aria-label="A mock desktop with the notch at the top">
+          <div class="screen-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="notch notch-big" id="demoNotch" data-tone="work">
+            <button class="notch-pill" type="button" aria-expanded="false" aria-controls="demoNotchPanel" aria-label="Demo status island. Open to see agents and usage limits.">
+              <span class="notch-dots" aria-hidden="true"></span>
+              <span class="notch-text"></span>
+              <span class="notch-ring" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><circle class="v" cx="10" cy="10" r="7.5" pathLength="100"/></svg></span>
+            </button>
+            <div class="notch-panel" id="demoNotchPanel">
+              <div class="notch-inner">
+                <ul class="notch-agents"></ul>
+                <div class="notch-usage" aria-label="Usage limits"></div>
+              </div>
+            </div>
+          </div>
+          <p class="screen-hint" aria-hidden="true">hover or tap the island ↑</p>
+          <figure class="screen-shot">
+            <img src="./docs/notch.png" width="522" height="423" loading="lazy" decoding="async" alt="Screenshot of the real notch, open: Codex needs your OK to run npm install, Claude is working on step 2 of 4, a docs session is done, and usage bars for Claude and Codex 5-hour and weekly limits.">
+            <figcaption>The real one, open.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 3. AGENTS ================= -->
+    <section class="section agents-sec" id="agents" aria-labelledby="agents-title">
+      <div class="wrap">
+        <div class="head-center">
+          <p class="kicker"><span>03</span> Every agent, every session</p>
+          <h2 id="agents-title">One pal per agent, <em>side by side.</em></h2>
+          <p class="lede-sm">Setup connects Claude Code and Codex for you. Anything else connects with one JSON POST. Sessions never mix, and every Claude Code session shows up, even ones that started before dotpals was installed.</p>
+        </div>
+
+        <div class="agents-stage">
+          <div class="roundbar" aria-hidden="true">
+            <span><i style="--c: var(--claude)"></i>Claude</span>
+            <span><i style="--c: var(--codex)"></i>Codex</span>
+            <span><i style="--c: var(--mine)"></i>my-agent</span>
+          </div>
+          <div class="ledge-row agents-row">
+            <dot-pal id="palClaude" character="blu" size="120" label="Claude's pal"></dot-pal>
+            <dot-pal id="palCodex" character="grok" size="120" label="Codex's pal"></dot-pal>
+            <dot-pal id="palMine" character="nova" size="120" label="Your agent's pal"></dot-pal>
+          </div>
+        </div>
+
+        <div class="agents-grid">
+          <article class="acard">
+            <h3>Claude Code</h3>
+            <p>Hooks for live state, including permission prompts, plus each session's transcript, so the history is complete even if the pal opened late.</p>
+            <p class="acard-foot">Setup adds the plugin for you</p>
+          </article>
+          <article class="acard">
+            <h3>Codex</h3>
+            <p>Follows Codex's session logs, so the CLI, the IDE extension and the app all show up. Nothing to install on the Codex side.</p>
+            <p class="acard-foot">Picked up automatically</p>
+          </article>
+          <article class="acard acard-try">
+            <h3>Any other agent</h3>
+            <p>POST JSON to <code>127.0.0.1:5175/event</code> from your loop, a hook script or a wrapper. Try it on the orange pal:</p>
+            <form class="try" id="tryForm">
+              <label class="sr" for="tryJson">Event JSON</label>
+              <textarea id="tryJson" rows="3" spellcheck="false">{ "state": "working", "text": "Running tests" }</textarea>
+              <div class="try-row">
+                <div class="chips" role="group" aria-label="Example events">
+                  <button type="button" data-ev='{ "state": "thinking" }'>thinking</button>
+                  <button type="button" data-ev='{ "state": "working", "text": "Running tests" }'>working</button>
+                  <button type="button" data-ev='{ "state": "waiting", "text": "Allow edit?" }'>waiting</button>
+                  <button type="button" data-ev='{ "state": "done", "text": "All green!" }'>done</button>
+                  <button type="button" data-ev='{ "state": "error", "text": "Tests failed" }'>error</button>
+                </div>
+                <button class="btn btn-sm btn-solid" type="submit">Send</button>
+              </div>
+              <p class="try-out" id="tryOut" role="status"></p>
+            </form>
+            <p class="try-label">The same event from a script, with a session id so it gets its own pal and tab:</p>
+            <pre class="code"><code>curl -s localhost:5175/event -d '{
+  "session": "run-42", "harness": "my-agent",
+  "state": "working", "text": "Running tests"
+}'</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 4. MAKE A PAL ================= -->
+    <section class="section make-sec" id="make" aria-labelledby="make-title">
+      <div class="wrap">
+        <div class="head-center">
+          <p class="kicker"><span>04</span> Make your own pal</p>
+          <h2 id="make-title">6 bodies × 6 eyes × 9 toppers × <em>any color.</em></h2>
+          <p class="lede-sm">The same <code>registerCustom()</code> the dashboard uses, running live on this page. Pick, roll, then watch it think, work and celebrate.</p>
+        </div>
+
+        <div class="mixer">
+          <div class="mix-stage">
+            <div class="mix-ledge">
+              <dot-pal id="mixPal" character="blu" size="230" label="Your pal"></dot-pal>
+            </div>
+            <p class="mix-name" id="mixName">Pip</p>
+            <div class="seg seg-sm" role="group" aria-label="Preview a state">
+              <button type="button" data-state="thinking">Think</button>
+              <button type="button" data-state="working">Work</button>
+              <button type="button" data-state="waiting">Ask</button>
+              <button type="button" data-state="done">Celebrate</button>
+            </div>
+          </div>
+
+          <form class="mix-controls" id="mixForm" autocomplete="off">
+            <fieldset><legend>Body</legend><div class="opts" data-key="shape"></div></fieldset>
+            <fieldset><legend>Eyes</legend><div class="opts" data-key="eyes"></div></fieldset>
+            <fieldset><legend>On top</legend><div class="opts" data-key="top"></div></fieldset>
+            <fieldset>
+              <legend>Color</legend>
+              <div class="opts colors">
+                <label class="color-pick"><span class="sr">Any color</span><input type="color" id="mixColor" value="#16c6ae"></label>
+              </div>
+            </fieldset>
+            <div class="mix-row">
+              <label class="field"><span>Name</span><input type="text" id="mixNameIn" maxlength="24" value="Pip"></label>
+              <label class="check"><input type="checkbox" id="mixFur" checked> Fluffy</label>
+              <button class="btn btn-solid" type="button" id="surprise">🎲 Surprise me</button>
+            </div>
+            <pre class="code" aria-label="The same pal in code"><code id="mixCode"></code></pre>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 5. DASHBOARD ================= -->
+    <section class="section dash-sec" id="dashboard" aria-labelledby="dash-title">
+      <div class="wrap">
+        <div class="head-center">
+          <p class="kicker"><span>05</span> The dashboard</p>
+          <h2 id="dash-title">Sessions, logs, stats <em>and settings.</em></h2>
+          <p class="lede-sm">Every session with its requests, files and full log. Search it, copy a recap for a PR, or export to Markdown or JSON.</p>
+        </div>
+
+        <div class="browser">
+          <div class="browser-bar">
+            <span class="browser-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <div class="tabs" role="tablist" aria-label="Dashboard pages">
+              <button role="tab" id="tab-ov" aria-selected="true" aria-controls="pane-ov" type="button">Overview</button>
+              <button role="tab" id="tab-se" aria-selected="false" aria-controls="pane-se" tabindex="-1" type="button">Sessions</button>
+            </div>
+            <span class="browser-url" aria-hidden="true">127.0.0.1:5175/dashboard</span>
+          </div>
+          <div class="panes">
+            <div role="tabpanel" id="pane-ov" aria-labelledby="tab-ov">
+              <img src="./docs/dashboard.png" width="1282" height="802" loading="lazy" decoding="async" alt="The dashboard Overview: 2 requests, 4 files changed, 2 commands with 1 failed, 6 minutes of agent time, a requests-per-day chart, a by-project table and recent requests.">
+            </div>
+            <div role="tabpanel" id="pane-se" aria-labelledby="tab-se" hidden>
+              <img src="./docs/sessions.png" width="1282" height="802" loading="lazy" decoding="async" alt="The dashboard Sessions page: a searchable session list, and one session's requests with Claude's summary, changed files, commands and skills.">
+            </div>
+          </div>
+        </div>
+
+        <ul class="feats">
+          <li><h3>Sessions</h3><p>Every request, what you asked and what the agent said it did.</p></li>
+          <li><h3>Logs</h3><p>Every tool call with its command, output and diff.</p></li>
+          <li><h3>Stats</h3><p>Requests per day, files changed, commands and time by project.</p></li>
+          <li><h3>Settings</h3><p>Your pal, sounds, notifications and how long to keep history.</p></li>
+        </ul>
+
+        <div class="shots">
+          <figure><img src="./docs/summary.png" width="402" height="663" loading="lazy" decoding="async" alt="The floating window's Summary tab: what you asked, Claude's own summary, and a tally of changed files, commands and skills."><figcaption><b>Summary</b> one card per request</figcaption></figure>
+          <figure><img src="./docs/tools.png" width="402" height="663" loading="lazy" decoding="async" alt="The Tools tab with an Edit opened, showing its diff."><figcaption><b>Tools</b> every call, click for the diff</figcaption></figure>
+          <figure><img src="./docs/files.png" width="402" height="663" loading="lazy" decoding="async" alt="The Files tab listing changed, new and read files."><figcaption><b>Files</b> read, changed, created</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 6. PRIVATE ================= -->
+    <section class="section private-sec" id="private" aria-labelledby="private-title">
+      <div class="wrap two two-rev">
+        <div class="copy">
+          <p class="kicker"><span>06</span> Local and private</p>
+          <h2 id="private-title">Nothing leaves <em>your computer.</em></h2>
+          <p>A small local server, the bridge, turns what your agents report into one activity feed. It listens only on <code>127.0.0.1</code>, only answers your own computer, and sends nothing anywhere.</p>
+          <ul class="ticks">
+            <li>History is a plain JSON file in <code>~/.dotpals</code>, kept 7 days by default.</li>
+            <li><code>DOTPALS_HISTORY=0</code> turns history off. Clear it any time in Settings.</li>
+            <li>No account, no sign-up. MIT licensed, so you can read every line.</li>
+          </ul>
+          <ul class="os" aria-label="Platforms">
+            <li>Windows</li><li>macOS</li><li>Linux</li>
+          </ul>
+        </div>
+
+        <div class="machine" role="img" aria-label="Diagram: Claude Code, Codex and your own agent report to the bridge on 127.0.0.1 port 5175, which feeds the floating pal and the dashboard. Everything sits inside your computer.">
+          <p class="machine-tag">your computer</p>
+          <div class="m-col m-src">
+            <span><i style="--c: var(--claude)"></i>Claude Code</span>
+            <span><i style="--c: var(--codex)"></i>Codex</span>
+            <span><i style="--c: var(--mine)"></i>your agent</span>
+          </div>
+          <svg class="m-wire" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M0 14 C55 14 45 50 100 50"/><path d="M0 50 L100 50"/><path d="M0 86 C55 86 45 50 100 50"/></svg>
+          <div class="m-bridge"><b>bridge</b><span>127.0.0.1:5175</span></div>
+          <svg class="m-wire m-wire-1" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><path d="M0 5 L100 5"/></svg>
+          <div class="m-col m-out">
+            <span class="m-pal"><dot-pal character="byte" size="64" static label="Byte"></dot-pal></span>
+            <span>pal · dashboard</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CTA ================= -->
+    <section class="final" id="install" aria-labelledby="final-title">
+      <div class="wrap final-inner">
+        <h2 id="final-title">Give your agent <em>a pal.</em></h2>
+        <p class="lede-sm">One command installs the pal, adds the Claude Code plugin if you have it, picks up Codex, and opens the dashboard.</p>
+        <div class="cta cta-center">
+          <div class="install" data-copy="npx --allow-git=all github:rikinshah787/dotpals setup">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code>npx --allow-git=all github:rikinshah787/dotpals setup</code>
+            <button class="copy-btn" type="button" aria-label="Copy the install command">Copy</button>
+          </div>
+          <a class="btn btn-star" href="https://github.com/Rikinshah787/dotpals"><span aria-hidden="true">⭐</span> Star on GitHub</a>
+        </div>
+        <p class="fine">Only want the Claude Code plugin? <code>/plugin marketplace add rikinshah787/dotpals</code> then <code>/plugin install dotpals@dotpals</code>.</p>
+      </div>
+      <div class="crew" aria-label="The eight ready-made pals">
+        <dot-pal character="hop" size="84"></dot-pal>
+        <dot-pal character="sunny" size="84"></dot-pal>
+        <dot-pal character="lovi" size="84"></dot-pal>
+        <dot-pal character="blu" size="84"></dot-pal>
+        <dot-pal character="muse" size="84"></dot-pal>
+        <dot-pal character="grok" size="84"></dot-pal>
+        <dot-pal character="nova" size="84"></dot-pal>
+        <dot-pal character="byte" size="84"></dot-pal>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <p><b>dotpals</b> · MIT licensed · made for people who like to know what just happened.</p>
+      <nav aria-label="Project links">
+        <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+        <a href="https://github.com/Rikinshah787/dotpals#readme">README</a>
+        <a href="https://github.com/Rikinshah787/dotpals/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/Rikinshah787/dotpals/issues">Issues</a>
+      </nav>
+      <p class="muted small">Not affiliated with or endorsed by any AI company. The pals are original artwork. No trackers on this page.</p>
+    </div>
+  </footer>
+</body>
+</html>

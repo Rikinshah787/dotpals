@@ -165,6 +165,64 @@
     .steps .body { margin-left: 12px; }
     .steps .title { font-size: 12px; color: #d6d6dd; }
 
+    /* The story: a request's work as a few chapters, the live plan, and flags. */
+    .chapters { list-style: none; margin: 0; padding: 4px 0 6px; border-top: 1px solid var(--line); }
+    .ch > .row { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: start; padding: 4px 12px; cursor: pointer; }
+    .ch > .row:hover { background: rgb(255 255 255 / .03); }
+    .ch.open > .row { background: rgb(255 255 255 / .04); }
+    .ch .mark { width: 8px; height: 8px; margin: 5px 0 0 3px; border-radius: 2px; background: var(--k); }
+    .ch .what { min-width: 0; }
+    .ch .what b { display: block; font-weight: 600; color: var(--text); font-size: 12.5px; }
+    .ch .what small { display: block; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ch .side { display: flex; gap: 6px; align-items: center; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 18px; }
+    .ch .side .add { color: var(--add); } .ch .side .del { color: var(--del); }
+    .ch .side .ok { color: var(--ok); } .ch .side .bad { color: var(--bad); }
+    .ch.failed .what b { color: var(--bad); }
+    .ch.quiet .what b { color: var(--muted); font-weight: 500; }
+    .ch.quiet .mark { opacity: .45; }
+    .ch .steps { border-top: 0; margin: 0 0 4px 22px; border-radius: 8px; }
+    .t-change { --k: var(--k-edit); } .t-test { --k: var(--k-run); } .t-build { --k: var(--k-search); } .t-install { --k: var(--k-write); }
+    .t-ship, .t-agent { --k: var(--k-agent); } .t-skill { --k: var(--k-skill); } .t-mcp { --k: var(--k-mcp); } .t-web { --k: var(--k-web); }
+    .t-explore { --k: var(--k-read); } .t-run { --k: var(--k-run); } .t-ask { --k: var(--warn); } .t-scratch, .t-memory, .t-tool { --k: var(--k-other); }
+    .ch.failed { --k: var(--bad); }
+    .flags { display: grid; gap: 4px; padding: 6px 12px; border-top: 1px solid var(--line); }
+    .flag { display: flex; gap: 7px; align-items: baseline; font-size: 12px; color: #f3d9a6; }
+    .flag::before { content: "!"; flex: none; width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; font: 700 10px/1 var(--mono); color: var(--bg); background: var(--warn); }
+    .flag.info { color: var(--muted); }
+    .flags.cross { margin: 0 10px 6px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--warn) 7%, var(--raise)); }
+    .flags.cross a { color: var(--text); font-weight: 600; text-decoration: none; }
+    .flags.cross a:hover { text-decoration: underline; }
+    .flag.info::before { content: "i"; background: var(--k-read); }
+    .plan { padding: 8px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+    .plan header { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .plan .progress { flex: 1; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+    .plan .progress i { display: block; height: 100%; background: var(--ok); border-radius: 4px; transition: width .4s ease; }
+    .plan ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+    .plan li { display: grid; grid-template-columns: 14px 1fr; gap: 6px; font-size: 12px; color: var(--muted); }
+    .plan li::before { content: "·"; text-align: center; color: var(--faint); }
+    .plan li.completed { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line); }
+    .plan li.completed::before { content: "✓"; color: var(--ok); text-decoration: none; }
+    .plan li.in_progress { color: var(--text); font-weight: 600; }
+    .plan li.in_progress::before { content: "▸"; color: var(--warn); animation: pulse-text 1.4s ease-in-out infinite; }
+    @keyframes pulse-text { 50% { opacity: .35; } }
+
+    /* What the session is using: skills, plugins, MCP tools, helper agents. */
+    .kit { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 10px 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); font-size: 11.5px; color: var(--muted); }
+    .kit > small { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+    .kit span { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; color: var(--text); background: color-mix(in srgb, var(--k) 14%, transparent); }
+    .kit span::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--k); }
+    .kit span em { font-style: normal; color: var(--faint); }
+
+    /* Context filling up: how full, and "Copy /compact". */
+    .ctxbar { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; margin: 0 10px 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
+    .ctxbar .what b { display: block; font-size: 12.5px; }
+    .ctxbar .what small { display: block; color: var(--muted); font-size: 11px; }
+    .ctxbar button { font-size: 11.5px; padding: 3px 10px; }
+    .ctxbar .meter { grid-column: 1 / 3; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+    .ctxbar .meter i { display: block; height: 100%; background: var(--ok); border-radius: 4px; }
+    .ctxbar.warm { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); } .ctxbar.warm .meter i { background: var(--warn); } .ctxbar.warm b { color: var(--warn); }
+    .ctxbar.hot { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); } .ctxbar.hot .meter i { background: var(--bad); } .ctxbar.hot b { color: var(--bad); }
+
     .counts { display: flex; gap: 4px; }
     .counts b { font: 600 10px/18px var(--mono); padding: 0 5px; border-radius: 5px; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); }
 
@@ -201,12 +259,46 @@
     .mini button i { width: 7px; height: 7px; border-radius: 50%; background: var(--h); flex: none; }
     .mini button.busy i { animation: pulse 1.6s ease-in-out infinite; }
     .mini .more { color: var(--muted); background: #26262e; padding: 0 8px; }
+    /* How full each agent's context window is: a ring (or a token count when the size isn't known). */
+    .ctx { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; color: var(--muted); font: 600 10px/1 var(--mono); font-variant-numeric: tabular-nums; }
+    .ctx svg { width: 13px; height: 13px; }
+    .ctx circle { fill: none; stroke-width: 3; }
+    .ctx .track { stroke: rgb(255 255 255 / .12); }
+    .ctx .fill { stroke: var(--ok); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dasharray .5s ease; }
+    .ctx.warm { color: var(--warn); } .ctx.warm .fill { stroke: var(--warn); }
+    .ctx.hot { color: var(--bad); } .ctx.hot .fill { stroke: var(--bad); }
+    .ctx.hot svg { animation: pulse-text 1.2s ease-in-out infinite; }
+    .sessions .ctx { margin-left: 4px; }
     @keyframes pulse { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 35%, transparent); } }
     body.compact #compact .shrink { display: none; }
     body.compact #compact .grow { display: block; }
     body.compact #stage { height: 100%; border: 0; padding: 78px 0 0; }
     body.compact :is(.tabs, .panel, .sessions) { display: none; }
     body.compact .slot span { display: none; }
+
+    /* -- a permission request to answer ------------------------------------------ */
+    .card { position: relative; }
+    .asks { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 10; display: grid; gap: 8px; -webkit-app-region: no-drag; }
+    .asks:empty { display: none; }
+    .ask { position: relative; overflow: hidden; padding: 11px 12px 10px; border-radius: 14px; background: #16161c; border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line)); box-shadow: 0 10px 30px rgb(0 0 0 / .55), 0 0 0 4px rgb(245 185 74 / .08); animation: ask-in .35s cubic-bezier(.2, 1.3, .35, 1); }
+    @keyframes ask-in { from { transform: translateY(-10px) scale(.97); opacity: 0; } }
+    .ask small { display: block; color: var(--warn); font-size: 11px; font-weight: 600; }
+    .ask small span { color: var(--muted); font-weight: 500; }
+    .ask b { display: block; margin: 3px 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+    .ask pre { margin: 0 0 8px; padding: 6px 8px; max-height: 64px; overflow: auto; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font: 11px/1.45 var(--mono); color: #e6e6ec; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ask pre .add { color: var(--add); } .ask pre .del { color: var(--del); }
+    .ask .risk { display: flex; gap: 6px; align-items: baseline; margin: 0 0 6px; color: #ffb4b4; font-size: 11.5px; }
+    .ask .risk::before { content: "!"; flex: none; width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; font: 700 9px/1 var(--mono); color: var(--bg); background: var(--bad); }
+    .ask .row { display: flex; align-items: center; gap: 8px; }
+    .ask .row em { flex: 1; font-style: normal; color: var(--faint); font-size: 11px; }
+    .ask button { padding: 5px 14px; border-radius: 9px; font-weight: 600; font-size: 12px; }
+    .ask .deny { background: transparent; }
+    .ask .allow { background: var(--ok); border-color: var(--ok); color: #06140a; }
+    .ask .allow:hover { filter: brightness(1.1); }
+    .ask.risky .allow { background: var(--warn); border-color: var(--warn); }
+    .ask .time { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--warn); transform-origin: left; animation: ask-time linear forwards; }
+    @keyframes ask-time { to { transform: scaleX(0); } }
+    .ask.gone { opacity: .6; pointer-events: none; }
 
     @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
   </style>
@@ -239,7 +331,7 @@
         <svg class="shrink" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 10h4v4M13 6H9V2M9 7l5-5M7 9l-5 5"/></svg>
         <svg class="grow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 2h4v4M6 14H2v-4M14 2L9 7M2 14l5-5"/></svg>
       </button>
-      <button id="close" class="icon float-only" type="button" title="Hide (Ctrl+Alt+P brings it back)" aria-label="Hide">
+      <button id="close" class="icon float-only" type="button" title="Hide the pal (the notch at the top keeps watching; Ctrl+Alt+P brings it back)" aria-label="Hide">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
       </button>
     </header>
@@ -253,10 +345,14 @@
     <ol class="panel" id="recap" role="tabpanel" aria-labelledby="tab-recap" aria-live="polite"><li class="none">Each request you give your agent shows up here, with what it changed in plain words.</li></ol>
     <ol class="panel" id="feed" role="tabpanel" aria-labelledby="tab-feed" hidden><li class="none">Every tool call shows up here as your agent works. Click one to see exactly what it did.</li></ol>
     <ul class="panel" id="files" role="tabpanel" aria-labelledby="tab-files" hidden><li class="none">Files your agent reads or changes show up here.</li></ul>
+    <!-- Permission requests you can answer here (Settings → Approve from the pal). -->
+    <div class="asks" id="asks" aria-live="assertive"></div>
   </div>
 
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
+    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote } from '../bridge/ui/story.js';
+    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnMarkdown, turnTime } from '../bridge/ui/recap.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -277,9 +373,6 @@
     let pickedByUser = false;
 
     const TAG = { read: 'read', edit: 'edit', write: 'write', run: 'run', search: 'find', web: 'web', agent: 'agent', mcp: 'mcp', skill: 'skill', plan: 'plan', tool: 'tool', compact: 'mem' };
-    const HARNESS = { claude: 'Claude', codex: 'Codex' };
-    const harnessName = (h) => HARNESS[h] ?? (h ? h[0].toUpperCase() + h.slice(1) : 'Agent');
-    const harnessClass = (h) => (HARNESS[h] ? `h-${h}` : 'h-other');
 
     const el = (tag, cls, text) => {
       const node = document.createElement(tag);
@@ -287,8 +380,6 @@
       if (text != null) node.textContent = text;
       return node;
     };
-    const secs = (ms) => (ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`);
-    const fileUrl = (path) => `vscode://file/${encodeURI(String(path).replace(/\\/g, '/'))}`;
     const shown = (session) => picked === 'all' || session === picked;
 
     // -- sounds ------------------------------------------------------------------
@@ -452,6 +543,8 @@
         b.setAttribute('aria-pressed', String(picked === s.id));
         const dot = el('i', ['working', 'thinking', 'speaking', 'waiting'].includes(s.state) ? 'busy' : '');
         b.append(dot, el('span', '', sessionName(s)));
+        const ring = contextBadge(s.id);
+        if (ring) b.append(ring);
         b.title = `${sessionName(s)}: ${s.state ?? 'idle'}`;
         b.onclick = () => pick(s.id, true);
         return b;
@@ -465,7 +558,7 @@
       // Small mode: one chip per agent on the stage, in the same order as the pals:
       // the agent's name ("Claude", "Codex"), or the project when one agent runs twice.
       // Clicking one opens the full view on that session.
-      const live = [...slots.keys()].map((id) => sessions.get(id)).filter(Boolean);
+      const live = [...slots.entries()].filter(([, slot]) => !slot.el.hidden || !document.body.classList.contains('compact')).map(([id]) => sessions.get(id)).filter(Boolean);
       const chips = live.length ? live : list.slice(0, 1);
       const twice = (s) => chips.filter((o) => o.harness === s.harness).length > 1;
       const MAX = 3;
@@ -478,6 +571,8 @@
         used.set(name, n);
         if (n > 1) name = `${name.slice(0, 8)} ${n}`;
         b.append(el('i'), name.length > 10 ? `${name.slice(0, 9)}…` : name);
+        const ring = contextBadge(s.id);
+        if (ring) b.append(ring);
         b.type = 'button';
         b.title = `${sessionName(s)}: ${s.state ?? 'idle'}. Click to see what it did`;
         b.setAttribute('aria-label', b.title);
@@ -500,6 +595,116 @@
       refreshCounts();
       scheduleRecap();
       feed.scrollTop = feed.scrollHeight;
+    }
+
+    // -- approve from the pal ---------------------------------------------------------
+    // Claude Code's permission requests, when Settings → Approve from the pal is on.
+    // Your answer goes to the bridge, which hands it to Claude. If you don't answer
+    // in time, Claude asks in the terminal as usual.
+    const asks = new Map(); // id → request
+    const VERB = { run: 'run a command', edit: 'edit a file', write: 'write a file', delete: 'delete a file', web: 'go online', agent: 'start a helper agent', mcp: 'use a tool', read: 'read a file', search: 'search' };
+    function applyApproval(a) {
+      if (a.status === 'pending') {
+        asks.set(a.id, a);
+        sound.play('waiting');
+      } else asks.delete(a.id);
+      renderAsks();
+    }
+    function renderAsks() {
+      const box = $('asks');
+      box.replaceChildren(...[...asks.values()].slice(0, 2).map((a) => {
+        const card = el('div', `ask${a.risks?.length ? ' risky' : ''}`);
+        card.setAttribute('role', 'alertdialog');
+        card.setAttribute('aria-label', `${harnessName(a.harness)} wants to ${VERB[a.kind] ?? `use ${a.tool}`}`);
+        const head = el('small', '', `${harnessName(a.harness)} wants to ${VERB[a.kind] ?? `use ${a.tool}`}`);
+        head.append(el('span', '', ` · ${a.label ?? ''}${a.helper ? ` · helper: ${a.helper}` : ''}`));
+        card.append(head, el('b', '', a.title || a.tool));
+        if (a.command && a.command !== a.title) card.append(el('pre', '', a.command));
+        else if (a.patch) card.append(patch(a.patch));
+        for (const r of a.risks ?? []) card.append(el('div', 'risk', r));
+        const row = el('div', 'row');
+        const left = Math.max(0, a.expiresAt - Date.now());
+        row.append(el('em', '', `or answer in the terminal after ${Math.ceil(left / 1000)}s`));
+        const answer = (decision) => async () => {
+          card.classList.add('gone');
+          try {
+            const res = await fetch(`/api/approvals/${a.id}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ decision }) });
+            if (!res.ok) throw new Error();
+            asks.delete(a.id);
+            renderAsks();
+            const slot = slots.get(a.session);
+            if (decision === 'allow') slot?.pal.play('nod'); else slot?.pal.play('shake');
+          } catch {
+            card.classList.remove('gone');
+            row.firstChild.textContent = 'Too late: answer in the terminal';
+          }
+        };
+        const deny = el('button', 'deny', 'Deny');
+        deny.type = 'button';
+        deny.onclick = answer('deny');
+        const allow = el('button', 'allow', 'Allow');
+        allow.type = 'button';
+        allow.onclick = answer('allow');
+        row.append(deny, allow);
+        const time = el('span', 'time');
+        time.style.animationDuration = `${left}ms`;
+        card.append(row, time);
+        return card;
+      }));
+      if (isFloat) refreshDragRegions();
+    }
+    setInterval(() => {
+      for (const [id, a] of asks) if (Date.now() > a.expiresAt + 2000) asks.delete(id); // the bridge has given up by now
+      if (asks.size) for (const em of document.querySelectorAll('.ask .row em')) {
+        const a = [...asks.values()][[...document.querySelectorAll('.ask')].indexOf(em.closest('.ask'))];
+        if (a) em.textContent = `or answer in the terminal after ${Math.max(0, Math.ceil((a.expiresAt - Date.now()) / 1000))}s`;
+      }
+    }, 1000);
+
+    // -- context window ------------------------------------------------------------
+    // How full each agent's context window is. The pal reacts when it fills up
+    // (surprised at 80%, worried at 90%) and cheers when it's been compacted.
+    const contexts = new Map(); // session → { used, size, known, percent }
+    const tokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+    function contextBadge(session) {
+      const c = contexts.get(session);
+      if (!c) return null;
+      const span = el('span', `ctx${c.known && c.percent >= 90 ? ' hot' : c.known && c.percent >= 75 ? ' warm' : ''}`);
+      if (c.known) {
+        const r = 2 * Math.PI * 5;
+        span.innerHTML = `<svg viewBox="0 0 13 13" aria-hidden="true"><circle class="track" cx="6.5" cy="6.5" r="5"/><circle class="fill" cx="6.5" cy="6.5" r="5" stroke-dasharray="${(r * Math.min(100, c.percent)) / 100} ${r}"/></svg>`;
+        span.append(`${Math.round(c.percent)}%`);
+        span.title = `Context window ${Math.round(c.percent)}% full (${tokens(c.used)} of ${tokens(c.size)} tokens)`;
+      } else {
+        span.textContent = tokens(c.used);
+        span.title = `${tokens(c.used)} tokens in the context window (run \`dotpals statusline\` to see how full it is)`;
+      }
+      return span;
+    }
+    function applyContext(c) {
+      if (!c?.session || !c.used) return;
+      const before = contexts.get(c.session);
+      const percent = (c.used / c.size) * 100;
+      contexts.set(c.session, { ...c, percent });
+      renderSessions();
+      if (c.session === picked) scheduleRecap();
+      if (!fresh(c.at) || !c.known) return;
+      const slot = slots.get(c.session);
+      const was = before?.percent ?? 0;
+      const say = (text) => slot?.pal.say(text, { duration: 4500 });
+      if (was >= 50 && percent < was - 25) {
+        say('Fresh context ✨');
+        slot?.pal.play('jump');
+      } else if (percent >= 90 && was < 90) {
+        say(`Context ${Math.round(percent)}% full: it'll compact soon`);
+        slot?.pal.play('shake');
+        slot?.pal.flash('sad', 3000);
+        sound.play('waiting');
+        if (desktop?.notify && document.visibilityState === 'hidden') desktop.notify(`${harnessName(c.harness)}'s context is ${Math.round(percent)}% full`, `${c.label ?? ''}: it will compact (summarize) soon`);
+      } else if (percent >= 80 && was < 80) {
+        say(`Context ${Math.round(percent)}% full`);
+        slot?.pal.flash('surprised', 1600);
+      }
     }
 
     // -- pals ------------------------------------------------------------------
@@ -532,7 +737,18 @@
     }
 
     // Small mode shows every agent's pal side by side; the full view, the picked session's.
-    const slotShown = (id) => document.body.classList.contains('compact') || shown(id);
+    // Small mode shows only the agents that are active now (working, waiting, or busy in
+    // the last two minutes), or the most recent one when none are.
+    const ACTIVE = ['working', 'thinking', 'speaking', 'waiting'];
+    const isActive = (id) => { const s = sessions.get(id); return !!s && (ACTIVE.includes(s.state) || Date.now() - s.lastAt < 120_000); };
+    function slotShown(id) {
+      if (!document.body.classList.contains('compact')) return shown(id);
+      const active = [...slots.keys()].filter(isActive);
+      if (active.length) return active.includes(id);
+      const newest = [...slots.keys()].sort((a, b) => (sessions.get(b)?.lastAt ?? 0) - (sessions.get(a)?.lastAt ?? 0))[0];
+      return id === newest;
+    }
+    setInterval(() => { if (document.body.classList.contains('compact')) { syncSlots(); renderSessions(); } }, 15_000);
     function syncSlots() {
       for (const [id, slot] of slots) slot.el.hidden = !slotShown(id);
       resizePals();
@@ -570,12 +786,39 @@
       }
     }
 
+    // What the pal says while it works: the plan step ("2/5 · Adding tests") or the
+    // current chapter ("Changing files · 4 so far"). It only changes when that
+    // changes, so you can actually read it.
+    const bubbles = new Map(); // session → last text
+    function bubbleText(update) {
+      if (!['working', 'thinking'].includes(update.state)) return update.text;
+      const steps = stepsOf(update.session);
+      const turnStart = steps.findLast((e) => e.kind === 'prompt')?.at ?? 0;
+      const text = headline(steps.filter((e) => e.at >= turnStart), planOf(steps)) ?? update.text;
+      bubbles.set(update.session, text);
+      return text;
+    }
+    let bubbleTimer;
+    function refreshBubbles() {
+      clearTimeout(bubbleTimer);
+      bubbleTimer = setTimeout(() => {
+        for (const [session, slot] of slots) {
+          const s = sessions.get(session);
+          if (!s || !['working', 'thinking'].includes(slot.pal.state)) continue;
+          const before = bubbles.get(session);
+          const text = bubbleText({ session, state: slot.pal.state });
+          if (text && text !== before) slot.pal.setState(slot.pal.state, { text });
+        }
+      }, 250);
+    }
+
     function applyState(update) {
       touchSession(update);
+      if (document.body.classList.contains('compact') && slots.has(update.session) && slots.get(update.session).el.hidden !== !slotShown(update.session)) queueMicrotask(() => { syncSlots(); renderSessions(); });
       stateSound(update);
       scheduleRecap();
       const slot = slotFor(update);
-      slot.pal.setState(update.state, { text: update.text });
+      slot.pal.setState(update.state, { text: bubbleText(update) });
       if (update.state === 'sleeping') {
         setTimeout(() => {
           slot.el.remove();
@@ -585,6 +828,17 @@
         }, 6000);
       }
     }
+
+    // A pal whose session has gone quiet for a few minutes dozes off (zzz). The next
+    // event wakes it. The bridge sends a real "sleeping" later, and then the pal leaves.
+    const DOZE = 3 * 60_000;
+    setInterval(() => {
+      for (const [id, slot] of slots) {
+        const s = sessions.get(id);
+        if (!s || ACTIVE.includes(s.state) || Date.now() - s.lastAt < DOZE || slot.pal.state === 'sleeping') continue;
+        slot.pal.setState('sleeping');
+      }
+    }, 20_000);
 
     // Electron on Windows keeps the old drag regions after the window resizes, so
     // buttons, tabs and links stop taking clicks. Nudging a drag region makes it re-measure.
@@ -604,6 +858,7 @@
     // -- activity feed ---------------------------------------------------------
     function applyActivity(entry) {
       touchSession({ session: entry.session, harness: entry.harness, label: entry.label, at: entry.at });
+      if (fresh(entry.at)) refreshBubbles();
       activitySound(entry);
       // Follow new rows, unless you've scrolled up to read.
       const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
@@ -824,146 +1079,11 @@
     let recapTimer;
     const scheduleRecap = () => { clearTimeout(recapTimer); recapTimer = setTimeout(renderRecap, 120); };
     const toggleIn = (set, key) => (set.has(key) ? set.delete(key) : set.add(key));
-    const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-    const baseName = (p) => String(p).split(/[\\/]/).pop();
-    const shortTime = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-    /** One step, as a short sentence ("Editing app.js" while it runs, "Edited app.js" after). */
-    function sentence(e) {
-      const t = e.title || e.tool || '';
-      if (e.status === 'running' || e.status === 'waiting') {
-        const doing = { read: 'Reading', edit: 'Editing', write: 'Writing', run: 'Running', search: 'Searching for', web: 'Looking up', agent: 'Asking a helper agent:', mcp: 'Using', skill: 'Using the skill' }[e.kind] ?? 'Using';
-        return `${doing} ${e.kind === 'run' || e.kind === 'search' || e.kind === 'web' ? `“${t}”` : t}`;
-      }
-      switch (e.kind) {
-        case 'read': return `Read ${t}`;
-        case 'edit': return `Edited ${t}`;
-        case 'write': return `Wrote ${t}`;
-        case 'run': return `Ran “${t}”`;
-        case 'search': return `Searched the code for “${t}”`;
-        case 'web': return `Looked up “${t}”`;
-        case 'agent': return `Asked a helper agent: ${t}`;
-        case 'mcp': return `Used ${e.detail ? `${e.detail}: ` : ''}${t}`;
-        case 'skill': return `Used the ${t} skill`;
-        case 'plan': return 'Updated its to-do list';
-        case 'compact': return 'Tidied up its memory of the conversation';
-        default: return `Used ${t}`;
-      }
-    }
-
-    /** Agent replies are Markdown; show them as plain text. */
-    const plain = (md) => String(md ?? '')
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/`([^`\n]+)`/g, '$1')
-      .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, '$1$2')
-      .replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1')
-      .replace(/^#{1,6}\s*/gm, '')
-      .replace(/^\s*[-*]\s+/gm, '• ')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-
-    function buildTurns() {
-      const list = [...entries.values()].map((i) => i.entry).filter((e) => shown(e.session)).sort((a, b) => a.at - b.at);
-      const turns = [];
-      const current = new Map();
-      for (const e of list) {
-        let t = current.get(e.session);
-        if (e.kind === 'prompt' || !t) {
-          t = { id: e.id, session: e.session, harness: e.harness, label: e.label, at: e.at, prompt: e.kind === 'prompt' ? e : null, steps: [], end: null };
-          turns.push(t);
-          current.set(e.session, t);
-          if (e.kind === 'prompt') continue;
-        }
-        if (e.kind === 'done' || e.kind === 'error') {
-          if (!t.end || e.summary || !t.end.summary) t.end = e;
-          continue;
-        }
-        if (t.end && e.at > t.end.at) t.end = null; // it kept going
-        t.steps.push(e);
-      }
-      return turns;
-    }
-
-    /** The turn's work as data: which files changed, what ran, what was used. */
-    function facts(steps) {
-      const rank = { read: 0, edit: 1, write: 2, delete: 3 };
-      const files = new Map(); // path → strongest change
-      const f = { runs: 0, runFailed: 0, searches: 0, web: 0, agents: 0, failed: 0, mcp: new Set(), skills: new Set() };
-      for (const s of steps) {
-        if (s.status === 'failed') f.failed++;
-        else for (const file of s.files ?? []) {
-          const key = String(file.path).toLowerCase();
-          if (!files.has(key) || rank[file.change] > rank[files.get(key).change]) files.set(key, file);
-        }
-        if (s.kind === 'run') { f.runs++; if (s.status === 'failed') f.runFailed++; }
-        if (s.kind === 'search') f.searches++;
-        if (s.kind === 'web') f.web++;
-        if (s.kind === 'agent') f.agents++;
-        if (s.kind === 'mcp') f.mcp.add(s.detail || s.title);
-        if (s.kind === 'skill') f.skills.add(s.title);
-      }
-      const by = (change) => [...files.values()].filter((x) => x.change === change);
-      Object.assign(f, { changed: by('edit'), wrote: by('write'), deleted: by('delete'), read: by('read') });
-      f.otherFailed = f.failed - f.runFailed;
-      return f;
-    }
-
-    /** The turn's work, as a few plain lines. */
-    function tally(steps) {
-      const f = facts(steps);
-      const lines = [];
-      const add = (kind, strong, rest, list) => {
-        const li = el('li', `k-${kind}`);
-        const text = el('span');
-        text.append(el('b', '', strong));
-        if (rest) text.append(rest);
-        if (list?.length) {
-          text.append(' ');
-          list.slice(0, 4).forEach((file, i) => {
-            const a = el('a', '', baseName(file.path));
-            a.href = fileUrl(file.path);
-            a.target = '_blank';
-            a.title = `Open ${file.path}`;
-            text.append(i ? ', ' : '', a);
-          });
-          if (list.length > 4) text.append(` and ${list.length - 4} more`);
-        }
-        li.append(text);
-        lines.push(li);
-      };
-      if (f.changed.length) add('edit', `Changed ${plural(f.changed.length, 'file')}`, ':', f.changed);
-      if (f.wrote.length) add('write', `Wrote ${plural(f.wrote.length, 'file')}`, ':', f.wrote);
-      if (f.deleted.length) add('delete', `Deleted ${plural(f.deleted.length, 'file')}`, ':', f.deleted);
-      if (f.runs) add('run', `Ran ${plural(f.runs, 'command')}`, f.runFailed ? el('span', 'bad', `, ${f.runFailed} failed`) : '');
-      if (f.read.length) add('read', `Read ${plural(f.read.length, 'file')}`, ':', f.read);
-      if (f.skills.size) add('skill', `Used ${plural(f.skills.size, 'skill')}: `, [...f.skills].join(', '));
-      if (f.mcp.size) add('mcp', 'Used tools from ', [...f.mcp].join(', '));
-      if (f.agents) add('agent', `Used ${plural(f.agents, 'helper agent')}`);
-      if (f.searches) add('search', `Searched the code ${plural(f.searches, 'time')}`);
-      if (f.web) add('web', `Looked things up online ${plural(f.web, 'time')}`);
-      if (f.otherFailed) add('error', `${plural(f.otherFailed, 'step')} failed`, ' (see Tools for why)');
-      return lines;
-    }
+    /** Requests (turns) in the sessions on show. */
+    const buildTurns = () => turnsOf([...entries.values()].map((i) => i.entry).filter((e) => shown(e.session)));
 
     // -- copy as Markdown (PR descriptions, commit messages, standups) ------------
-    const names = (list) => list.map((x) => '`' + baseName(x.path) + '`').join(', ');
-
-    function turnMarkdown(t) {
-      const f = facts(t.steps);
-      const lines = [];
-      if (t.prompt) lines.push(`### ${t.prompt.title.split('\n')[0]}`, '');
-      if (t.end?.summary) lines.push(plain(t.end.summary), '');
-      if (f.changed.length) lines.push(`- Changed: ${names(f.changed)}`);
-      if (f.wrote.length) lines.push(`- Wrote: ${names(f.wrote)}`);
-      if (f.deleted.length) lines.push(`- Deleted: ${names(f.deleted)}`);
-      if (f.runs) lines.push(`- Ran ${plural(f.runs, 'command')}${f.runFailed ? ` (${f.runFailed} failed)` : ''}`);
-      if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
-      if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
-      const took = t.end ? t.end.ms ?? (t.prompt ? t.end.at - t.at : null) : null;
-      lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}_`);
-      return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-    }
-
     function copyText(text, button) {
       const done = () => {
         const label = button.textContent;
@@ -975,11 +1095,9 @@
     }
 
     // -- today --------------------------------------------------------------------
-    const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
-    const turnTime = (t) => (t.end ? t.end.ms ?? (t.prompt ? Math.max(0, t.end.at - t.at) : 0) : 0);
 
     function todayBar(turns) {
-      const today = turns.filter((t) => t.at >= startOfToday());
+      const today = turns.filter((t) => t.at >= startOfDay());
       if (!today.length) return null;
       const f = facts(today.flatMap((t) => t.steps));
       const work = today.reduce((sum, t) => sum + turnTime(t), 0);
@@ -1041,12 +1159,22 @@
       }
       if (said.childNodes.length) li.append(said);
 
-      const lines = tally(t.steps);
-      if (!lines.length && t.end && !t.steps.length) lines.push(el('li', 'k-plan', 'Answered without using any tools'));
-      if (lines.length) {
+      const sessionSteps = live ? stepsOf(t.session) : t.steps;
+      const { chapters, flags, plan } = storyOf(t, sessionSteps);
+      if (live && plan) li.append(renderPlan(plan));
+      if (chapters.length) {
+        const list = el('ul', 'chapters');
+        list.append(...chapters.map((c) => renderChapter(t, c)));
+        li.append(list);
+      } else if (t.end && !t.steps.length) {
         const did = el('ul', 'did');
-        did.append(...lines);
+        did.append(el('li', 'k-plan', 'Answered without using any tools'));
         li.append(did);
+      }
+      if (flags.length) {
+        const box = el('div', 'flags');
+        box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = sentence(f.step); return d; }));
+        li.append(box);
       }
 
       const footer = el('footer');
@@ -1067,16 +1195,68 @@
         footer.append(copy);
       }
       if (t.steps.length) {
-        const button = el('button', '', openTurns.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`);
+        const button = el('button', '', openTurns.has(t.id) ? 'Hide steps' : `All ${plural(t.steps.length, 'step')}`);
         button.type = 'button';
         button.onclick = () => { toggleIn(openTurns, t.id); renderRecap(); };
         footer.append(button);
       }
       li.append(footer);
 
-      if (openTurns.has(t.id)) {
+      if (openTurns.has(t.id)) li.append(renderSteps(t.steps));
+      return li;
+    }
+
+    /** One chapter of a request: "Changed 5 files · app.js, … +42 −7". Click for its steps. */
+    const openChapters = new Set();
+    function renderChapter(t, c) {
+      const key = `${t.id}:${c.type}`;
+      const open = openChapters.has(key);
+      const li = el('li', `ch t-${c.type}${c.status === 'failed' ? ' failed' : ''}${c.quiet ? ' quiet' : ''}${open ? ' open' : ''}`);
+      const row = el('div', 'row');
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-expanded', String(open));
+      const what = el('span', 'what');
+      what.append(el('b', '', c.title));
+      if (c.detail) what.append(el('small', '', c.detail));
+      const side = el('span', 'side');
+      if (c.lines?.add || c.lines?.del) side.append(el('span', 'add', `+${c.lines.add}`), el('span', 'del', `−${c.lines.del}`));
+      if (c.status === 'running' || c.status === 'waiting') side.append(el('span', `spin`));
+      else if (c.status === 'failed') side.append(el('span', 'bad', '✕'));
+      else if (['test', 'build', 'ship'].includes(c.type)) side.append(el('span', 'ok', '✓'));
+      row.append(el('span', 'mark'), what, side);
+      const toggle = () => { toggleIn(openChapters, key); renderRecap(); };
+      row.onclick = toggle;
+      row.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } };
+      li.append(row);
+      if (open) li.append(renderSteps(c.steps));
+      return li;
+    }
+
+    /** The agent's own to-do list, live: "Plan 3/5" with a bar and the steps. */
+    function renderPlan(plan) {
+      const box = el('div', 'plan');
+      const head = el('header');
+      const bar = el('span', 'progress');
+      const fill = el('i');
+      fill.style.width = `${Math.round((plan.done / plan.total) * 100)}%`;
+      bar.append(fill);
+      head.append(`Plan · ${plan.done}/${plan.total}`, bar);
+      const list = el('ol');
+      list.append(...plan.items.slice(0, 8).map((p) => el('li', p.status, p.status === 'in_progress' && p.active ? p.active : p.text)));
+      if (plan.items.length > 8) list.append(el('li', '', `and ${plan.items.length - 8} more`));
+      box.append(head, list);
+      return box;
+    }
+
+    /** Every entry of one session, oldest first (for its plan). */
+    const stepsOf = (session) => [...entries.values()].map((i) => i.entry).filter((e) => e.session === session).sort((a, b) => a.at - b.at);
+
+    /** A list of steps, each one opening to its details. */
+    function renderSteps(list) {
+      {
         const steps = el('ul', 'steps');
-        for (const s of t.steps) {
+        for (const s of list) {
           const item = el('li', `item k-${s.kind}${s.status === 'failed' ? ' failed' : ''}${openIds.has(s.id) ? ' open' : ''}`);
           const head = el('div', 'head');
           head.tabIndex = 0;
@@ -1090,8 +1270,76 @@
           if (openIds.has(s.id)) item.append(renderBody(s));
           steps.append(item);
         }
-        li.append(steps);
+        return steps;
       }
+    }
+
+    /**
+     * Files this session changed that another agent also changed in the last two
+     * hours: how parallel agents overwrite each other's work.
+     */
+    function crossBar() {
+      const all = [...entries.values()].map((i) => i.entry);
+      const mine = (o) => picked === 'all' || o.sessions.some((x) => x.session === picked);
+      const found = overlaps(all).filter(mine);
+      if (!found.length) return null;
+      const li = el('li', 'flags cross');
+      for (const o of found.slice(0, 3)) {
+        const who = o.sessions.map((x) => `${harnessName(x.harness)} (${x.label ?? '?'})`).join(' and ');
+        const d = el('div', 'flag');
+        const a = el('a', '', baseName(o.path));
+        a.href = fileUrl(o.path);
+        a.target = '_blank';
+        a.title = o.path;
+        d.append(a, ` was changed by ${who}. Check they didn't undo each other.`);
+        li.append(d);
+      }
+      if (found.length > 3) li.append(el('div', 'flag info', `and ${found.length - 3} more files, see the dashboard's Map`));
+      return li;
+    }
+
+    /**
+     * When the session's context window is filling up: how full, and a button that
+     * copies a `/compact` with a note on what to keep (paste it into the agent).
+     */
+    function contextBar() {
+      if (picked === 'all' || !picked) return null;
+      const c = contexts.get(picked);
+      if (!c || (c.known ? c.percent < 50 : c.used < 120_000)) return null;
+      const tone = c.known && c.percent >= 90 ? 'hot' : c.known && c.percent >= 75 ? 'warm' : '';
+      const li = el('li', `ctxbar ${tone}`);
+      const text = el('span', 'what');
+      text.append(el('b', '', c.known ? `Context ${Math.round(c.percent)}% full` : `${tokens(c.used)} tokens in context`));
+      text.append(el('small', '', c.known && c.percent >= 75 ? 'It will compact soon. Compacting now, with a note, keeps what matters.' : 'Compact with a note on what to keep, before it compacts on its own.'));
+      const meter = el('span', 'meter');
+      const fill = el('i');
+      fill.style.width = `${Math.min(100, c.known ? c.percent : (c.used / 200_000) * 100)}%`;
+      meter.append(fill);
+      const copy = el('button', '', 'Copy /compact');
+      copy.type = 'button';
+      const note = compactNote(stepsOf(picked));
+      copy.title = `Copies this, to paste into ${harnessName(c.harness)}:\n\n${note}`;
+      copy.onclick = () => copyText(note, copy);
+      li.append(text, copy, meter);
+      return li;
+    }
+
+    /** "Using: frontend-design skill · Adobe (plugin) · 2 helper agents" for the session you're looking at. */
+    function kitBar() {
+      if (picked === 'all' || !picked) return null;
+      const kit = toolkit(stepsOf(picked));
+      if (!kit.skills.length && !kit.tools.length && !kit.helpers) return null;
+      const li = el('li', 'kit');
+      li.append(el('small', '', 'Using'));
+      const chip = (kind, name, extra, title) => {
+        const c = el('span', `k-${kind}`, name);
+        if (extra) c.append(el('em', '', extra));
+        c.title = title;
+        li.append(c);
+      };
+      for (const k of kit.skills.slice(0, 6)) chip('skill', k.name, k.plugin ? k.plugin : '', `Skill${k.plugin ? ` from the ${k.plugin} plugin` : ''}, used ${plural(k.uses, 'time')}`);
+      for (const t of kit.tools.slice(0, 6)) chip('mcp', t.name, t.plugin ? t.plugin : '', `Tools from ${t.name}${t.plugin ? ` (${t.plugin} plugin)` : ''}, used ${plural(t.uses, 'time')}`);
+      if (kit.helpers) chip('agent', plural(kit.helpers, 'helper agent'), '', 'Subagents it asked for help');
       return li;
     }
 
@@ -1107,7 +1355,7 @@
         recap.replaceChildren(el('li', 'none', 'Each request you give your agent shows up here, with what it changed in plain words.'));
         return;
       }
-      recap.replaceChildren(...[todayBar(turns), ...turns.slice(-60).map(renderTurn)].filter(Boolean));
+      recap.replaceChildren(...[todayBar(turns), crossBar(), contextBar(), kitBar(), ...turns.slice(-60).map(renderTurn)].filter(Boolean));
       recap.scrollTop = stick ? recap.scrollHeight : top;
     }
 
@@ -1165,6 +1413,8 @@
     }
     const onEvent = ({ type, data }) =>
       type === 'activity' ? applyActivity(data)
+      : type === 'context' ? applyContext(data)
+      : type === 'approval' ? applyApproval(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
       : applyState(data);
@@ -1196,7 +1446,7 @@
       const passThrough = (on) => { if (on !== through) { through = on; desktop.setIgnoreMouse?.(on); } };
       const solid = (e) => {
         const path = e.composedPath();
-        if (path.some((n) => n.classList?.contains('bar') || n.classList?.contains('dp-bubble'))) return true;
+        if (path.some((n) => n.classList?.contains('bar') || n.classList?.contains('dp-bubble') || n.classList?.contains('asks'))) return true;
         // Inside a pal, its drawn shapes count; the transparent box around them doesn't.
         const hit = path[0];
         return path.some((n) => n.tagName === 'DOT-PAL') && hit instanceof SVGElement && hit.tagName !== 'svg';
@@ -1251,6 +1501,8 @@
       source.onmessage = (e) => onEvent({ type: 'message', data: JSON.parse(e.data) });
       source.addEventListener('activity', (e) => onEvent({ type: 'activity', data: JSON.parse(e.data) }));
       source.addEventListener('config', (e) => onEvent({ type: 'config', data: JSON.parse(e.data) }));
+      source.addEventListener('context', (e) => onEvent({ type: 'context', data: JSON.parse(e.data) }));
+      source.addEventListener('approval', (e) => onEvent({ type: 'approval', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
     }
 

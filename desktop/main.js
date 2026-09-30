@@ -11,10 +11,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startBridge } from '../bridge/server.js';
 import { loadConfig, saveConfig } from '../bridge/config.js';
+import { readUsage } from '../bridge/usage.js';
 
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
 const page = fileURLToPath(new URL('../bridge/index.html', import.meta.url));
+const notchPage = fileURLToPath(new URL('../bridge/notch.html', import.meta.url));
 const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height: 600 } };
 const MARGIN = 16;
 const SHORTCUT = 'CommandOrControl+Alt+P';
@@ -39,7 +41,7 @@ if (!app.requestSingleInstanceLock()) {
   let win;
   let tray;
   let quitting = false;
-  let stopFollowing = () => {};
+  const following = new Map(); // webContents id → stop()
 
   const show = () => {
     if (!win) return createWindow();
@@ -58,6 +60,9 @@ if (!app.requestSingleInstanceLock()) {
   function handleArgs(argv) {
     if (argv.includes('--open-at-login')) app.setLoginItemSettings({ ...loginItem(), openAtLogin: true });
     if (argv.includes('--dashboard')) openDashboard();
+    if (argv.includes('--notch')) setNotchMode('always');
+    if (argv.includes('--notch-auto')) setNotchMode('auto');
+    if (argv.includes('--no-notch')) setNotchMode('off');
   }
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => globalShortcut.unregisterAll());
@@ -72,6 +77,7 @@ if (!app.requestSingleInstanceLock()) {
     app.dock?.hide(); // macOS: a floating widget with a menu-bar icon, not a Dock app
     createWindow();
     createTray();
+    syncNotch();
     handleArgs(process.argv);
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
   });
@@ -111,6 +117,11 @@ if (!app.requestSingleInstanceLock()) {
     const menu = () => Menu.buildFromTemplate([
       { label: 'Show / hide', accelerator: SHORTCUT, click: toggle },
       { label: 'Just the pal', type: 'checkbox', checked: !!prefs.compact, click: (item) => win?.webContents.send('window:set-compact', item.checked) },
+      { label: 'Notch at the top of the screen', submenu: [
+        { label: 'When the pal is hidden', type: 'radio', checked: notchMode() === 'auto', click: () => setNotchMode('auto') },
+        { label: 'Always', type: 'radio', checked: notchMode() === 'always', click: () => setNotchMode('always') },
+        { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
+      ] },
       { label: 'Dashboard', click: openDashboard },
       { type: 'separator' },
       { label: 'Notifications', type: 'checkbox', checked: loadConfig().notifications, click: (item) => saveConfig({ notifications: item.checked }) },
@@ -198,15 +209,73 @@ if (!app.requestSingleInstanceLock()) {
     win.webContents.on('did-finish-load', () => { inside = null; });
 
     // Closing hides it; the tray icon or the shortcut brings it back.
+    // Hiding the pal hands over to the notch (and showing it takes over again).
+    win.on('hide', syncNotch);
+    win.on('show', syncNotch);
+
     win.on('close', (e) => {
       if (quitting) return;
       e.preventDefault();
       win.hide();
     });
-    win.on('closed', () => { clearInterval(hover); stopFollowing(); win = null; });
+    win.on('closed', () => { clearInterval(hover); win = null; });
 
     win.loadURL(`${bridge}/?float=1`).catch(() => win.loadFile(page, { query: { float: '1' } }));
   }
+
+  // -- the notch: a small island at the top of the screen ------------------------
+  // What every agent is doing, its plan and your usage limits. It opens on hover.
+  // The window is always exactly the island's size (the page tells us), so it
+  // never blocks clicks around it, on any platform.
+  let notch;
+  function createNotch() {
+    if (notch && !notch.isDestroyed()) { if (!notch.isVisible()) notch.showInactive(); return; }
+    const area = screen.getPrimaryDisplay().workArea;
+    const size = { width: 230, height: 58 };
+    notch = new BrowserWindow({
+      ...size,
+      x: Math.round(area.x + (area.width - size.width) / 2),
+      y: area.y,
+      frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+      alwaysOnTop: true, resizable: false, movable: false, maximizable: false, fullscreenable: false,
+      focusable: false, skipTaskbar: true, show: false, title: 'dotpals notch',
+      type: process.platform === 'darwin' ? 'panel' : undefined,
+      webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), sandbox: true, contextIsolation: true },
+    });
+    notch.setAlwaysOnTop(true, 'screen-saver');
+    notch.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    notch.once('ready-to-show', () => notch.showInactive());
+    notch.on('closed', () => { notch = null; });
+    notch.loadURL(`${bridge}/bridge/notch.html`).catch(() => notch?.loadFile(notchPage));
+  }
+  // When it shows: 'auto' (whenever the pal is hidden, the default), 'always' or 'off'.
+  const notchMode = () => prefs.notchMode ?? (prefs.notch === true ? 'always' : 'auto');
+  function syncNotch() {
+    const mode = notchMode();
+    const want = mode === 'always' || (mode === 'auto' && !(win && !win.isDestroyed() && win.isVisible()));
+    if (want) createNotch();
+    else if (notch && !notch.isDestroyed()) notch.hide();
+  }
+  function setNotchMode(mode) {
+    prefs.notchMode = mode;
+    delete prefs.notch;
+    savePrefs();
+    syncNotch();
+  }
+  // Keep the island centred at the top as it grows and shrinks.
+  let shrink;
+  ipcMain.on('notch:size', (event, width, height) => {
+    if (!notch || notch.isDestroyed() || event.sender !== notch.webContents) return;
+    const area = screen.getPrimaryDisplay().workArea;
+    const w = Math.round(Math.min(Math.max(width, 120), 520));
+    const h = Math.round(Math.min(Math.max(height, 40), 480));
+    const apply = () => { try { notch?.setBounds({ x: Math.round(area.x + (area.width - w) / 2), y: area.y, width: w, height: h }); } catch {} };
+    clearTimeout(shrink);
+    // Grow at once; shrink after the island's closing animation.
+    const [cw, ch] = notch.getSize();
+    if (w < cw || h < ch) shrink = setTimeout(apply, 420); else apply();
+  });
+  ipcMain.handle('usage', () => readUsage().catch(() => ({ agents: [] })));
 
   // Keep a saved position if it's still on a connected screen, nudged fully onto it.
   function onScreen(x, y, { width, height }) {
@@ -287,8 +356,10 @@ if (!app.requestSingleInstanceLock()) {
 
   // Follow the bridge's event stream and hand each event to the page.
   ipcMain.on('bridge:connect', (event) => {
-    stopFollowing();
-    stopFollowing = follow(event.sender);
+    const id = event.sender.id;
+    following.get(id)?.();
+    following.set(id, follow(event.sender));
+    event.sender.once('destroyed', () => { following.get(id)?.(); following.delete(id); });
   });
 
   function follow(target) {

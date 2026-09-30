@@ -22,7 +22,7 @@ const rootOf = (session, cwd) => {
 };
 
 /** Messages Claude Code injects into the prompt stream that aren't really prompts. */
-const notAPrompt = (text) => !text || /^\s*<(task-notification|system-reminder|command-|local-command|user-prompt-submit-hook)/.test(text);
+const notAPrompt = (text) => !text || /^\s*<(task-notification|agent-message|teammate-message|system-reminder|command-|local-command|user-prompt-submit-hook)/.test(text);
 
 /** A prompt's text; slash commands (skills, plugin commands) read as "/name args". */
 function promptText(text) {
@@ -75,7 +75,16 @@ export function describeTool(name = '', input = {}, cwd) {
     case 'Skill':
       return { kind: 'skill', title: clip(input.skill, 80), detail: clip(input.args, 160) };
     case 'TodoWrite':
-      return { kind: 'plan', title: 'Updated the plan', body: { args: (input.todos ?? []).map((t) => `${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '·'} ${t.content}`).join('\n') } };
+      return {
+        kind: 'plan', title: 'Updated the plan',
+        plan: (input.todos ?? []).map((t) => ({ text: clip(t.content, 120), active: clip(t.activeForm, 120) || undefined, status: t.status })),
+        body: { args: (input.todos ?? []).map((t) => `${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▸' : '·'} ${t.content}`).join('\n') },
+      };
+    // Newer Claude Code keeps its plan as tasks, one at a time.
+    case 'TaskCreate':
+      return { kind: 'plan', title: clip(`Planned: ${input.subject ?? ''}`, 80), task: { op: 'create', text: clip(input.subject, 120), active: clip(input.activeForm, 120) || undefined } };
+    case 'TaskUpdate':
+      return { kind: 'plan', title: clip(`${input.status === 'completed' ? 'Finished' : input.status === 'in_progress' ? 'Started' : 'Updated'} task ${input.taskId ?? ''}`, 80), task: { op: 'update', id: String(input.taskId ?? ''), status: input.status, text: input.subject ? clip(input.subject, 120) : undefined } };
   }
   const args = clipText(JSON.stringify(input, null, 2), 3000);
   if (name.startsWith('mcp__')) {
@@ -236,7 +245,6 @@ export async function backfillTranscript(path, log, ctx) {
 
 const RECENT = 3 * 60 * 60_000; // pick up sessions active in the last 3 hours
 const LIVE = 30_000;             // written to in the last 30s: show it on the pal
-const IDLE = 15 * 60_000;        // quiet for 15 minutes: the pal goes to sleep
 
 /**
  * Follow every Claude Code session on this computer through its transcript
@@ -246,8 +254,24 @@ const IDLE = 15 * 60_000;        // quiet for 15 minutes: the pal goes to sleep
  *
  * `skip(session)` is true for sessions the hooks already cover.
  */
-export function watchClaude(log, { emit, state, skip = () => false, dir = join(homedir(), '.claude', 'projects'), interval = 1500 } = {}) {
-  const files = new Map(); // path → { offset, partial, reader, idle }
+/**
+ * How full the context window is after an assistant reply: { used, size, known, at }.
+ * Transcripts record tokens but not the window size. `size` is known when Claude
+ * Code told the status line (`sizeOf`), or when usage is past 200k (so it must be
+ * a 1M window). Otherwise it's a 200k guess, `known: false`.
+ */
+export function contextOf(o, sizeOf = () => null) {
+  const u = o?.type === 'assistant' && !o.isSidechain ? o.message?.usage : null;
+  if (!u) return null;
+  const used = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+  if (!used) return null;
+  const told = sizeOf(o.sessionId);
+  const size = told ?? (used > 200_000 ? 1_000_000 : 200_000);
+  return { used, size, known: !!told || used > 200_000, at: Date.parse(o.timestamp) || Date.now() };
+}
+
+export function watchClaude(log, { emit, state, context = () => {}, sizeOf, skip = () => false, dir = join(homedir(), '.claude', 'projects'), interval = 1500 } = {}) {
+  const files = new Map(); // path → { offset, partial, reader, context }
   let stopped = false;
 
   async function recentFiles() {
@@ -286,18 +310,24 @@ export function watchClaude(log, { emit, state, skip = () => false, dir = join(h
           file.offset += bytesRead;
           const lines = (file.partial + buffer.subarray(0, bytesRead).toString('utf8')).split('\n');
           file.partial = lines.pop();
+          // Context window (for every session, hooks or not): the newest reply's usage.
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (!lines[i].includes('"usage"')) continue;
+            let o;
+            try { o = JSON.parse(lines[i]); } catch { continue; }
+            const ctx = contextOf(o, sizeOf);
+            if (!ctx) continue;
+            if (o.cwd) file.reader.label ??= folderName(o.cwd);
+            if (ctx.used !== file.context?.used) context(session, file.reader.label ?? folderName(o.cwd), (file.context = ctx));
+            break;
+          }
           if (skip(session)) continue; // the hooks have it
           const out = lines.flatMap((line) => (line.trim() ? file.reader.line(line) : []));
           if (out.length) emit(out);
           if (live && file.reader.state) state(session, file.reader.label, file.reader.state, file.reader.at);
-          file.idle = false;
         } catch {} finally {
           await fh?.close();
         }
-      } else if (!file.idle && !live && now - mtime > IDLE) {
-        // Quiet for a while: the session has probably ended, so let its pal go.
-        file.idle = true;
-        if (!skip(session)) state(session, file.reader.label, { state: 'sleeping' }, now);
       }
     }
   }

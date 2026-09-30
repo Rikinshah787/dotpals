@@ -2,8 +2,10 @@
 // ("turns"), plain-language steps, tallies and Markdown recaps. Shared by the
 // pal (bridge/index.html) and the dashboard (bridge/dashboard.html).
 
+// Agents with a color of their own (--h-claude, --h-codex); every other agent is "other".
 export const HARNESS = { claude: 'Claude', codex: 'Codex' };
-export const harnessName = (h) => HARNESS[h] ?? (h ? h[0].toUpperCase() + h.slice(1) : 'Agent');
+const NAMES = { ...HARNESS, cursor: 'Cursor', gemini: 'Gemini CLI', opencode: 'OpenCode', copilot: 'Copilot CLI' };
+export const harnessName = (h) => NAMES[h] ?? (h ? h[0].toUpperCase() + h.slice(1) : 'Agent');
 export const harnessClass = (h) => (HARNESS[h] ? `h-${h}` : 'h-other');
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

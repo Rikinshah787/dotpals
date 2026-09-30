@@ -35,4 +35,8 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),
   copy: (text) => ipcRenderer.send('clipboard:write', text),
   notify: (title, body) => ipcRenderer.send('notify', { title, body }),
+  /** Plan usage limits: { agents: [{ harness, window, weekly, … }] } (see bridge/usage.js). */
+  usage: () => ipcRenderer.invoke('usage'),
+  /** The notch asks for its window to fit the island. */
+  notchSize: (width, height) => ipcRenderer.send('notch:size', width, height),
 });

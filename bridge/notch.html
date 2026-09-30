@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dotpals notch</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #0a0a0c;
+      --card: #141418;
+      --card-hover: #1b1b21;
+      --line: #26262d;
+      --text: #f2f2f5;
+      --muted: #9a9aa6;
+      --faint: #62626d;
+      --ok: #46a758;
+      --bad: #f2555a;
+      --warn: #f5b94a;
+      --h-claude: #d95926;
+      --h-codex: #3987e5;
+      --h-other: #199e70;
+      --spring: cubic-bezier(.2, 1.3, .35, 1);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font: 12px/1.35 ui-rounded, "SF Pro Rounded", "Segoe UI Variable Text", system-ui, sans-serif; color: var(--text); user-select: none; }
+    .h-claude { --h: var(--h-claude); } .h-codex { --h: var(--h-codex); } .h-other { --h: var(--h-other); }
+    button { font: inherit; color: inherit; cursor: pointer; }
+
+    /* The island hangs from the top edge of the screen: flat top, round bottom. */
+    .island {
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: var(--w, 200px); height: var(--h, 34px);
+      background: var(--ink); border-radius: 0 0 20px 20px;
+      box-shadow: 0 8px 28px rgb(0 0 0 / .45), inset 0 -1px 0 rgb(255 255 255 / .06);
+      overflow: hidden; cursor: default;
+      transition: width .45s var(--spring), height .45s var(--spring), border-radius .45s var(--spring), box-shadow .3s, opacity .3s;
+    }
+    .island.open { border-radius: 0 0 26px 26px; }
+    .island.empty:not(.open) { opacity: .78; }
+    /* A light sweeping along the bottom edge while an agent works. */
+    .island::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--glow, transparent) 45%, var(--glow, transparent) 55%, transparent) 0 0 / 50% 100% no-repeat;
+      opacity: 0; transition: opacity .3s;
+    }
+    .island.busy::after { opacity: 1; animation: sweep 1.8s ease-in-out infinite; }
+    @keyframes sweep { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+    .island.waiting { box-shadow: 0 8px 28px rgb(0 0 0 / .45), 0 0 0 2px var(--warn); animation: ask 1.4s ease-in-out infinite; }
+    @keyframes ask { 50% { box-shadow: 0 8px 28px rgb(0 0 0 / .45), 0 0 18px 2px rgb(245 185 74 / .55); } }
+    .island.done-flash { animation: done .9s var(--spring); }
+    @keyframes done { 30% { box-shadow: 0 8px 28px rgb(0 0 0 / .45), 0 0 0 2px var(--ok), 0 0 22px rgb(70 167 88 / .6); } }
+    .island.error-flash { animation: shake .45s ease-in-out; }
+    @keyframes shake { 20%, 60% { transform: translateX(calc(-50% - 5px)); } 40%, 80% { transform: translateX(calc(-50% + 5px)); } }
+
+    /* Closed: a dot per active agent, what one of them is doing, and your highest usage. */
+    .bar { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 12px 0 14px; white-space: nowrap; }
+    .dots { display: flex; gap: 3px; flex: none; align-items: center; margin-left: -4px; }
+    /* An agent's avatar: its pal peeking up inside a round badge in the agent's color. */
+    .av { position: relative; flex: none; width: 24px; height: 24px; border-radius: 50%; overflow: hidden; display: flex; align-items: flex-end; justify-content: center;
+      background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--h) 34%, #1d1d24), #111116); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--h) 70%, transparent);
+      animation: pop .5s var(--spring); transition: transform .3s var(--spring), box-shadow .3s; }
+    .av dot-pal { margin-bottom: -3px; pointer-events: none; }
+    .av dot-pal::part(bubble) { display: none; }
+    .av.is-waiting { box-shadow: inset 0 0 0 2px var(--warn), 0 0 10px rgb(245 185 74 / .6); }
+    .av.is-done { box-shadow: inset 0 0 0 1.5px var(--ok); }
+    .av.is-error { box-shadow: inset 0 0 0 1.5px var(--bad); }
+    .av.lead { transform: scale(1.12); }
+    .agent .av { width: 30px; height: 30px; grid-row: span 2; align-self: start; }
+    .agent .av dot-pal { margin-bottom: -4px; }
+    .dots:empty { display: none; }
+    .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--h); animation: pop .5s var(--spring); transition: transform .3s var(--spring), box-shadow .3s; }
+    .dots i.busy { animation: breathe 1.3s ease-in-out infinite; }
+    .dots i.waiting { background: var(--warn); animation: breathe .8s ease-in-out infinite; }
+    .dots i.done { background: var(--ok); }
+    .dots i.lead { box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px var(--h); }
+    .dots i.waiting.lead { box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px var(--warn); }
+    @keyframes pop { from { transform: scale(0); } }
+    @keyframes breathe { 50% { transform: scale(.6); opacity: .6; } }
+    .now { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-weight: 600; }
+    .now em { font-style: normal; color: var(--h, var(--muted)); font-weight: 700; }
+    .now .swap { display: inline-block; animation: rise .4s var(--spring); }
+    .now .idle { color: var(--muted); font-weight: 500; }
+    @keyframes rise { from { transform: translateY(10px); opacity: 0; } }
+    .step { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ring { flex: none; width: 18px; height: 18px; }
+    .ring circle { fill: none; stroke-width: 3; }
+    .ring .track { stroke: var(--line); }
+    .ring .fill { stroke: var(--ok); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dasharray .6s ease; }
+    .ring.warm .fill { stroke: var(--warn); } .ring.hot .fill { stroke: var(--bad); }
+
+    /* Open (on hover): every active agent, then everyone's usage limits. */
+    .panel { padding: 0 12px 12px; opacity: 0; transform: translateY(-6px); transition: opacity .25s, transform .35s var(--spring); }
+    .island.open .panel { opacity: 1; transform: none; transition-delay: .08s; }
+    .head { display: flex; align-items: center; gap: 4px; padding: 2px 2px 4px; color: var(--muted); font-size: 11px; }
+    .head > span { flex: 1; }
+    .icon { width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
+    .icon:hover { background: var(--card-hover); color: var(--text); }
+    .icon svg { width: 15px; height: 15px; }
+    .agent { display: grid; grid-template-columns: 30px 1fr auto; gap: 3px 9px; align-items: center; padding: 8px 10px; margin-top: 6px; border-radius: 12px; background: var(--card); cursor: pointer; animation: rise .4s var(--spring) backwards; }
+    .agent:hover { background: var(--card-hover); }
+    .agent > i { width: 9px; height: 9px; border-radius: 50%; background: var(--h); }
+    .agent.is-working > i, .agent.is-thinking > i, .agent.is-speaking > i { animation: breathe 1.3s ease-in-out infinite; }
+    .agent.is-waiting { box-shadow: inset 0 0 0 1px rgb(245 185 74 / .5); }
+    .agent.is-waiting > i { background: var(--warn); }
+    .agent.is-done { opacity: .75; }
+    .agent b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .agent b small { color: var(--muted); font-weight: 500; }
+    .agent .state { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .agent .state.waiting { color: var(--warn); } .agent .state.done { color: var(--ok); } .agent .state.error { color: var(--bad); }
+    .agent .doing { grid-column: 2 / 4; color: #cfcfd6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meters { grid-column: 2 / 4; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 3px; }
+    .m { display: grid; gap: 3px; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+    .track { display: block; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+    .track i { display: block; height: 100%; border-radius: 4px; background: var(--ok); transition: width .6s ease; }
+    .m.plan .track i { background: var(--h); }
+    .m.warm { color: var(--warn); } .m.warm .track i { background: var(--warn); }
+    .m.hot { color: var(--bad); } .m.hot .track i { background: var(--bad); }
+    .meter-text { font-size: 10.5px; color: var(--faint); }
+    .ask { grid-column: 2 / 4; display: grid; gap: 5px; margin-top: 6px; padding: 8px 9px; border-radius: 10px; background: #1a1712; border: 1px solid rgb(245 185 74 / .45); cursor: default; }
+    .ask .what { color: var(--warn); font-weight: 600; font-size: 11.5px; overflow-wrap: anywhere; }
+    .ask code { max-height: 46px; overflow: auto; padding: 4px 7px; border-radius: 7px; background: #0e0e12; font: 10.5px/1.45 ui-monospace, Consolas, monospace; color: #e6e6ec; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ask .risk { color: #ffb4b4; font-size: 11px; }
+    .ask .risk::before { content: "! "; font-weight: 700; color: var(--bad); }
+    .ask .buttons { display: flex; align-items: center; gap: 6px; }
+    .ask .buttons em { flex: 1; font-style: normal; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+    .ask button { padding: 4px 14px; border-radius: 8px; font-size: 11.5px; font-weight: 600; border: 1px solid #3a3a44; background: transparent; color: var(--text); }
+    .ask .allow { background: var(--ok); border-color: var(--ok); color: #06140a; }
+    .ask.risky .allow { background: var(--warn); border-color: var(--warn); }
+    .ask.gone { opacity: .5; pointer-events: none; }
+    .agent .compact { grid-column: 2 / 4; justify-self: start; margin-top: 4px; padding: 3px 10px; font-size: 11px; color: var(--text); background: #1f1f26; border: 1px solid #34343d; border-radius: 8px; }
+    .agent .compact:hover { background: #2a2a33; }
+    .more { width: 100%; margin-top: 6px; padding: 6px; border: 1px dashed var(--line); border-radius: 10px; background: transparent; color: var(--muted); font-size: 11px; }
+    .more:hover { color: var(--text); border-color: #3a3a44; }
+    .usage { margin-top: 10px; display: grid; gap: 6px; }
+    .usage:empty { display: none; }
+    .usage h3 { margin: 0 2px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+    .limit { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
+    .limit .who { flex: none; width: 66px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .limit .who::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--h); }
+    .cell { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; font-size: 10.5px; color: var(--faint); }
+    .cell .track { height: 5px; }
+    .cell b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; }
+    .cell.warm .track i { background: var(--warn); } .cell.hot .track i { background: var(--bad); }
+    .cell.hot b { color: var(--bad); }
+    .hint { color: var(--faint); font-size: 11px; padding: 0 2px; }
+    .hint code { color: var(--muted); font: 11px ui-monospace, Consolas, monospace; }
+    @media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <!-- The notch: every active agent, its plan, its context window, and everyone's
+       usage limits. Opens on hover. Shown by desktop/main.js (see createNotch). -->
+  <div class="island" id="island" role="status" aria-live="polite">
+    <div class="bar" id="bar"></div>
+    <div class="panel" id="panel"></div>
+  </div>
+  <script type="module">
+    import { DotPal, registerCustom } from '../src/index.js';
+    import { buildTurns, harnessName, harnessClass, plain } from './ui/recap.js';
+    import { compactNote, headline, planOf } from './ui/story.js';
+
+    const $ = (id) => document.getElementById(id);
+    const desktop = window.dotpalsDesktop;
+    const island = $('island');
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+    const sessions = new Map(); // id → { id, harness, label, state, text, at }
+    const steps = new Map();    // session → entries (the last few hours)
+    const contexts = new Map(); // session → { used, size, known }
+    let usage = [];
+    const asks = new Map(); // permission requests to answer (Settings → Approve from the pal)
+    let open = false;
+
+    // -- avatars: each agent's own pal, small ---------------------------------------
+    // The first agent gets your pal (Settings → character, or the one you made),
+    // the next ones the other characters in turn, like the floating pal does.
+    let first = 'blu';
+    const characters = new Map(); // session → character
+    function characterFor(id) {
+      if (!characters.has(id)) {
+        const cast = DotPal.characters.filter((c) => c !== 'draft');
+        const i = characters.size;
+        characters.set(id, i === 0 ? first : cast[(cast.indexOf(first) + i) % cast.length]);
+      }
+      return characters.get(id);
+    }
+    // One element per agent and place, reused across renders so the pals keep
+    // blinking and moving instead of restarting every update.
+    const avatars = { bar: new Map(), card: new Map() };
+    function avatar(where, s) {
+      let box = avatars[where].get(s.id);
+      if (!box) {
+        box = el('span', 'av');
+        const pal = document.createElement('dot-pal');
+        pal.setAttribute('size', where === 'bar' ? '24' : '30');
+        pal.setAttribute('static', '');
+        pal.character = characterFor(s.id);
+        box.append(pal);
+        avatars[where].set(s.id, box);
+      }
+      const pal = box.firstChild;
+      if (pal.character !== characterFor(s.id)) pal.character = characterFor(s.id);
+      const state = s.state === 'speaking' ? 'working' : s.state;
+      if (pal.dataset.state !== state) { pal.dataset.state = state; pal.setState(state in { idle: 1, listening: 1, thinking: 1, working: 1, waiting: 1, done: 1, error: 1 } ? state : 'idle'); }
+      box.className = `av ${harnessClass(s.harness)} is-${s.state}`;
+      return box;
+    }
+
+    const BUSY = ['thinking', 'working', 'speaking'];
+    const DONE_FOR = 90_000; // a finished agent stays this long, then leaves the notch
+    const RANK = { waiting: 0, error: 1, working: 2, thinking: 2, speaking: 2, done: 3, idle: 3 };
+
+    /**
+     * The agents to show: only the ones active right now (working or waiting for
+     * you), plus any that finished in the last 90 seconds. Earlier sessions never
+     * show here; the dashboard has them.
+     */
+    function active() {
+      const now = Date.now();
+      return [...sessions.values()]
+        .filter((s) => BUSY.includes(s.state) || s.state === 'waiting' || (['done', 'error'].includes(s.state) && now - s.at < DONE_FOR))
+        .sort((a, b) => (RANK[a.state] ?? 4) - (RANK[b.state] ?? 4) || b.at - a.at);
+    }
+
+    function onEvent({ type, data }) {
+      if (type === 'activity') {
+        if (Date.now() - data.at > 3 * 3600_000) return;
+        const list = steps.get(data.session) ?? [];
+        const i = list.findIndex((e) => e.id === data.id);
+        if (i >= 0) list[i] = { ...list[i], ...data }; else list.push(data);
+        steps.set(data.session, list);
+        schedule();
+      } else if (type === 'message' && data.session) {
+        const before = sessions.get(data.session);
+        if (data.state === 'sleeping') { sessions.delete(data.session); avatars.bar.delete(data.session); avatars.card.delete(data.session); }
+        else sessions.set(data.session, { ...before, ...data, id: data.session, at: data.at ?? Date.now() });
+        if (before?.state !== data.state && Date.now() - (data.at ?? 0) < 5000) flash(data.state);
+        schedule();
+      } else if (type === 'context' && data.session) {
+        contexts.set(data.session, data);
+        schedule();
+      } else if (type === 'approval') {
+        if (data.status === 'pending') asks.set(data.id, data); else asks.delete(data.id);
+        schedule();
+      } else if (type === 'config') {
+        if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); }
+        if (DotPal.characters.includes(data.character) && data.character !== first) {
+          first = data.character;
+          characters.clear();
+        }
+        schedule();
+      } else if (type === 'reset') {
+        steps.clear();
+        schedule();
+      }
+    }
+
+    function flash(state) {
+      const cls = state === 'done' ? 'done-flash' : state === 'error' ? 'error-flash' : null;
+      if (!cls) return;
+      island.classList.remove(cls);
+      void island.offsetWidth; // restart the animation
+      island.classList.add(cls);
+      setTimeout(() => island.classList.remove(cls), 1000);
+    }
+
+    const stepsOf = (s) => (steps.get(s.id) ?? []).slice().sort((a, b) => a.at - b.at);
+
+    /** What an agent is doing right now, in a few words. */
+    function doing(s) {
+      const list = stepsOf(s);
+      if (s.state === 'waiting') return s.text ? `Needs your OK: ${s.text}` : 'Needs your OK';
+      if (s.state === 'error') return s.text || 'Stopped with an error';
+      if (s.state === 'done' || s.state === 'idle') {
+        const said = plain(buildTurns(list).at(-1)?.end?.summary ?? '').split('\n')[0];
+        return said ? `Done · ${said}` : 'Done';
+      }
+      const start = list.findLast((e) => e.kind === 'prompt')?.at ?? 0;
+      return headline(list.filter((e) => e.at >= start), planOf(list)) ?? (s.state === 'thinking' ? 'Thinking…' : s.text || 'Working');
+    }
+    const stateWord = { thinking: 'thinking', working: 'working', speaking: 'replying', waiting: 'needs you', done: 'done', error: 'error', idle: 'idle' };
+    const who = (s) => `${harnessName(s.harness)}${s.label ? ` · ${s.label}` : ''}`;
+
+    // With several agents, the closed notch takes turns showing each one (every 4s).
+    // One that needs you is always shown first and stays until you answer.
+    let turn = 0;
+    setInterval(() => { turn++; if (!open) schedule(); }, 4000);
+
+    let timer;
+    const schedule = () => { clearTimeout(timer); timer = setTimeout(render, 80); };
+    let lastKey = '';
+
+    function render() {
+      const agents = active();
+      const waiting = agents.filter((s) => s.state === 'waiting');
+      const rotating = waiting.length ? waiting : agents;
+      const lead = rotating.length ? rotating[turn % rotating.length] : null;
+      for (const [id, a] of asks) if (Date.now() > a.expiresAt + 2000) asks.delete(id);
+      const showing = open || asks.size > 0;
+      island.classList.toggle('open', showing);
+      island.classList.toggle('waiting', waiting.length > 0);
+      island.classList.toggle('busy', agents.some((s) => BUSY.includes(s.state)));
+      island.classList.toggle('empty', !agents.length);
+      if (lead) island.style.setProperty('--glow', `var(--h-${harnessClass(lead.harness).slice(2)})`);
+
+      // -- closed ------------------------------------------------------------------
+      const bar = $('bar');
+      const dots = el('span', 'dots');
+      dots.append(...agents.slice(0, 5).map((s) => {
+        const a = avatar('bar', s);
+        a.classList.toggle('lead', s === lead && agents.length > 1);
+        a.title = `${who(s)}: ${stateWord[s.state] ?? s.state}`;
+        return a;
+      }));
+      const now = el('span', 'now');
+      if (lead) {
+        const key = `${lead.id}|${doing(lead)}`;
+        const line = el('span', `${harnessClass(lead.harness)}${key !== lastKey ? ' swap' : ''}`);
+        lastKey = key;
+        if (agents.length > 1) line.append(el('em', '', `${harnessName(lead.harness)} `));
+        line.append(doing(lead));
+        now.append(line);
+      } else {
+        now.append(el('span', 'idle', 'All quiet'));
+      }
+      const parts = [dots, now];
+      const plan = lead && BUSY.includes(lead.state) && planOf(stepsOf(lead));
+      if (plan) parts.push(el('span', 'step', `${plan.done}/${plan.total}`));
+      const worst = usage.flatMap((u) => u.limits ?? []).map((l) => l.used_percent).sort((a, b) => b - a)[0];
+      if (typeof worst === 'number') parts.push(ring(worst));
+      bar.replaceChildren(...parts);
+
+      // -- open --------------------------------------------------------------------
+      const panel = $('panel');
+      const head = el('div', 'head');
+      head.append(el('span', '', agents.length ? summaryLine(agents) : 'No agents running right now'));
+      const icon = (label, path, fn) => {
+        const b = el('button', 'icon');
+        b.type = 'button';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+        b.onclick = fn;
+        return b;
+      };
+      head.append(
+        icon('Show the pal', '<circle cx="8" cy="9" r="5"/><circle cx="6.3" cy="8.5" r=".6" fill="currentColor"/><circle cx="9.7" cy="8.5" r=".6" fill="currentColor"/>', () => desktop?.show()),
+        icon('Dashboard', '<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>', () => desktop?.openDashboard?.()),
+      );
+      const MAX = 4;
+      const cards = agents.slice(0, MAX).map((s, i) => card(s, i));
+      if (agents.length > MAX) {
+        const more = el('button', 'more', `+${agents.length - MAX} more: open the pal`);
+        more.type = 'button';
+        more.onclick = () => desktop?.show();
+        cards.push(more);
+      }
+      panel.replaceChildren(head, ...cards, limits());
+      size(showing);
+    }
+
+    /** "2 working · 1 needs you" */
+    function summaryLine(agents) {
+      const count = (test) => agents.filter(test).length;
+      const parts = [
+        [count((s) => s.state === 'waiting'), 'needs you', 'need you'],
+        [count((s) => BUSY.includes(s.state)), 'working', 'working'],
+        [count((s) => s.state === 'done'), 'just finished', 'just finished'],
+        [count((s) => s.state === 'error'), 'stopped', 'stopped'],
+      ].filter(([n]) => n).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+      return parts.join(' · ');
+    }
+
+    function card(s, i) {
+      const row = el('div', `agent ${harnessClass(s.harness)} is-${s.state}`);
+      row.style.animationDelay = `${i * 40}ms`;
+      const name = el('b', '', harnessName(s.harness));
+      if (s.label) name.append(el('small', '', ` · ${s.label}`));
+      row.append(avatar('card', s), name, el('span', `state ${s.state}`, stateWord[s.state] ?? s.state), el('span', 'doing', doing(s)));
+      const meters = el('div', 'meters');
+      const p = s.state !== 'done' && planOf(stepsOf(s));
+      if (p) meters.append(meter(`Plan ${p.done}/${p.total}`, (p.done / p.total) * 100, 'plan'));
+      const c = contexts.get(s.id);
+      if (c) {
+        const pct = (c.used / c.size) * 100;
+        const k = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+        meters.append(c.known ? meter(`Context ${Math.round(pct)}%`, pct, pct >= 90 ? 'hot' : pct >= 75 ? 'warm' : 'ok')
+          : el('span', 'meter-text', `Context ${k(c.used)} tokens`));
+      }
+      if (meters.childNodes.length) row.append(meters);
+      const ask = [...asks.values()].find((a) => a.session === s.id);
+      if (ask) row.append(askBox(ask));
+      if (c && (c.known ? (c.used / c.size) * 100 >= 60 : c.used >= 120_000) && desktop?.copy) {
+        const note = compactNote(stepsOf(s));
+        const b = el('button', 'compact', 'Copy /compact');
+        b.type = 'button';
+        b.title = `Copies this, to paste into ${harnessName(s.harness)}:\n\n${note}`;
+        b.onclick = (e) => { e.stopPropagation(); desktop.copy(note); b.textContent = 'Copied: paste it into the agent'; setTimeout(() => (b.textContent = 'Copy /compact'), 2200); };
+        row.append(b);
+      }
+      row.title = 'Open the pal';
+      row.onclick = () => desktop?.show();
+      return row;
+    }
+
+    const VERB = { run: 'run', edit: 'edit', write: 'write', delete: 'delete', web: 'go online', agent: 'start a helper', mcp: 'use' };
+    function askBox(a) {
+      const box = el('div', `ask${a.risks?.length ? ' risky' : ''}`);
+      box.onclick = (e) => e.stopPropagation();
+      box.append(el('span', 'what', `Wants to ${VERB[a.kind] ?? `use ${a.tool}`}: ${a.title || a.tool}`));
+      if (a.command && a.command !== a.title) box.append(el('code', '', a.command));
+      for (const r of a.risks ?? []) box.append(el('span', 'risk', r));
+      const row = el('span', 'buttons');
+      const answer = (decision) => async () => {
+        box.classList.add('gone');
+        try {
+          const res = await fetch(`/api/approvals/${a.id}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ decision }) });
+          if (!res.ok) throw new Error();
+          asks.delete(a.id);
+          schedule();
+        } catch {
+          box.classList.remove('gone');
+          box.firstChild.textContent = 'Too late: answer in the terminal';
+        }
+      };
+      const deny = el('button', 'deny', 'Deny');
+      deny.type = 'button';
+      deny.onclick = answer('deny');
+      const allow = el('button', 'allow', 'Allow');
+      allow.type = 'button';
+      allow.onclick = answer('allow');
+      row.append(el('em', '', `${Math.max(0, Math.ceil((a.expiresAt - Date.now()) / 1000))}s`), deny, allow);
+      box.append(row);
+      return box;
+    }
+    setInterval(() => { if (asks.size) schedule(); }, 1000); // the countdown
+
+    function meter(label, pct, tone) {
+      const box = el('span', `m ${tone}`);
+      const track = el('span', 'track');
+      const fill = el('i');
+      fill.style.width = `${Math.max(2, Math.min(100, pct))}%`;
+      track.append(fill);
+      box.append(el('span', 'label', label), track);
+      return box;
+    }
+
+    /** Every agent's plan limits, one row each: "Claude  5-hour ▓▓░ 42%  Week ▓░░ 18%". */
+    function limits() {
+      const box = el('div', 'usage');
+      const rows = usage.filter((u) => u.limits?.length);
+      if (!rows.length && !usage.some((u) => u.setup === 'statusline')) return box;
+      box.append(el('h3', '', 'Usage limits'));
+      for (const u of rows) {
+        const row = el('div', `limit ${harnessClass(u.harness)}`);
+        row.append(el('span', 'who', harnessName(u.harness)));
+        for (const l of u.limits) {
+          const cell = el('span', `cell${l.used_percent >= 90 ? ' hot' : l.used_percent >= 70 ? ' warm' : ''}`);
+          const track = el('span', 'track');
+          const fill = el('i');
+          fill.style.width = `${Math.max(2, Math.min(100, l.used_percent))}%`;
+          track.append(fill);
+          cell.append(el('span', 'label', l.label), track, el('b', '', `${Math.round(l.used_percent)}%`));
+          cell.title = `${harnessName(u.harness)}: ${Math.round(l.used_percent)}% of the ${l.label.toLowerCase()} limit used${l.resets_at ? `, resets ${resetText(l.resets_at)}` : ''}`;
+          row.append(cell);
+        }
+        box.append(row);
+      }
+      if (usage.find((u) => u.harness === 'claude')?.setup === 'statusline') {
+        const hint = el('div', 'hint');
+        hint.append('Claude’s limits: run ', el('code', '', 'dotpals statusline'), ' once');
+        box.append(hint);
+      }
+      return box;
+    }
+
+    function ring(pct) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 20 20');
+      svg.setAttribute('class', `ring${pct >= 90 ? ' hot' : pct >= 70 ? ' warm' : ''}`);
+      const c = 2 * Math.PI * 7.5;
+      svg.innerHTML = `<circle class="track" cx="10" cy="10" r="7.5"/><circle class="fill" cx="10" cy="10" r="7.5" stroke-dasharray="${(c * pct) / 100} ${c}"/>`;
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = `Your highest usage limit: ${Math.round(pct)}% used`;
+      svg.append(title);
+      return svg;
+    }
+
+    function resetText(at) {
+      const mins = Math.round((at - Date.now()) / 60000);
+      if (mins < 60) return `in ${mins} min`;
+      if (mins < 24 * 60) return `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+      return new Date(at).toLocaleDateString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    }
+
+    // The window is exactly as big as the island, so it never blocks clicks around it.
+    function size(open = island.classList.contains('open')) {
+      // The bar's natural width: the text may be clipped right now, so add back what's hidden.
+      const now = $('bar').querySelector('.now');
+      const natural = $('bar').scrollWidth + (now ? now.scrollWidth - now.clientWidth : 0);
+      const w = open ? 420 : Math.min(380, Math.max(island.classList.contains('empty') ? 130 : 170, natural + 4));
+      const h = open ? Math.min(460, 34 + $('panel').scrollHeight + 4) : 34;
+      island.style.setProperty('--w', `${w}px`);
+      island.style.setProperty('--h', `${h}px`);
+      desktop?.notchSize?.(w + 24, h + 24);
+    }
+
+    let closeTimer;
+    island.addEventListener('mouseenter', () => { clearTimeout(closeTimer); if (!open) { open = true; render(); } });
+    island.addEventListener('mouseleave', () => { closeTimer = setTimeout(() => { open = false; render(); }, 250); });
+
+    async function refreshUsage() {
+      try { usage = (await desktop?.usage?.())?.agents ?? []; } catch { usage = []; }
+      schedule();
+    }
+
+    desktop?.connect(onEvent, () => {});
+    refreshUsage();
+    setInterval(refreshUsage, 20_000);
+    setInterval(schedule, 15_000); // "just finished" agents leave, reset times move on
+    render();
+  </script>
+</body>
+</html>

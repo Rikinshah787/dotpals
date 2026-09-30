@@ -225,3 +225,15 @@ test('watchClaude follows sessions that have no hooks, and skips ones that do', 
   assert.equal(states.at(-1).s, 'free');
   assert.equal(states.at(-1).state, 'thinking');
 });
+
+test('contextOf: tokens in the window, and when its size is known', async () => {
+  const { contextOf } = await import('../bridge/adapters/claude.js');
+  const reply = (input, cacheRead) => ({ type: 'assistant', sessionId: 's1', timestamp: '2026-09-30T10:00:00Z', message: { usage: { input_tokens: input, cache_creation_input_tokens: 1000, cache_read_input_tokens: cacheRead, output_tokens: 50 } } });
+  assert.deepEqual(contextOf(reply(10, 49_000)), { used: 50_010, size: 200_000, known: false, at: Date.parse('2026-09-30T10:00:00Z') });
+  // Past 200k it must be a 1M window.
+  assert.equal(contextOf(reply(10, 300_000)).size, 1_000_000);
+  assert.equal(contextOf(reply(10, 300_000)).known, true);
+  // The status line told us the size.
+  assert.equal(contextOf(reply(10, 49_000), () => 1_000_000).known, true);
+  assert.equal(contextOf({ type: 'user', message: {} }), null);
+});

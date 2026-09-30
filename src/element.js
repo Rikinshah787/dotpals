@@ -171,7 +171,7 @@ const styles = `
     position: absolute;
     left: 50%;
     bottom: 88%;
-    max-width: max(180px, calc(var(--dp-size) * 1.4));
+    max-width: min(max(180px, calc(var(--dp-size) * 1.4)), calc(100vw - 12px));
     width: max-content;
     padding: .5em .85em;
     border-radius: 1.1em;
@@ -181,7 +181,8 @@ const styles = `
     text-align: center;
     box-shadow: 0 6px 18px rgb(0 0 0 / .22);
     opacity: 0;
-    transform: translate(-50%, 8px) scale(.85);
+    /* --dp-shift keeps the bubble inside the window when the pal is near an edge. */
+    transform: translate(calc(-50% + var(--dp-shift, 0px)), 8px) scale(.85);
     transform-origin: 50% 100%;
     transition: opacity .2s, transform .35s cubic-bezier(.3, 1.5, .5, 1);
     pointer-events: none;
@@ -189,13 +190,13 @@ const styles = `
   .dp-bubble::after {
     content: "";
     position: absolute;
-    left: 50%;
+    left: clamp(1em, calc(50% - var(--dp-shift, 0px)), calc(100% - 1em));
     top: 100%;
     border: .45em solid transparent;
     border-top-color: #fff;
     transform: translateX(-50%);
   }
-  .dp-bubble.dp-show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  .dp-bubble.dp-show { opacity: 1; transform: translate(calc(-50% + var(--dp-shift, 0px)), 0) scale(1); }
   .dp-dots { display: inline-flex; gap: .25em; padding: .25em 0; }
   .dp-dots i {
     width: .45em;
@@ -290,6 +291,14 @@ function caretPoint(field) {
 
 let uid = 0;
 
+// Keep bubbles inside the window when it (or the layout) changes size.
+let resizing = false;
+function fitOnResize() {
+  if (resizing || typeof window === 'undefined') return;
+  resizing = true;
+  window.addEventListener('resize', () => { for (const pal of pals) pal._fitBubble(); }, { passive: true });
+}
+
 // ---------------------------------------------------------------------------
 
 export class DotPal extends Base {
@@ -351,6 +360,7 @@ export class DotPal extends Base {
     else this.#applyMood();
     pals.add(this);
     trackPointer();
+    fitOnResize();
     this.#scheduleBlink();
   }
 
@@ -481,6 +491,7 @@ export class DotPal extends Base {
     if (!text) return this.#syncBubble();
     this.#bubble.textContent = text;
     this.#bubble.classList.add('dp-show');
+    this.#fitBubble();
     const ms = duration ?? Math.min(6000, 1800 + text.length * 60);
     if (ms > 0) {
       this.#sayTimer = setTimeout(() => {
@@ -611,6 +622,9 @@ export class DotPal extends Base {
 
   // -- internals -------------------------------------------------------------
 
+  /** @internal Called when the window resizes. */
+  _fitBubble() { if (this.#bubble.classList.contains('dp-show')) this.#fitBubble(); }
+
   /** @internal Called by the shared pointer tracker. */
   _followPointer() {
     if (this.look === 'none' || FIXED_GAZE[this.mood]) return;
@@ -703,9 +717,25 @@ export class DotPal extends Base {
     if (content) {
       this.#bubble.innerHTML = content;
       this.#bubble.classList.add('dp-show');
+      this.#fitBubble();
     } else {
       this.#bubble.classList.remove('dp-show');
     }
+  }
+
+  /** Slide the bubble sideways so it stays inside the window (its arrow still points at the pal). */
+  #fitBubble() {
+    requestAnimationFrame(() => {
+      if (!this.isConnected || typeof innerWidth !== 'number') return;
+      const host = this.getBoundingClientRect();
+      const half = this.#bubble.offsetWidth / 2;
+      const center = host.left + host.width / 2;
+      const margin = 6;
+      let shift = 0;
+      if (center - half < margin) shift = margin - (center - half);
+      else if (center + half > innerWidth - margin) shift = innerWidth - margin - (center + half);
+      this.#bubble.style.setProperty('--dp-shift', `${Math.round(shift)}px`);
+    });
   }
 
   #render() {

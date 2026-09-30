@@ -108,3 +108,81 @@ test('serves the pal page and refuses paths outside src/ and bridge/', async (t)
   assert.equal(await status('/package.json'), 404);
   assert.equal(await status('/bridge/../package.json'), 404);
 });
+
+test('a session that goes quiet is put to sleep by the bridge; an active one is not', async () => {
+  let server;
+  let port;
+  for (let tries = 0; !server; tries++) {
+    port = 5190 + Math.floor(Math.random() * 2000);
+    try { server = await startBridge({ port, log: () => {}, sleepAfter: 400, sleepAfterWaiting: 5000 }); } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
+  }
+  const updates = [];
+  const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk) => {
+    for (const block of chunk.split('\n\n')) {
+      if (block.startsWith('data:')) updates.push(JSON.parse(block.slice(5)));
+    }
+  });
+  await post(port, '/event', { session: 'quiet', harness: 'x', state: 'done' });
+  await post(port, '/event', { session: 'asking', harness: 'x', state: 'waiting' });
+  await post(port, '/event', { session: 'busy', harness: 'x', state: 'working' });
+  const keepBusy = setInterval(() => post(port, '/event', { session: 'busy', activity: { kind: 'read', title: 'a.js' } }), 100);
+  await new Promise((r) => setTimeout(r, 1100));
+  clearInterval(keepBusy);
+  const slept = updates.filter((u) => u.state === 'sleeping').map((u) => u.session);
+  stream.destroy();
+  server.close();
+  assert.deepEqual(slept, ['quiet']);
+});
+
+test('approve from the pal: off answers at once; on waits for Allow or Deny', async () => {
+  const { port, server } = await start();
+  const base = `http://127.0.0.1:${port}`;
+  const ask = (command) => fetch(`${base}/hook`, { method: 'POST', body: JSON.stringify({ hook_event_name: 'PermissionRequest', session_id: 'appr', cwd: '/work/app', tool_name: 'Bash', tool_input: { command } }) }).then((r) => r.json());
+  const setConfig = (patch) => fetch(`${base}/api/config`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) });
+
+  // Off (the default): no waiting, no decision.
+  assert.deepEqual(await ask('npm install'), {});
+
+  await setConfig({ approvals: true });
+  // On, but nothing is open to answer from: still no waiting.
+  assert.deepEqual(await ask('npm install'), {});
+
+  // On, with a viewer: the request shows up there, and the answer goes back to Claude.
+  const approvals = [];
+  const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
+  stream.setEncoding('utf8');
+  let buffer = '';
+  stream.on('data', (chunk) => {
+    buffer += chunk;
+    for (const block of buffer.split('\n\n').slice(0, -1)) {
+      if (block.startsWith('event: approval')) approvals.push(JSON.parse(block.split('\ndata: ')[1]));
+    }
+    buffer = buffer.split('\n\n').at(-1);
+  });
+  const waitFor = async (test) => { for (let i = 0; i < 50 && !test(); i++) await new Promise((r) => setTimeout(r, 20)); };
+
+  const allowed = ask('git push --force origin main');
+  await waitFor(() => approvals.some((a) => a.status === 'pending'));
+  const pending = approvals.find((a) => a.status === 'pending');
+  assert.equal(pending.tool, 'Bash');
+  assert.equal(pending.command, 'git push --force origin main');
+  assert.ok(pending.risks.some((r) => /force-pushes/i.test(r)));
+  // Only with the dotpals header (other websites can't send it).
+  assert.equal((await fetch(`${base}/api/approvals/${pending.id}`, { method: 'POST', body: '{"decision":"allow"}' })).status, 403);
+  assert.equal((await fetch(`${base}/api/approvals/${pending.id}`, { method: 'POST', headers: { 'x-dotpals': '1' }, body: '{"decision":"allow"}' })).status, 200);
+  assert.deepEqual(await allowed, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } });
+
+  const denied = ask('rm -rf build');
+  await waitFor(() => approvals.filter((a) => a.status === 'pending').length === 2);
+  const second = approvals.filter((a) => a.status === 'pending').at(-1);
+  await fetch(`${base}/api/approvals/${second.id}`, { method: 'POST', headers: { 'x-dotpals': '1' }, body: '{"decision":"deny"}' });
+  assert.equal((await denied).hookSpecificOutput.decision.behavior, 'deny');
+  // Answered requests can't be answered again.
+  assert.equal((await fetch(`${base}/api/approvals/${second.id}`, { method: 'POST', headers: { 'x-dotpals': '1' }, body: '{"decision":"allow"}' })).status, 404);
+
+  await setConfig({ approvals: false });
+  stream.destroy();
+  server.close();
+});

@@ -54,7 +54,7 @@ export function describeCall(name, args, cwd) {
     case 'send_message':
       return { kind: 'agent', title: clip(`Message to ${args.target}`, 80), body: { args: clipText(args.message, 3000) } };
     case 'update_plan':
-      return { kind: 'plan', title: 'Updated the plan', body: { args: (args.plan ?? []).map((s) => `${s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '▸' : '·'} ${s.step}`).join('\n') } };
+      return { kind: 'plan', title: 'Updated the plan', plan: (args.plan ?? []).map((s) => ({ text: clip(s.step, 120), status: s.status })), body: { args: (args.plan ?? []).map((s) => `${s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '▸' : '·'} ${s.step}`).join('\n') } };
     case 'js':
       return { kind: 'run', title: clip(args.title || 'Ran a script', 80), body: { command: clipText(args.code, 3000) } };
   }
@@ -103,7 +103,7 @@ const looksFailed = (text) => /exit(?:ed)?(?: with)? code:? ?-?[1-9]\d*|^\s*(err
  * Follow Codex's logs. Calls `emit(entries)` for activity and
  * `state(session, label, { state, text }, at)` for the pal.
  */
-export function watchCodex(log, { emit, state, dir = join(homedir(), '.codex', 'sessions'), interval = 1000 } = {}) {
+export function watchCodex(log, { emit, state, context = () => {}, dir = join(homedir(), '.codex', 'sessions'), interval = 1000 } = {}) {
   const files = new Map(); // path → { offset, session, label, cwd, partial }
   let stopped = false;
 
@@ -163,6 +163,13 @@ export function watchCodex(log, { emit, state, dir = join(homedir(), '.codex', '
           out.push(log.upsert({ ...base, id: `${session}:u:${at}`, kind: 'prompt', title, status: 'info' }));
         }
         setState('thinking');
+        break;
+      }
+      // How full the context window is (Codex logs the window size too).
+      case 'event_msg/token_count': {
+        const last = p.info?.last_token_usage;
+        const size = p.info?.model_context_window;
+        if (last?.input_tokens && size) context(session, label, { used: last.input_tokens, size, known: true, at });
         break;
       }
       case 'event_msg/task_started':

@@ -5,9 +5,11 @@
 //   dotpals start                             open the floating pal
 //   dotpals dashboard                         open the dashboard
 //   dotpals status                            what's running and connected
+//   dotpals notch [--off]                     the island at the top of the screen
+//   dotpals statusline [--off]                share Claude Code's usage limits (for the notch)
 //   dotpals bridge                            run only the bridge (no window)
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,8 +115,50 @@ async function setup(flags) {
   console.log(`
   ${bold('Done.')} Keyboard: ${bold('Ctrl+Alt+P')} shows or hides the pal.
   Dashboard: ${bridge}/dashboard   ${dim('(or the tray icon → Dashboard)')}
+  Cursor, Gemini CLI, OpenCode, Copilot CLI: connect them on the dashboard's Agents page.
   Any other agent: POST events to ${bridge}/event ${dim('(see the README)')}
+  Claude's usage limits in the notch: ${bold('dotpals statusline')}
 `);
+}
+
+/**
+ * Claude Code only shares your plan usage (5-hour and weekly limits) with a status
+ * line command, so install ours in ~/.claude/settings.json. A status line you
+ * already have keeps working: ours runs it and shows its output. `--off` undoes it.
+ */
+function statusline(flags) {
+  const settingsFile = join(homedir(), '.claude', 'settings.json');
+  const savedFile = join(home(), 'statusline.json');
+  let settings = {};
+  try { settings = JSON.parse(readFileSync(settingsFile, 'utf8')); } catch (err) {
+    if (err.code !== 'ENOENT') { warn(`Couldn’t read ${settingsFile}: ${err.message}. Nothing changed.`); process.exitCode = 1; return; }
+  }
+  const script = join(existsSync(join(appDir, 'bridge', 'statusline.js')) ? appDir : here, 'bridge', 'statusline.js');
+  const ours = (s) => /bridge[\\/]statusline\.js/.test(s?.command ?? '');
+  const write = (next) => {
+    mkdirSync(join(homedir(), '.claude'), { recursive: true });
+    if (existsSync(settingsFile)) cpSync(settingsFile, `${settingsFile}.dotpals-backup`);
+    writeFileSync(settingsFile, `${JSON.stringify(next, null, 2)}\n`);
+  };
+
+  if (flags.has('--off')) {
+    if (!ours(settings.statusLine)) { ok('dotpals isn’t your Claude Code status line. Nothing to undo'); return; }
+    let previous = null;
+    try { previous = JSON.parse(readFileSync(savedFile, 'utf8')).previous; } catch {}
+    const next = { ...settings };
+    if (previous) next.statusLine = previous; else delete next.statusLine;
+    write(next);
+    rmSync(savedFile, { force: true });
+    ok(previous ? 'Put your previous status line back' : 'Removed the dotpals status line');
+    return;
+  }
+
+  if (ours(settings.statusLine)) { ok('Already set up. Claude Code shares its usage limits with dotpals'); return; }
+  mkdirSync(home(), { recursive: true });
+  writeFileSync(savedFile, `${JSON.stringify({ previous: settings.statusLine ?? null }, null, 2)}\n`);
+  write({ ...settings, statusLine: { type: 'command', command: `node "${script.replace(/\\/g, '/')}"` } });
+  ok(`Claude Code will share its usage limits with dotpals${settings.statusLine ? ' (your status line still shows as before)' : ''}`);
+  console.log(`  ${dim(`Backup: ${settingsFile}.dotpals-backup · undo: dotpals statusline --off`)}`);
 }
 
 async function status() {
@@ -122,8 +166,12 @@ async function status() {
     const s = await (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).json();
     const ago = (t) => (t ? `${Math.round((Date.now() - t) / 60000)}m ago` : 'not yet');
     console.log(`dotpals ${s.version} running on port ${s.port}`);
-    console.log(`  Claude Code  last event ${ago(s.adapters.claude.lastEventAt)}`);
-    console.log(`  Codex        ${s.adapters.codex.enabled ? (s.adapters.codex.found ? `following, last event ${ago(s.adapters.codex.lastEventAt)}` : 'not found') : 'off'}`);
+    for (const a of s.agents ?? []) {
+      const state = !a.enabled ? 'off'
+        : a.setup === 'connect' ? (a.connected ? `connected, last event ${ago(a.lastEventAt)}` : a.found ? 'found, not connected (dashboard → Agents)' : 'not found')
+        : a.found === false ? 'not found' : `last event ${ago(a.lastEventAt)}`;
+      console.log(`  ${a.name.padEnd(19)}${state}`);
+    }
     console.log(`  History      ${s.historyFile} (${s.entries} entries)`);
     console.log(`  Dashboard    ${bridge}/dashboard`);
   } catch {
@@ -147,6 +195,11 @@ switch (command) {
     else { console.log('dotpals isn’t running. Run: dotpals start'); process.exitCode = 1; }
     break;
   case 'status': await status(); break;
+  case 'statusline': statusline(flags); break;
+  case 'notch':
+    // The island at the top of the screen: every agent, its plan and your usage limits.
+    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx --allow-git=all github:rikinshah787/dotpals setup'); process.exitCode = 1; }
+    break;
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge()); break;
   default:
     console.log(`dotpals ${version}
@@ -156,5 +209,8 @@ switch (command) {
   start       open the floating pal
   dashboard   open the dashboard
   status      what's running and connected
+  notch       keep the notch at the top of the screen (--auto: only when
+              the pal is hidden, the default; --off: never)
+  statusline  let Claude Code share its usage limits with dotpals (--off to undo)
   bridge      run only the bridge, no window`);
 }
