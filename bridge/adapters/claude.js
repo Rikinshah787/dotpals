@@ -23,6 +23,9 @@ const notAPrompt = (text) => !text || /^\s*<(task-notification|system-reminder|c
 /** A prompt's text; slash commands (skills, plugin commands) read as "/name args". */
 function promptText(text) {
   if (!text) return null;
+  // IDE context the editor adds to the prompt ("the user opened file X"), not what the user typed.
+  text = text.replace(/<(ide_[a-z_]+|system-reminder)>[\s\S]*?<\/\1>/g, '').trim();
+  if (!text) return null;
   const cmd = /<command-name>\s*([^<]+?)\s*<\/command-name>/.exec(text);
   if (cmd) {
     const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1]?.trim();

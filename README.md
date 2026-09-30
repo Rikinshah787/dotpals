@@ -12,7 +12,9 @@ A small floating pal that watches Claude Code, Codex or any agent and tells you,
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20any%20agent-d97757)
 
-<img src="docs/summary.png" width="380" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills">
+<img src="docs/demo.gif" width="760" alt="dotpals in action: the pal thinks, edits app.js, asks to run a command, and then shows a Summary: changed 3 files, ran 5 commands, 1 failed">
+
+<sub><a href="docs/dotpals-demo.mp4">Watch in full quality (MP4, 27s)</a></sub>
 
 </div>
 
@@ -27,15 +29,19 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 ## Features
 
+<p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
+
 - **Summary**: one card per request, with what you asked, what the agent said it did, and a tally such as *Changed 3 files · Ran 5 commands, 1 failed · Used 1 skill*. **Show steps** lists every step as a short sentence.
 - **Tools**: every tool call as it happens. Click one to see the exact command and output, or the lines an edit changed.
 - **Files**: every file read, changed, created or deleted, with diffs. Click to open it in VS Code.
 - **Today**: requests, files changed, commands run and time the agent spent working. **Copy today** gives you a ready-made standup note.
 - **Copy recap**: copy any request as Markdown for a PR description or commit message.
 - **One tab per session**: Claude Code and Codex sessions never mix, and the window follows whichever is active.
-- **History**: survives restarts. It keeps the last week locally in `~/.dotpals/history.json`.
+- **Dashboard**: every session with its requests, files and full log, with search and export to Markdown or JSON. It also shows requests per day, time by project and a live view of which agents are connected.
+- **Settings**: choose your pal, turn sounds and notifications on or off, and decide how long to keep history (or clear it). Settings are shared by the pal and the dashboard.
+- **History**: survives restarts, kept on your computer in `~/.dotpals/history.json` (7 days by default).
 - **Notifications and sounds**: a ping when the agent needs your OK, a chime when it's done, and a desktop notification if you've looked away.
-- **A pal with personality**: eight characters that think, work, talk, wait, celebrate and sulk. Drag the pal anywhere; it stays on top.
+- **A pal with personality**: eight characters that think, work, talk, wait, celebrate and sulk. Drag it anywhere; it stays on top. In small mode, a round bar above the pal shows each session as an icon.
 
 <p align="center">
   <img src="docs/tools.png" width="300" alt="The Tools tab with an Edit opened, showing its diff">
@@ -43,26 +49,39 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
   <img src="docs/files.png" width="300" alt="The Files tab listing changed, new and read files">
 </p>
 
+<p align="center">
+  <img src="docs/sessions.png" width="820" alt="The dashboard's Sessions page: a session list, and one session's requests with the agent's summary, changed files, commands and skills">
+</p>
+
 ## Install
 
-### Claude Code
+### One command
+
+```bash
+npx github:rikinshah787/dotpals setup
+```
+
+That's all. It:
+
+1. installs the desktop pal in `~/.dotpals`, and downloads its runtime (Electron, about 100 MB, once),
+2. adds the Claude Code plugin, if Claude Code is installed,
+3. picks up Codex automatically, if it's installed,
+4. starts the pal, turns on *open when I log in*, and opens the dashboard.
+
+Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
+
+### Only the Claude Code plugin
 
 ```
 /plugin marketplace add rikinshah787/dotpals
 /plugin install dotpals@dotpals
 ```
 
-Restart Claude Code, then run **`/dotpals:pals`**. The first time, it offers to download the desktop window's runtime (Electron, about 100 MB, once). After that, the pal opens by itself whenever a Claude Code session starts.
+Restart Claude Code, then run **`/dotpals:pals`**. The first time, it offers to download the desktop window's runtime. After that, the pal opens by itself whenever a Claude Code session starts.
 
 ### Codex
 
-There's nothing to install on the Codex side. dotpals follows Codex's session logs (`~/.codex/sessions`), so the Codex CLI, IDE extension and app all show up. Start the pal once and turn on **Open when I log in** in its tray menu:
-
-```bash
-git clone https://github.com/rikinshah787/dotpals && cd dotpals
-npm install
-npm run float
-```
+There's nothing to install on the Codex side. dotpals follows Codex's session logs (`~/.codex/sessions`), so the Codex CLI, IDE extension and app all show up while the pal is running. The one-command setup starts it at login.
 
 ### Any other agent
 
@@ -74,9 +93,19 @@ Send JSON to the local bridge from your agent loop, a hook script or a wrapper. 
 | --- | --- |
 | **Ctrl+Alt+P** (⌘⌥P on macOS) | Show or hide the pal from anywhere |
 | Drag the pal | Move the window; it remembers where you put it |
+| **▦** | Open the dashboard: sessions, logs, stats and settings |
 | **⤡** | Switch between just the pal and the full view |
-| **×** | Hide to the tray. The tray menu has *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
+| **×** | Hide to the tray. The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
 | 🔊 | Sounds on or off |
+
+From a terminal, after setup (or with `npx github:rikinshah787/dotpals <command>`):
+
+```bash
+dotpals start       # open the floating pal
+dotpals dashboard   # open the dashboard
+dotpals status      # what's running and connected
+dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dashboard at http://127.0.0.1:5175/dashboard
+```
 
 ## Privacy
 
@@ -408,6 +437,7 @@ Ideas and pull requests are welcome. Open an [issue](https://github.com/rikinsha
 npm install        # dev only: Electron for the desktop window
 npm test           # node --test, no dependencies needed
 npm run float      # the desktop pal
+npm run dashboard  # the dashboard
 npm run dev        # the web component playground on http://localhost:5173
 ```
 

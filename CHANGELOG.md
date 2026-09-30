@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-30
+
+### Added
+
+- **One-command setup**: `npx github:rikinshah787/dotpals setup` installs the pal, adds the Claude Code plugin, picks up Codex, starts at login and opens the dashboard. New `dotpals` command with `start`, `dashboard`, `status` and `bridge`.
+- **Dashboard**: an Overview (requests, files changed, commands, agent time, requests per day, by project), Sessions (every session's requests, files and full log, with search and export to Markdown or JSON) and Settings.
+- **Settings**, shared by the pal and dashboard in `~/.dotpals/config.json`: character, sounds, notifications, history on or off, how long to keep it, clear history, and following Codex.
+- In small mode, a round bar above the pal shows each session as an icon, with expand and close.
+- A 27-second demo video in `docs/`.
+
+### Fixed
+
+- Dragging the pal no longer makes the window grow with display scaling.
+- Prompts no longer include the editor's hidden context (such as "the user opened file X").
+
+### Security
+
+- The bridge only answers requests addressed to localhost (blocks DNS-rebinding pages), and settings can only be changed by requests that carry a custom header, which other websites can't send.
+
 ## [0.4.0] - 2026-09-30
 
 The first public release.
@@ -36,5 +55,6 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/rikinshah787/dotpals/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rikinshah787/dotpals/releases/tag/v0.4.0

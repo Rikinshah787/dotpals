@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dotpals dashboard</title>
+  <link rel="icon" href="/desktop/icon.png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0e;
+      --panel: #121217;
+      --raise: #1a1a20;
+      --sunk: #0f0f13;
+      --line: #26262d;
+      --line-strong: #34343c;
+      --text: #f2f2f5;
+      --muted: #9a9aa5;
+      --faint: #62626d;
+      --ok: #46a758;
+      --bad: #f2555a;
+      --warn: #f5b94a;
+      --add: #56d364;
+      --del: #f2555a;
+      --link: #6cb6ff;
+      /* Agent colors: validated as a set on the dark surface (colorblind-safe). */
+      --h-claude: #d95926;
+      --h-codex: #3987e5;
+      --h-other: #199e70;
+      --k-read: #6cb6ff; --k-edit: #f5b94a; --k-write: #ff9563; --k-run: #56d364; --k-search: #b392f0;
+      --k-web: #39c5cf; --k-agent: #f778ba; --k-mcp: #a3b3c7; --k-skill: #e3b341; --k-other: #8b8b96;
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 ui-rounded, "Segoe UI Variable Text", system-ui, sans-serif; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button, select, input { font: inherit; color: inherit; background: var(--raise); border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 11px; }
+    button { cursor: pointer; }
+    button:hover, select:hover { border-color: #4a4a54; }
+    button.primary { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+    button.danger { color: var(--bad); }
+    :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+    h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+    code, .mono { font-family: var(--mono); font-size: 12px; }
+    .muted { color: var(--muted); }
+    .faint { color: var(--faint); }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+    /* -- layout ---------------------------------------------------------- */
+    .app { display: grid; grid-template-columns: 208px 1fr; height: 100%; }
+    aside { border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; background: var(--panel); }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; font-weight: 700; font-size: 16px; }
+    .brand img { width: 28px; height: 28px; }
+    nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); }
+    nav a:hover { background: var(--raise); color: var(--text); text-decoration: none; }
+    nav a[aria-current="page"] { background: var(--raise); color: var(--text); }
+    nav svg { width: 16px; height: 16px; flex: none; }
+    .live { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px; color: var(--faint); font-size: 12px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
+    .dot.on { background: var(--ok); }
+    main { overflow-y: auto; overflow-x: hidden; padding: 26px 32px 60px; min-width: 0; }
+    .view { max-width: 1120px; margin: 0 auto; display: grid; gap: 22px; }
+    .view[hidden] { display: none; }
+    .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .head .spacer { flex: 1; }
+    .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 9px; overflow: hidden; }
+    .seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 5px 12px; }
+    .seg button[aria-pressed="true"] { background: var(--raise); color: var(--text); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+    .card > h2 + * { margin-top: 12px; }
+    .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; }
+    .card, .tile, .detail, .split > * { min-width: 0; }
+
+    /* -- stat tiles ------------------------------------------------------- */
+    .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+    .tile .label { color: var(--muted); font-size: 12px; }
+    .tile .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; letter-spacing: -.02em; }
+    .tile .sub { color: var(--faint); font-size: 12px; }
+    .tile .sub .bad { color: var(--bad); }
+
+    /* -- chart ------------------------------------------------------------ */
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+    .chart { position: relative; }
+    .chart svg { display: block; width: 100%; height: 220px; overflow: visible; }
+    .chart .grid line { stroke: var(--line); stroke-width: 1; }
+    .chart .axis text { fill: var(--faint); font-size: 11px; }
+    .chart .bar { cursor: default; }
+    .chart .hit { fill: transparent; }
+    .chart .hit:hover + g rect, .chart g.col:hover rect { filter: brightness(1.15); }
+    .tip { position: absolute; pointer-events: none; background: #1f1f26; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 130px; transform: translate(-50%, calc(-100% - 10px)); box-shadow: 0 8px 24px rgb(0 0 0 / .4); }
+    .tip[hidden] { display: none; }
+    .tip b { display: block; margin-bottom: 4px; }
+    .tip div { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    .tip div i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+    .tip div span { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
+    details.table-view summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+    /* -- tables ----------------------------------------------------------- */
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; color: var(--faint); font-weight: 600; font-size: 12px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+    td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tr.click { cursor: pointer; }
+    tr.click:hover td { background: rgb(255 255 255 / .025); }
+    .agent { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .agent i { width: 8px; height: 8px; border-radius: 50%; background: var(--h); }
+    .h-claude { --h: var(--h-claude); } .h-codex { --h: var(--h-codex); } .h-other { --h: var(--h-other); }
+    .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.wide { width: 100%; max-width: 0; }
+    .none { color: var(--faint); padding: 18px 4px; }
+
+    /* -- sessions --------------------------------------------------------- */
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .toolbar input[type=search] { flex: 1; min-width: 200px; }
+    .split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .list { display: grid; gap: 6px; max-height: calc(100vh - 190px); overflow-y: auto; padding-right: 4px; }
+    .list button { text-align: left; display: grid; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+    .list button[aria-current="true"] { border-color: var(--h); background: var(--raise); }
+    .list .name { font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .list .name i { width: 8px; height: 8px; border-radius: 50%; background: var(--h); }
+    .list small { color: var(--faint); font-size: 12px; }
+    .detail { display: grid; gap: 14px; min-width: 0; }
+    .detail-head { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+    .detail-head .title { flex: 1; min-width: 220px; }
+    .detail-head h1 { display: flex; align-items: center; gap: 9px; }
+    .detail-head h1 i { width: 10px; height: 10px; border-radius: 50%; background: var(--h); }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+    .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 8px 10px; }
+    .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+
+    .turn { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+    .turn .ask { padding: 12px 14px; border-left: 3px solid var(--h, var(--muted)); }
+    .turn .ask small { color: var(--faint); font-size: 12px; display: block; }
+    .turn .ask p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .turn .said { margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8de; }
+    .turn .said b { color: var(--h); }
+    .turn .did { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+    .turn .did b { color: var(--text); font-weight: 600; }
+    .turn .did .bad { color: var(--bad); }
+    .turn footer { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--faint); }
+    .turn footer .ok { color: var(--ok); }
+    .turn footer .bad { color: var(--bad); }
+    .turn footer button { padding: 3px 10px; font-size: 12px; background: transparent; }
+    .turn footer button:first-of-type { margin-left: auto; }
+
+    .log .tag { font: 600 10px/18px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); border-radius: 5px; padding: 0 6px; display: inline-block; min-width: 46px; text-align: center; }
+    .log td.st { white-space: nowrap; }
+    .st .ok { color: var(--ok); } .st .bad { color: var(--bad); } .st .wait { color: var(--warn); }
+    .k-read { --k: var(--k-read); } .k-edit { --k: var(--k-edit); } .k-write, .k-delete { --k: var(--k-write); } .k-run { --k: var(--k-run); }
+    .k-search { --k: var(--k-search); } .k-web { --k: var(--k-web); } .k-agent { --k: var(--k-agent); } .k-mcp { --k: var(--k-mcp); }
+    .k-skill { --k: var(--k-skill); } .k-plan, .k-tool, .k-compact, .k-prompt, .k-done, .k-error { --k: var(--k-other); }
+    .body { display: grid; gap: 6px; padding: 4px 0 10px; }
+    .body .label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    pre.code { margin: 0; padding: 8px 10px; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.5 var(--mono); color: #cfcfd6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+    pre.code .add { color: var(--add); background: color-mix(in srgb, var(--add) 9%, transparent); display: block; }
+    pre.code .del { color: var(--del); background: color-mix(in srgb, var(--del) 9%, transparent); display: block; }
+    pre.code .hunk { color: var(--k-search); display: block; }
+
+    /* -- settings --------------------------------------------------------- */
+    .settings { display: grid; gap: 18px; }
+    .row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+    .row:first-of-type { border-top: 0; }
+    .row .text { flex: 1; }
+    .row .text small { display: block; color: var(--faint); font-size: 12px; }
+    .switch { appearance: none; width: 40px; height: 24px; border-radius: 999px; background: var(--line-strong); position: relative; cursor: pointer; border: 0; padding: 0; flex: none; transition: background .15s; }
+    .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--text); transition: transform .15s; }
+    .switch:checked { background: var(--ok); }
+    .switch:checked::after { transform: translateX(16px); }
+    .switch:disabled { opacity: .5; cursor: not-allowed; }
+    .preview { display: flex; align-items: flex-end; justify-content: center; height: 150px; padding-top: 40px; overflow: hidden; background: var(--sunk); border-radius: 12px; border: 1px solid var(--line); }
+    .agents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .agents .card { display: grid; gap: 8px; align-content: start; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--raise); color: var(--muted); width: fit-content; }
+    .pill.on { color: var(--ok); }
+    .pill.off { color: var(--faint); }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 9px; font-weight: 600; font-size: 13px; }
+    .toast[hidden] { display: none; }
+
+    @media (max-width: 1000px) {
+      .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid2, .split, .agents { grid-template-columns: 1fr; }
+      .list { max-height: 320px; }
+    }
+    @media (max-width: 720px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      aside { flex-direction: row; align-items: center; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+      .brand { padding: 0 8px 0 0; }
+      nav { display: flex; gap: 4px; }
+      .live { margin: 0 0 0 auto; }
+      main { padding: 18px 16px 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand"><img src="/desktop/icon.png" alt="">dotpals</div>
+      <nav aria-label="Dashboard">
+        <a href="#overview" data-view="overview">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 13V8M6 13V3M10 13V6M14 13V10"/></svg>Overview</a>
+        <a href="#sessions" data-view="sessions">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3.5h10M3 8h10M3 12.5h6"/></svg>Sessions</a>
+        <a href="#settings" data-view="settings">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>Settings</a>
+      </nav>
+      <div class="live"><span class="dot" id="dot"></span><span id="live">connecting…</span></div>
+    </aside>
+
+    <main>
+      <!-- Overview ------------------------------------------------------------ -->
+      <section class="view" id="view-overview" aria-labelledby="t-overview">
+        <div class="head">
+          <h1 id="t-overview">Overview</h1>
+          <span class="spacer"></span>
+          <div class="seg" role="group" aria-label="Time range" id="range">
+            <button type="button" data-range="today" aria-pressed="true">Today</button>
+            <button type="button" data-range="week" aria-pressed="false">7 days</button>
+          </div>
+          <button type="button" id="copy-range">Copy recap</button>
+        </div>
+        <div class="tiles" id="tiles"></div>
+        <div class="card">
+          <div class="head"><h2>Requests per day</h2><span class="spacer"></span><div class="legend" id="legend"></div></div>
+          <div class="chart" id="chart"></div>
+          <details class="table-view"><summary>Show as a table</summary><div id="chart-table"></div></details>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>By project</h2><div id="projects"></div></div>
+          <div class="card"><h2>Recent requests</h2><div id="recent"></div></div>
+        </div>
+      </section>
+
+      <!-- Sessions ------------------------------------------------------------ -->
+      <section class="view" id="view-sessions" aria-labelledby="t-sessions" hidden>
+        <div class="head"><h1 id="t-sessions">Sessions</h1></div>
+        <div class="toolbar">
+          <input type="search" id="q" placeholder="Search prompts, files, commands…" aria-label="Search">
+          <select id="f-agent" aria-label="Agent"><option value="">All agents</option></select>
+          <select id="f-when" aria-label="When">
+            <option value="today">Today</option>
+            <option value="week" selected>Last 7 days</option>
+            <option value="all">Everything</option>
+          </select>
+        </div>
+        <div class="split">
+          <div class="list" id="session-list" role="list"></div>
+          <div class="detail" id="session-detail"></div>
+        </div>
+      </section>
+
+      <!-- Settings ------------------------------------------------------------ -->
+      <section class="view" id="view-settings" aria-labelledby="t-settings" hidden>
+        <div class="head"><h1 id="t-settings">Settings</h1><span class="spacer"></span><span class="faint" id="saved"></span></div>
+        <div class="settings">
+          <div class="card">
+            <h2>Your pal</h2>
+            <div class="grid2" style="margin-top:12px">
+              <div>
+                <div class="row"><div class="text">Character<small>The first pal. More sessions get the next ones.</small></div><select id="s-character" aria-label="Character"></select></div>
+                <div class="row"><div class="text">Sounds<small>A blip on prompts, a tick on saves, a ping when it needs you, a chime when done.</small></div><input type="checkbox" class="switch" id="s-sounds" aria-label="Sounds"></div>
+                <div class="row"><div class="text">Notifications<small>When a long request finishes or the agent waits for your OK.</small></div><input type="checkbox" class="switch" id="s-notifications" aria-label="Notifications"></div>
+              </div>
+              <div class="preview" id="preview"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>History</h2>
+            <div class="row"><div class="text">Keep history<small id="history-where">Saved on this computer only.</small></div><input type="checkbox" class="switch" id="s-history" aria-label="Keep history"></div>
+            <div class="row"><div class="text">Keep for<small>Older activity is dropped.</small></div>
+              <select id="s-days" aria-label="Keep for"><option value="1">1 day</option><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option><option value="90">90 days</option></select></div>
+            <div class="row"><div class="text">Clear history<small>Removes everything the dashboard and pal have recorded. Your agents' own logs aren't touched.</small></div><button type="button" class="danger" id="clear">Clear…</button></div>
+          </div>
+
+          <div class="card">
+            <h2>Agents</h2>
+            <div class="agents" id="agents" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card">
+            <h2>About</h2>
+            <div class="row"><div class="text">Version<small id="about-version"></small></div><a href="https://github.com/Rikinshah787/dotpals" target="_blank" rel="noopener">GitHub ↗</a></div>
+            <div class="row"><div class="text">Files<small id="about-files" class="mono"></small></div></div>
+            <div class="row"><div class="text">Set up on another machine<small class="mono">npx github:rikinshah787/dotpals setup</small></div></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script type="module">
+    import { DotPal } from '/src/index.js';
+    import {
+      buildTurns, facts, sentence, plain, turnMarkdown, recapMarkdown, summarizeSessions, turnTime,
+      harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
+    } from '/bridge/ui/recap.js';
+
+    const $ = (id) => document.getElementById(id);
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const DAY = 86_400_000;
+    const entries = new Map();
+    let config = {};
+    let status = null;
+    let range = 'today';
+    let picked = null;       // session id in the Sessions view
+    let detailTab = 'requests';
+    const openRows = new Set();
+
+    const toast = (text) => { const t = $('toast'); t.textContent = text; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 1600); };
+    const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast('Copied as Markdown'); } catch { toast('Copy failed'); } };
+    const download = (name, text, type) => { const a = el('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+    const dayLabel = (at) => { const d = startOfDay(at); const today = startOfDay(); return d === today ? 'Today' : d === today - DAY ? 'Yesterday' : new Date(at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
+    const when = (at) => `${dayLabel(at)} ${shortTime(at)}`;
+    const ago = (at) => { if (!at) return 'never'; const s = Math.round((Date.now() - at) / 1000); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)}m ago` : s < DAY / 1000 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
+    const agentGroup = (h) => (h === 'claude' || h === 'codex' ? h : 'other');
+    const agentChip = (h, label) => { const s = el('span', `agent ${harnessClass(h)}`); s.append(el('i'), `${harnessName(h)}${label ? ` · ${label}` : ''}`); return s; };
+
+    // -- data ---------------------------------------------------------------------
+    let renderTimer;
+    const scheduleRender = () => { clearTimeout(renderTimer); renderTimer = setTimeout(render, 150); };
+
+    const source = new EventSource('/events');
+    source.onopen = () => { $('dot').classList.add('on'); $('live').textContent = 'live'; };
+    source.onerror = () => { $('dot').classList.remove('on'); $('live').textContent = 'offline, retrying…'; };
+    source.addEventListener('activity', (e) => { const a = JSON.parse(e.data); entries.set(a.id, a); scheduleRender(); });
+    source.addEventListener('config', (e) => { config = JSON.parse(e.data); renderSettings(); });
+    source.addEventListener('reset', () => { entries.clear(); render(); });
+
+    async function api(path, body) {
+      const res = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    }
+    const refreshStatus = async () => { try { status = await api('/api/status'); renderSettings(); } catch {} };
+    refreshStatus();
+    setInterval(() => { if (current === 'settings') refreshStatus(); }, 5000);
+
+    // -- routing --------------------------------------------------------------------
+    let current = 'overview';
+    function route() {
+      const [view, id] = (location.hash.slice(1) || 'overview').split('/');
+      current = ['overview', 'sessions', 'settings'].includes(view) ? view : 'overview';
+      if (current === 'sessions' && id) picked = decodeURIComponent(id);
+      for (const v of ['overview', 'sessions', 'settings']) $(`view-${v}`).hidden = v !== current;
+      for (const a of document.querySelectorAll('nav a')) a.setAttribute('aria-current', a.dataset.view === current ? 'page' : 'false');
+      if (current === 'settings') refreshStatus();
+      render();
+    }
+    addEventListener('hashchange', route);
+
+    function render() {
+      if (current === 'overview') renderOverview();
+      if (current === 'sessions') renderSessions();
+      if (current === 'settings') renderSettings();
+    }
+
+    // -- overview -------------------------------------------------------------------
+    for (const b of $('range').querySelectorAll('button')) {
+      b.onclick = () => { range = b.dataset.range; for (const x of $('range').querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b)); renderOverview(); };
+    }
+    const rangeStart = () => (range === 'today' ? startOfDay() : startOfDay() - 6 * DAY);
+    const inRange = () => [...entries.values()].filter((e) => e.at >= rangeStart());
+
+    $('copy-range').onclick = () => {
+      const turns = buildTurns(inRange());
+      copy(recapMarkdown(range === 'today' ? 'Today' : 'The last 7 days', turns));
+    };
+
+    function renderOverview() {
+      const list = inRange();
+      const turns = buildTurns(list);
+      const f = facts(list);
+      const sessions = new Set(list.map((e) => e.session));
+      const time = turns.reduce((s, t) => s + turnTime(t), 0);
+      const tile = (label, value, sub) => { const t = el('div', 'tile'); t.append(el('div', 'label', label), el('div', 'value', String(value))); if (sub) t.append(sub); return t; };
+      const failed = el('div', 'sub'); if (f.runFailed) failed.append(el('span', 'bad', `${f.runFailed} failed`)); else failed.textContent = 'none failed';
+      $('tiles').replaceChildren(
+        tile('Requests', turns.filter((t) => t.prompt).length),
+        tile('Files changed', f.touched, el('div', 'sub', `${f.read.length} read`)),
+        tile('Commands run', f.runs, failed),
+        tile('Agent time', time ? hours(time) : '0m', el('div', 'sub', 'working on your requests')),
+        tile('Sessions', sessions.size, el('div', 'sub', [...new Set(list.map((e) => harnessName(e.harness)))].join(' · ') || '—')),
+      );
+      renderChart();
+      renderProjects(list);
+      renderRecent(turns);
+    }
+
+    // Requests per day for the last 7 days, stacked by agent (always 7 days, whatever the range).
+    const GROUPS = [['claude', 'Claude', 'var(--h-claude)'], ['codex', 'Codex', 'var(--h-codex)'], ['other', 'Other agents', 'var(--h-other)']];
+    function renderChart() {
+      const days = Array.from({ length: 7 }, (_, i) => startOfDay() - (6 - i) * DAY);
+      const counts = days.map(() => ({ claude: 0, codex: 0, other: 0 }));
+      for (const e of entries.values()) {
+        if (e.kind !== 'prompt') continue;
+        const i = days.indexOf(startOfDay(e.at));
+        if (i >= 0) counts[i][agentGroup(e.harness)]++;
+      }
+      const present = GROUPS.filter(([k]) => counts.some((c) => c[k]));
+      const shown = present.length ? present : GROUPS.slice(0, 1);
+      $('legend').replaceChildren(...(shown.length > 1 ? shown.map(([, name, color]) => { const s = el('span'); s.style.setProperty('--c', color); s.append(el('i'), name); return s; }) : []));
+
+      const W = 700, H = 220, left = 30, bottom = 24, top = 8;
+      const max = Math.max(1, ...counts.map((c) => c.claude + c.codex + c.other));
+      const step = Math.max(1, Math.ceil(max / 4));
+      const ceil = step * Math.ceil(max / step);
+      const y = (v) => top + (H - top - bottom) * (1 - v / ceil);
+      const band = (W - left) / 7;
+      const bw = Math.min(46, band * 0.56);
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', `Requests per day for the last 7 days: ${days.map((d, i) => `${dayLabel(d)} ${counts[i].claude + counts[i].codex + counts[i].other}`).join(', ')}`);
+      const mk = (tag, attrs, parent = svg) => { const n = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); parent.append(n); return n; };
+      const grid = mk('g', { class: 'grid' });
+      const axis = mk('g', { class: 'axis' });
+      for (let v = 0; v <= ceil; v += step) {
+        mk('line', { x1: left, x2: W, y1: y(v), y2: y(v) }, grid);
+        mk('text', { x: left - 8, y: y(v) + 4, 'text-anchor': 'end' }, axis).textContent = v;
+      }
+      const tip = el('div', 'tip');
+      tip.hidden = true;
+      days.forEach((d, i) => {
+        const cx = left + band * i + band / 2;
+        mk('text', { x: cx, y: H - 6, 'text-anchor': 'middle' }, axis).textContent = i === 6 ? 'Today' : new Date(d).toLocaleDateString([], { weekday: 'short' });
+        const col = mk('g', { class: 'col' });
+        let base = 0;
+        const stack = shown.filter(([k]) => counts[i][k]);
+        stack.forEach(([k, , color], j) => {
+          const v = counts[i][k];
+          const y0 = y(base), y1 = y(base + v);
+          const gap = j ? 2 : 0; // 2px surface gap between stacked segments
+          const h = Math.max(0, y0 - y1 - gap);
+          const isTop = j === stack.length - 1;
+          // Rounded only at the data end (top of the stack), flat on the baseline.
+          const r = isTop ? Math.min(4, h / 2, bw / 2) : 0;
+          const x = cx - bw / 2, yy = y1;
+          mk('path', { d: `M${x},${yy + h} V${yy + r} Q${x},${yy} ${x + r},${yy} H${x + bw - r} Q${x + bw},${yy} ${x + bw},${yy + r} V${yy + h} Z`, fill: color, class: 'bar' }, col);
+          base += v;
+        });
+        const hit = mk('rect', { x: left + band * i, y: top, width: band, height: H - top - bottom, class: 'hit' }, col);
+        hit.addEventListener('mouseenter', () => {
+          tip.replaceChildren(el('b', '', dayLabel(d)));
+          for (const [k, name, color] of shown) { const row = el('div'); row.style.setProperty('--c', color); row.append(el('i'), name, el('span', '', String(counts[i][k]))); tip.append(row); }
+          const box = $('chart').getBoundingClientRect();
+          tip.style.left = `${(cx / W) * box.width}px`;
+          tip.style.top = `${(y(counts[i].claude + counts[i].codex + counts[i].other) / H) * 220}px`;
+          tip.hidden = false;
+        });
+        hit.addEventListener('mouseleave', () => { tip.hidden = true; });
+      });
+      $('chart').replaceChildren(svg, tip);
+
+      const table = el('table');
+      const head = el('tr'); head.append(el('th', '', 'Day'), ...shown.map(([, name]) => el('th', 'num', name)));
+      table.append(head, ...days.map((d, i) => { const tr = el('tr'); tr.append(el('td', '', dayLabel(d)), ...shown.map(([k]) => el('td', 'num', String(counts[i][k])))); return tr; }));
+      $('chart-table').replaceChildren(table);
+    }
+
+    function renderProjects(list) {
+      const groups = new Map();
+      for (const e of list) {
+        const key = `${e.harness}|${e.label}`;
+        const g = groups.get(key) ?? { harness: e.harness, label: e.label ?? '—', entries: [] };
+        g.entries.push(e);
+        groups.set(key, g);
+      }
+      if (!groups.size) return $('projects').replaceChildren(el('div', 'none', 'Nothing yet in this range.'));
+      const table = el('table');
+      const head = el('tr');
+      head.append(el('th', '', 'Project'), el('th', 'num', 'Requests'), el('th', 'num', 'Files changed'), el('th', 'num', 'Commands'), el('th', 'num', 'Time'));
+      table.append(head);
+      for (const g of [...groups.values()].sort((a, b) => b.entries.length - a.entries.length)) {
+        const turns = buildTurns(g.entries);
+        const f = facts(g.entries);
+        const tr = el('tr');
+        const td = el('td'); td.append(agentChip(g.harness, g.label));
+        tr.append(td, el('td', 'num', String(turns.filter((t) => t.prompt).length)), el('td', 'num', String(f.touched)), el('td', 'num', String(f.runs)), el('td', 'num', hours(turns.reduce((s, t) => s + turnTime(t), 0)) || '—'));
+        table.append(tr);
+      }
+      $('projects').replaceChildren(table);
+    }
+
+    function renderRecent(turns) {
+      const recent = turns.filter((t) => t.prompt).slice(-8).reverse();
+      if (!recent.length) return $('recent').replaceChildren(el('div', 'none', 'Requests you give your agents show up here.'));
+      const table = el('table');
+      for (const t of recent) {
+        const f = facts(t.steps);
+        const tr = el('tr', 'click');
+        tr.tabIndex = 0;
+        tr.onclick = () => { location.hash = `sessions/${encodeURIComponent(t.session)}`; };
+        tr.onkeydown = (e) => { if (e.key === 'Enter') tr.onclick(); };
+        const what = el('td', 'wide');
+        what.append(el('div', 'clip', t.prompt.title), el('div', 'faint', [f.touched ? `${plural(f.touched, 'file')} changed` : '', f.runs ? plural(f.runs, 'command') : '', t.end ? '✓ done' : 'in progress'].filter(Boolean).join(' · ')));
+        const who = el('td'); who.append(agentChip(t.harness, t.label), el('div', 'faint', shortTime(t.at)));
+        tr.append(who, what);
+        table.append(tr);
+      }
+      $('recent').replaceChildren(table);
+    }
+
+    // -- sessions -------------------------------------------------------------------
+    $('q').oninput = () => renderSessions();
+    $('f-agent').onchange = () => renderSessions();
+    $('f-when').onchange = () => renderSessions();
+
+    const matches = (s, q) => !q || s.entries.some((e) => [e.title, e.detail, e.summary, e.body?.command, ...(e.files ?? []).map((f) => f.path)].some((v) => v && String(v).toLowerCase().includes(q)));
+
+    function renderSessions() {
+      const all = summarizeSessions([...entries.values()]);
+      // Agent filter options.
+      const agents = [...new Set(all.map((s) => s.harness).filter(Boolean))];
+      const sel = $('f-agent');
+      const chosen = sel.value;
+      sel.replaceChildren(new Option('All agents', ''), ...agents.map((h) => new Option(harnessName(h), h)));
+      sel.value = agents.includes(chosen) ? chosen : '';
+
+      const since = { today: startOfDay(), week: startOfDay() - 6 * DAY, all: 0 }[$('f-when').value];
+      const q = $('q').value.trim().toLowerCase();
+      const list = all.filter((s) => s.last >= since && (!sel.value || s.harness === sel.value) && matches(s, q));
+      if (!picked || !list.some((s) => s.id === picked)) picked = list[0]?.id ?? null;
+
+      $('session-list').replaceChildren(...(list.length ? list.map((s) => {
+        const b = el('button');
+        b.type = 'button';
+        b.className = harnessClass(s.harness);
+        b.setAttribute('role', 'listitem');
+        b.setAttribute('aria-current', String(s.id === picked));
+        const name = el('span', 'name'); name.append(el('i'), `${harnessName(s.harness)} · ${s.label ?? 'session'}`);
+        b.append(name, el('small', '', `${when(s.first)} – ${shortTime(s.last)}`), el('small', '', [plural(s.requests, 'request'), `${plural(s.facts.touched, 'file')} changed`, plural(s.facts.runs, 'command')].join(' · ')));
+        b.onclick = () => { picked = s.id; openRows.clear(); history.replaceState(null, '', `#sessions/${encodeURIComponent(s.id)}`); renderSessions(); };
+        return b;
+      }) : [el('div', 'none', q ? 'No sessions match your search.' : 'No sessions in this range yet.')]));
+
+      renderDetail(list.find((s) => s.id === picked));
+    }
+
+    function renderDetail(s) {
+      const box = $('session-detail');
+      if (!s) return box.replaceChildren();
+      const head = el('div', `detail-head ${harnessClass(s.harness)}`);
+      const title = el('div', 'title');
+      const h1 = el('h1'); h1.append(el('i'), `${harnessName(s.harness)} · ${s.label ?? 'session'}`);
+      title.append(h1, el('div', 'muted', `${when(s.first)} – ${when(s.last)} · ${plural(s.requests, 'request')} · ${s.facts.touched} files changed · ${plural(s.facts.runs, 'command')}${s.facts.runFailed ? ` (${s.facts.runFailed} failed)` : ''}${s.time ? ` · ${hours(s.time)} of agent time` : ''}`));
+      const md = el('button', '', 'Copy recap'); md.type = 'button';
+      md.onclick = () => copy(recapMarkdown(`${harnessName(s.harness)} · ${s.label ?? 'session'} · ${dayLabel(s.first)}`, s.turns));
+      const exp = el('button', '', 'Export ▾'); exp.type = 'button';
+      exp.onclick = () => {
+        const stamp = new Date(s.first).toISOString().slice(0, 10);
+        const name = `dotpals-${s.harness ?? 'agent'}-${(s.label ?? 'session').replace(/[^\w.-]+/g, '-')}-${stamp}`;
+        download(`${name}.md`, recapMarkdown(`${harnessName(s.harness)} · ${s.label ?? 'session'}`, s.turns), 'text/markdown');
+        download(`${name}.json`, JSON.stringify(s.entries, null, 2), 'application/json');
+        toast('Downloaded Markdown and JSON');
+      };
+      head.append(title, md, exp);
+
+      const tabs = el('div', 'tabs');
+      tabs.setAttribute('role', 'tablist');
+      for (const [key, label] of [['requests', `Requests (${s.requests})`], ['files', `Files (${s.facts.touched + s.facts.read.length})`], ['log', `Log (${s.entries.length})`]]) {
+        const b = el('button', '', label); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(detailTab === key));
+        b.onclick = () => { detailTab = key; renderDetail(s); };
+        tabs.append(b);
+      }
+      const body = detailTab === 'requests' ? renderTurns(s) : detailTab === 'files' ? renderFilesTable(s) : renderLog(s);
+      box.replaceChildren(head, tabs, body);
+    }
+
+    function renderTurns(s) {
+      const wrap = el('div');
+      wrap.style.cssText = 'display:grid;gap:12px';
+      const turns = s.turns.filter((t) => t.prompt || t.steps.length).reverse();
+      if (!turns.length) return el('div', 'none', 'No requests recorded.');
+      for (const t of turns) {
+        const card = el('div', `turn ${harnessClass(t.harness)}`);
+        if (t.prompt) { const ask = el('div', 'ask'); ask.append(el('small', '', `You asked · ${when(t.at)}`), el('p', '', t.prompt.title)); card.append(ask); }
+        if (t.end?.summary) { const said = el('p', 'said'); said.append(el('b', '', `${harnessName(t.harness)}: `), plain(t.end.summary)); card.append(said); }
+        const f = facts(t.steps);
+        const bits = [];
+        const bit = (strong, rest = '') => { const s1 = el('span'); s1.append(el('b', '', strong), rest); bits.push(s1); };
+        if (f.changed.length) bit(`Changed ${plural(f.changed.length, 'file')}: `, f.changed.map((x) => baseName(x.path)).join(', '));
+        if (f.wrote.length) bit(`Wrote ${plural(f.wrote.length, 'file')}: `, f.wrote.map((x) => baseName(x.path)).join(', '));
+        if (f.runs) { const s1 = el('span'); s1.append(el('b', '', `Ran ${plural(f.runs, 'command')}`)); if (f.runFailed) s1.append(el('span', 'bad', `, ${f.runFailed} failed`)); bits.push(s1); }
+        if (f.read.length) bit(`Read ${plural(f.read.length, 'file')}`);
+        if (f.skills.size) bit('Skills: ', [...f.skills].join(', '));
+        if (f.mcp.size) bit('Tools: ', [...f.mcp].join(', '));
+        if (bits.length) { const did = el('div', 'did'); did.append(...bits); card.append(did); }
+        const foot = el('footer');
+        foot.append(t.end ? el('span', t.end.kind === 'done' ? 'ok' : 'bad', t.end.kind === 'done' ? `✓ Done${turnTime(t) ? ` in ${secs(turnTime(t))}` : ''}` : '✕ Stopped with an error') : el('span', '', 'In progress or interrupted'));
+        const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(turnMarkdown(t));
+        const steps = el('button', '', openRows.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`); steps.type = 'button';
+        steps.onclick = () => { openRows.has(t.id) ? openRows.delete(t.id) : openRows.add(t.id); renderDetail(s); };
+        foot.append(c, ...(t.steps.length ? [steps] : []));
+        card.append(foot);
+        if (openRows.has(t.id)) {
+          const list = el('div'); list.style.padding = '4px 14px 10px';
+          list.append(logTable(t.steps, sentence));
+          card.append(list);
+        }
+        wrap.append(card);
+      }
+      return wrap;
+    }
+
+    function renderFilesTable(s) {
+      const files = new Map();
+      for (const e of s.entries) {
+        if (e.status === 'failed') continue;
+        for (const f of e.files ?? []) {
+          const key = String(f.path).toLowerCase();
+          const row = files.get(key) ?? { path: f.path, read: 0, edit: 0, write: 0, delete: 0, last: 0 };
+          row[f.change] = (row[f.change] ?? 0) + 1;
+          row.last = Math.max(row.last, e.at);
+          files.set(key, row);
+        }
+      }
+      if (!files.size) return el('div', 'none', 'No files touched.');
+      const table = el('table');
+      const head = el('tr');
+      head.append(el('th', '', 'File'), el('th', '', 'What happened'), el('th', 'num', 'Last touched'));
+      table.append(head);
+      for (const f of [...files.values()].sort((a, b) => (b.edit + b.write + b.delete) - (a.edit + a.write + a.delete) || b.last - a.last)) {
+        const tr = el('tr');
+        const name = el('td'); const a = el('a', '', baseName(f.path)); a.href = fileUrl(f.path); a.title = `Open ${f.path} in VS Code`; name.append(a, el('div', 'faint mono', f.path));
+        const what = [f.delete && 'deleted', f.write && `written ${f.write}×`, f.edit && `edited ${f.edit}×`, f.read && `read ${f.read}×`].filter(Boolean).join(', ');
+        tr.append(name, el('td', '', what), el('td', 'num faint', when(f.last)));
+        table.append(tr);
+      }
+      return table;
+    }
+
+    const renderLog = (s) => logTable([...s.entries].sort((a, b) => a.at - b.at), (e) => e.title || e.tool || e.kind);
+
+    function logTable(list, describe) {
+      const table = el('table', 'log');
+      const head = el('tr');
+      head.append(el('th', '', 'Time'), el('th', '', 'Kind'), el('th', '', 'What'), el('th', '', 'Result'));
+      table.append(head);
+      for (const e of list) {
+        const tr = el('tr', `click k-${e.kind}`);
+        tr.tabIndex = 0;
+        const st = el('td', 'st');
+        const mark = e.status === 'ok' ? el('span', 'ok', '✓') : e.status === 'failed' ? el('span', 'bad', '✕') : e.status === 'waiting' ? el('span', 'wait', 'needs OK') : el('span', 'faint', e.status === 'running' ? '…' : '');
+        st.append(mark, e.ms != null ? ` ${secs(e.ms)}` : '');
+        const what = el('td', 'wide'); what.append(el('div', 'clip', describe(e)));
+        if (e.detail) what.append(el('div', 'faint mono clip', e.detail));
+        tr.append(el('td', 'faint', shortTime(e.at)), (() => { const td = el('td'); td.append(el('span', 'tag', e.kind)); return td; })(), what, st);
+        const toggle = () => { openRows.has(e.id) ? openRows.delete(e.id) : openRows.add(e.id); tr.after(...(openRows.has(e.id) ? [bodyRow(e)] : [])); if (!openRows.has(e.id)) tr.nextElementSibling?.classList.contains('body-row') && tr.nextElementSibling.remove(); };
+        tr.onclick = toggle;
+        tr.onkeydown = (ev) => { if (ev.key === 'Enter') toggle(); };
+        table.append(tr);
+        if (openRows.has(e.id)) table.append(bodyRow(e));
+      }
+      return table;
+    }
+
+    function bodyRow(e) {
+      const tr = el('tr', 'body-row');
+      const td = el('td'); td.colSpan = 4;
+      const body = el('div', 'body');
+      if (e.tool) body.append(el('div', 'faint', `tool ${e.tool} · ${when(e.at)}`));
+      for (const f of e.files ?? []) { const a = el('a', '', `${f.change} · ${f.path}`); a.href = fileUrl(f.path); body.append(a); }
+      if (e.error) body.append(el('div', 'bad', e.error));
+      if (e.summary) body.append(el('div', 'label', 'summary'), el('pre', 'code', plain(e.summary)));
+      const b = e.body ?? {};
+      if (b.command) body.append(el('div', 'label', 'command'), el('pre', 'code', `$ ${b.command}`));
+      if (b.patch) {
+        const pre = el('pre', 'code');
+        for (const line of b.patch.split('\n')) {
+          const cls = line.startsWith('+') && !line.startsWith('+++') ? 'add' : line.startsWith('-') && !line.startsWith('---') ? 'del' : /^(@@|\*\*\*)/.test(line) ? 'hunk' : '';
+          pre.append(cls ? el('span', cls, line) : document.createTextNode(`${line}\n`));
+        }
+        body.append(el('div', 'label', 'changes'), pre);
+      }
+      if (b.args) body.append(el('div', 'label', 'input'), el('pre', 'code', b.args));
+      if (b.output) body.append(el('div', 'label', 'output'), el('pre', 'code', b.output));
+      td.append(body);
+      tr.append(td);
+      return tr;
+    }
+
+    // -- settings -------------------------------------------------------------------
+    for (const name of DotPal.characters) $('s-character').add(new Option(name[0].toUpperCase() + name.slice(1), name));
+    const preview = document.createElement('dot-pal');
+    preview.setAttribute('size', '120');
+    preview.setAttribute('idle', 'float');
+    $('preview').append(preview);
+
+    async function save(patch) {
+      try {
+        config = await api('/api/config', patch);
+        $('saved').textContent = 'Saved';
+        clearTimeout(save.t); save.t = setTimeout(() => ($('saved').textContent = ''), 1500);
+        renderSettings();
+      } catch { toast('Couldn’t save. Is the bridge running?'); }
+    }
+    $('s-character').onchange = (e) => { save({ character: e.target.value }); preview.character = e.target.value; preview.play('jump'); };
+    $('s-sounds').onchange = (e) => save({ sounds: e.target.checked });
+    $('s-notifications').onchange = (e) => save({ notifications: e.target.checked });
+    $('s-history').onchange = (e) => save({ history: e.target.checked });
+    $('s-days').onchange = (e) => save({ historyDays: Number(e.target.value) });
+    $('clear').onclick = async () => {
+      if (!confirm('Clear all dotpals history? Your agents’ own logs aren’t touched.')) return;
+      try { await api('/api/history/clear', {}); toast('History cleared'); refreshStatus(); } catch { toast('Couldn’t clear history'); }
+    };
+
+    function renderSettings() {
+      if (!config.character) return;
+      $('s-character').value = config.character;
+      if (preview.character !== config.character) preview.character = config.character;
+      $('s-sounds').checked = config.sounds;
+      $('s-notifications').checked = config.notifications;
+      $('s-history').checked = config.history;
+      $('s-days').value = String(config.historyDays);
+      $('s-days').disabled = !config.history;
+      if (!status) return;
+      $('history-where').textContent = config.history ? `Saved on this computer only: ${status.historyFile} (${(status.historySize / 1024).toFixed(0)} KB, ${status.entries} entries)` : 'Off. Activity is kept only until the pal closes.';
+      $('about-version').textContent = `dotpals ${status.version} · bridge on port ${status.port}`;
+      $('about-files').textContent = `Settings: ${status.configFile}`;
+
+      const a = status.adapters;
+      const card = (title, lines, extra) => { const c = el('div', 'card'); c.append(el('h2', '', title), ...lines); if (extra) c.append(extra); return c; };
+      const pill = (on, text) => el('span', `pill ${on ? 'on' : 'off'}`, `${on ? '●' : '○'} ${text}`);
+      const claude = card('Claude Code', [
+        pill(!!a.claude.lastEventAt, a.claude.lastEventAt ? `Connected · last seen ${ago(a.claude.lastEventAt)}` : 'Not seen yet'),
+        el('div', 'muted', a.claude.lastEventAt ? 'Hooks report live, and each session’s transcript fills in its history.' : 'Install the plugin in Claude Code:'),
+        ...(a.claude.lastEventAt ? [] : [el('pre', 'code', '/plugin marketplace add rikinshah787/dotpals\n/plugin install dotpals@dotpals')]),
+      ]);
+      const codexSwitch = el('input', 'switch'); codexSwitch.type = 'checkbox'; codexSwitch.checked = a.codex.enabled; codexSwitch.setAttribute('aria-label', 'Follow Codex');
+      codexSwitch.onchange = () => save({ codex: codexSwitch.checked });
+      const codexRow = el('div', 'row'); codexRow.style.padding = '0'; codexRow.append(el('div', 'text muted', 'Follow Codex session logs'), codexSwitch);
+      const codex = card('Codex', [
+        pill(a.codex.enabled && a.codex.found, !a.codex.enabled ? 'Off' : a.codex.found ? (a.codex.lastEventAt ? `Following · last seen ${ago(a.codex.lastEventAt)}` : 'Following, no activity yet') : 'Codex not found on this computer'),
+        el('div', 'muted', 'Nothing to install on the Codex side: dotpals reads its session logs.'),
+        codexRow,
+      ]);
+      const other = card('Any agent', [
+        pill(!!a.generic.lastEventAt, a.generic.lastEventAt ? `Last event ${ago(a.generic.lastEventAt)}` : 'Waiting for events'),
+        el('div', 'muted', 'POST JSON from your agent loop or hook:'),
+        el('pre', 'code', `curl ${a.generic.endpoint} -d '{"session":"s1","harness":"my-agent","state":"working","text":"Running tests"}'`),
+      ], (() => { const l = el('a', '', 'Event format ↗'); l.href = 'https://github.com/Rikinshah787/dotpals#plug-in-any-agent'; l.target = '_blank'; l.rel = 'noopener'; return l; })());
+      $('agents').replaceChildren(claude, codex, other);
+    }
+
+    route();
+  </script>
+</body>
+</html>

@@ -36,7 +36,8 @@ export function launchFloat(electron = findElectron()) {
   return true;
 }
 
-function install() {
+/** Download Electron once into ~/.dotpals. Returns true on success. */
+export function installElectron() {
   mkdirSync(shared, { recursive: true });
   console.log(`Installing Electron into ${shared} (about 100 MB, one time)…`);
   const { status } = spawnSync('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--prefix', shared, 'electron'], { stdio: 'inherit', shell: true });
@@ -45,7 +46,7 @@ function install() {
 
 const invoked = process.argv[1] && (() => { try { return realpathSync(process.argv[1]); } catch { return ''; } })();
 if (invoked && invoked === realpathSync(fileURLToPath(import.meta.url))) {
-  if (process.argv.includes('--install') && !findElectron() && !install()) process.exit(1);
+  if (process.argv.includes('--install') && !findElectron() && !installElectron()) process.exit(1);
   if (launchFloat()) {
     console.log('dotpals is floating on your screen.');
   } else {

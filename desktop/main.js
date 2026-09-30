@@ -10,11 +10,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startBridge } from '../bridge/server.js';
+import { loadConfig, saveConfig } from '../bridge/config.js';
 
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
 const page = fileURLToPath(new URL('../bridge/index.html', import.meta.url));
-const SIZE = { compact: { width: 240, height: 270 }, full: { width: 380, height: 600 } };
+const SIZE = { compact: { width: 240, height: 290 }, full: { width: 380, height: 600 } };
 const MARGIN = 16;
 const SHORTCUT = 'CommandOrControl+Alt+P';
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
@@ -45,8 +46,17 @@ if (!app.requestSingleInstanceLock()) {
   };
   const toggle = () => (win?.isVisible() ? win.hide() : show());
 
-  // Launching it again (e.g. `npm run float`) brings the running one back.
-  app.on('second-instance', show);
+  // Launching it again (e.g. `npm run float`, `dotpals dashboard`) brings the running one back.
+  app.on('second-instance', (_, argv) => {
+    show();
+    handleArgs(argv);
+  });
+
+  // Flags from `dotpals setup` / `dotpals dashboard`.
+  function handleArgs(argv) {
+    if (argv.includes('--open-at-login')) app.setLoginItemSettings({ ...loginItem(), openAtLogin: true });
+    if (argv.includes('--dashboard')) openDashboard();
+  }
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => globalShortcut.unregisterAll());
 
@@ -59,11 +69,37 @@ if (!app.requestSingleInstanceLock()) {
     }
     createWindow();
     createTray();
+    handleArgs(process.argv);
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
   });
 
   // Hidden to the tray isn't "all closed"; only Quit ends the app.
   app.on('window-all-closed', () => { if (quitting) app.quit(); });
+
+  // When run as electron.exe + main.js (npm run float, setup), log-in needs the script too.
+  const loginItem = () => (app.isPackaged ? {} : { path: process.execPath, args: [fileURLToPath(import.meta.url)] });
+  ipcMain.handle('login:get', () => app.getLoginItemSettings(loginItem()).openAtLogin);
+  ipcMain.handle('login:set', (_, on) => { app.setLoginItemSettings({ ...loginItem(), openAtLogin: !!on }); return !!on; });
+
+  // The dashboard: sessions, logs, stats and settings, in a normal window.
+  let dashboard;
+  function openDashboard() {
+    if (dashboard && !dashboard.isDestroyed()) { dashboard.show(); dashboard.focus(); return; }
+    dashboard = new BrowserWindow({
+      width: 1180, height: 820, minWidth: 420, minHeight: 480,
+      title: 'dotpals dashboard', icon, backgroundColor: '#0b0b0e', autoHideMenuBar: true,
+      webPreferences: { sandbox: true, contextIsolation: true },
+    });
+    dashboard.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^(https?|vscode|cursor):/i.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    dashboard.webContents.on('will-navigate', (e, url) => {
+      if (!url.startsWith(bridge)) { e.preventDefault(); if (/^(https?|vscode|cursor):/i.test(url)) shell.openExternal(url); }
+    });
+    dashboard.loadURL(`${bridge}/dashboard`);
+  }
+  ipcMain.on('dashboard:open', openDashboard);
 
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
@@ -72,9 +108,10 @@ if (!app.requestSingleInstanceLock()) {
     const menu = () => Menu.buildFromTemplate([
       { label: 'Show / hide', accelerator: SHORTCUT, click: toggle },
       { label: 'Just the pal', type: 'checkbox', checked: !!prefs.compact, click: (item) => win?.webContents.send('window:set-compact', item.checked) },
-      { label: 'Notifications', type: 'checkbox', checked: prefs.notify !== false, click: (item) => { prefs.notify = item.checked; savePrefs(); } },
+      { label: 'Dashboard', click: openDashboard },
       { type: 'separator' },
-      { label: 'Open when I log in', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }) },
+      { label: 'Notifications', type: 'checkbox', checked: loadConfig().notifications, click: (item) => saveConfig({ notifications: item.checked }) },
+      { label: 'Open when I log in', type: 'checkbox', checked: app.getLoginItemSettings(loginItem()).openAtLogin, click: (item) => app.setLoginItemSettings({ ...loginItem(), openAtLogin: item.checked }) },
       { type: 'separator' },
       { label: 'Quit dotpals', click: () => app.quit() },
     ]);
@@ -82,9 +119,12 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'win32') tray.setContextMenu(menu());
   }
 
+  // The size the window should be right now (never read back from Windows, which drifts with scaling).
+  const intendedSize = () => (prefs.compact ? { ...SIZE.compact } : { ...SIZE.full, height: prefs.height ?? SIZE.full.height });
+
   function createWindow() {
     const compact = !!prefs.compact;
-    const size = compact ? SIZE.compact : { ...SIZE.full, height: prefs.height ?? SIZE.full.height };
+    const size = intendedSize();
     const area = screen.getPrimaryDisplay().workArea;
     const pos = onScreen(prefs.x, prefs.y, size) ?? {
       x: area.x + area.width - size.width - MARGIN,
@@ -124,7 +164,7 @@ if (!app.requestSingleInstanceLock()) {
       return { action: 'deny' };
     });
     win.webContents.on('will-navigate', (e, url) => {
-      if (!url.startsWith('file:')) {
+      if (!url.startsWith('file:') && !url.startsWith(bridge)) {
         e.preventDefault();
         if (/^(https?|vscode|cursor):/i.test(url)) shell.openExternal(url);
       }
@@ -162,7 +202,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     win.on('closed', () => { clearInterval(hover); stopFollowing(); win = null; });
 
-    win.loadFile(page, { query: { float: '1' } });
+    win.loadURL(`${bridge}/?float=1`).catch(() => win.loadFile(page, { query: { float: '1' } }));
   }
 
   // Keep a saved position if it's still on a connected screen, nudged fully onto it.
@@ -196,7 +236,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // Desktop notifications (the page decides when: see notify() in bridge/index.html).
   ipcMain.on('notify', (_, { title, body } = {}) => {
-    if (prefs.notify === false || !Notification.isSupported() || typeof title !== 'string') return;
+    if (!loadConfig().notifications || !Notification.isSupported() || typeof title !== 'string') return;
     const n = new Notification({ title, body: typeof body === 'string' ? body : '', icon, silent: true });
     n.on('click', show);
     n.show();
@@ -209,10 +249,11 @@ if (!app.requestSingleInstanceLock()) {
   const followCursor = () => {
     if (!win || !drag) return;
     const p = screen.getCursorScreenPoint();
-    // setPosition, not setBounds: with display scaling, setBounds can grow the window a pixel per move.
-    // It only takes whole numbers, and the page's press position can be fractional (display scaling).
+    // With display scaling, Windows rounds the size a little differently on every
+    // move, so the window creeps bigger. Always pass the exact size we want.
+    // (Whole numbers only: the page's press position can be fractional.)
     try {
-      win.setPosition(Math.round(drag.x + p.x - drag.cursor.x), Math.round(drag.y + p.y - drag.cursor.y));
+      win.setBounds({ x: Math.round(drag.x + p.x - drag.cursor.x), y: Math.round(drag.y + p.y - drag.cursor.y), ...drag.size });
     } catch {}
   };
   ipcMain.on('window:drag-start', (_, cx, cy) => {
@@ -221,7 +262,7 @@ if (!app.requestSingleInstanceLock()) {
     // The press position from the page is exact (the window hasn't moved yet);
     // by the time this message arrives the cursor may already have moved on.
     const cursor = Number.isFinite(cx) && Number.isFinite(cy) ? { x: cx, y: cy } : screen.getCursorScreenPoint();
-    drag = { x, y, cursor };
+    drag = { x, y, cursor, size: intendedSize() };
   });
   ipcMain.on('window:drag-to', followCursor);
   ipcMain.on('window:drag-end', () => {

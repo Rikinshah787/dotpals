@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   isCompact: () => ipcRenderer.invoke('window:is-compact'),
   close: () => ipcRenderer.send('window:close'),
   show: () => ipcRenderer.send('window:show'),
+  openDashboard: () => ipcRenderer.send('dashboard:open'),
+  getOpenAtLogin: () => ipcRenderer.invoke('login:get'),
+  setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),
   copy: (text) => ipcRenderer.send('clipboard:write', text),
   notify: (title, body) => ipcRenderer.send('notify', { title, body }),
 });

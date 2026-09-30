@@ -30,9 +30,9 @@
       --k-mcp: #a3b3c7;
       --k-skill: #e3b341;
       --k-other: #8b8b96;
-      --h-claude: #d97757;
-      --h-codex: #9aa4ff;
-      --h-other: #8b8b96;
+      --h-claude: #d95926;
+      --h-codex: #3987e5;
+      --h-other: #199e70;
       --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
     }
     * { box-sizing: border-box; }
@@ -183,15 +183,23 @@
     /* Compact: just the pal, floating on the desktop. Two round buttons fade in
        while the mouse is over the window (the main process tells us: see main.js). */
     body.compact .card { background: transparent; border-color: transparent; }
-    body.compact .bar { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 0; min-height: 0; gap: 6px; border: 0; background: none; -webkit-app-region: no-drag; opacity: 0; transform: translateY(-4px); transition: opacity .18s, transform .18s; pointer-events: none; }
-    body.compact.hover .bar, body.compact .bar:focus-within { opacity: 1; transform: none; pointer-events: auto; }
-    body.compact .bar :is(b, .status, select, .dot, #sound) { display: none; }
-    body.compact .icon { width: 30px; height: 30px; border-radius: 50%; color: var(--text); background: rgb(18 18 23 / .88); border: 1px solid var(--line); box-shadow: 0 4px 14px rgb(0 0 0 / .35); }
+    /* Small mode: a round pill above the pal with each session's icon, expand and close.
+       Always visible (no hover tricks), and you can drag the window by it. */
+    body.compact .bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2; padding: 3px; min-height: 0; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgb(18 18 23 / .92); box-shadow: 0 4px 14px rgb(0 0 0 / .35); }
+    body.compact .bar :is(b, .status, select, .dot, #sound, #dash) { display: none; }
+    body.compact .icon { width: 26px; height: 26px; border-radius: 50%; color: var(--text); }
     body.compact .icon:hover { background: #26262e; }
-    body.compact .icon svg { width: 13px; height: 13px; }
+    body.compact .icon svg { width: 12px; height: 12px; }
+    .mini { display: none; }
+    body.compact .mini { display: flex; gap: 3px; }
+    body.compact .mini:empty { display: none; }
+    .mini button { width: 26px; height: 26px; padding: 0; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 var(--mono); text-transform: uppercase; color: var(--text); background: color-mix(in srgb, var(--h) 24%, transparent); border: 2px solid transparent; -webkit-app-region: no-drag; }
+    .mini button[aria-pressed="true"] { border-color: var(--h); }
+    .mini button.busy { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 35%, transparent); } }
     body.compact #compact .shrink { display: none; }
     body.compact #compact .grow { display: block; }
-    body.compact #stage { height: 100%; border: 0; padding: 60px 0 0; }
+    body.compact #stage { height: 100%; border: 0; padding: 78px 0 0; }
     body.compact :is(.tabs, .panel, .sessions) { display: none; }
     body.compact .slot span { display: none; }
 
@@ -212,10 +220,14 @@
       <span class="dot" id="dot"></span>
       <b id="title">dotpals</b>
       <span class="status" id="status">connecting…</span>
+      <span class="mini" id="mini" role="group" aria-label="Sessions"></span>
       <select id="first" title="First pal"></select>
       <button id="sound" class="icon" type="button" title="Sounds on" aria-label="Sounds on" aria-pressed="true">
         <svg class="on" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10L4.5 10H2zM11 5.5a3.5 3.5 0 0 1 0 5M13 3.5a6 6 0 0 1 0 9"/></svg>
         <svg class="off" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10L4.5 10H2zM11 6l4 4M15 6l-4 4"/></svg>
+      </button>
+      <button id="dash" class="icon" type="button" title="Dashboard: sessions, logs and settings" aria-label="Dashboard">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>
       </button>
       <button id="pip" class="browser-only" type="button" title="Float the pals above other windows">Pop out ↗</button>
       <button id="compact" class="icon float-only" type="button" title="Just the pal" aria-label="Just the pal">
@@ -333,6 +345,7 @@
     $('sound').onclick = () => {
       sound.on = !sound.on;
       syncSoundButton();
+      saveConfig({ sounds: sound.on });
       if (sound.on) sound.play('prompt');
     };
 
@@ -395,6 +408,7 @@
     $('first').onchange = (e) => {
       first = e.target.value;
       try { localStorage.setItem('dotpals.first', first); } catch {}
+      saveConfig({ character: first });
       const firstSlot = slots.values().next().value;
       if (firstSlot) firstSlot.pal.character = first;
     };
@@ -442,6 +456,17 @@
       all.setAttribute('aria-pressed', String(picked === 'all'));
       all.onclick = () => pick('all', true);
       nav.replaceChildren(...buttons, all);
+
+      // Small mode: one round icon per recent session (the project's first letter, in the agent's color).
+      $('mini').replaceChildren(...list.slice(0, 4).map((s) => {
+        const b = el('button', `${harnessClass(s.harness)}${['working', 'thinking', 'speaking', 'waiting'].includes(s.state) ? ' busy' : ''}`, (s.label || '?').trim()[0]);
+        b.type = 'button';
+        b.title = `${sessionName(s)}: ${s.state ?? 'idle'}`;
+        b.setAttribute('aria-label', b.title);
+        b.setAttribute('aria-pressed', String(picked === s.id));
+        b.onclick = () => pick(s.id, true);
+        return b;
+      }));
       const s = sessions.get(picked);
       $('title').textContent = s ? sessionName(s) : picked === 'all' ? 'All sessions' : 'dotpals';
     }
@@ -1061,7 +1086,32 @@
       $('dot').classList.toggle('on', on);
       $('status').textContent = on ? 'live' : 'bridge offline, retrying…';
     }
-    const onEvent = ({ type, data }) => (type === 'activity' ? applyActivity(data) : applyState(data));
+    // Settings live in ~/.dotpals/config.json; the bridge sends them, and we save changes back.
+    const sameOrigin = location.protocol.startsWith('http');
+    const saveConfig = (patch) => sameOrigin && fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
+    function applyConfig(config) {
+      if (typeof config.sounds === 'boolean' && config.sounds !== sound.on) { sound.on = config.sounds; syncSoundButton(); }
+      if (cast.includes(config.character) && config.character !== first && !new URLSearchParams(location.search).get('character')) {
+        first = config.character;
+        $('first').value = first;
+        const firstSlot = slots.values().next().value;
+        if (firstSlot) firstSlot.pal.character = first;
+      }
+    }
+    function resetAll() {
+      entries.clear();
+      feed.replaceChildren(el('li', 'none', 'Every tool call shows up here as your agent works. Click one to see exactly what it did.'));
+      renderFiles();
+      refreshCounts();
+      renderRecap();
+    }
+    const onEvent = ({ type, data }) =>
+      type === 'activity' ? applyActivity(data)
+      : type === 'config' ? applyConfig(data)
+      : type === 'reset' ? resetAll()
+      : applyState(data);
+
+    $('dash').onclick = () => (desktop?.openDashboard ? desktop.openDashboard() : window.open('/dashboard', '_blank'));
 
     if (isFloat) {
       desktop.connect(onEvent, setOnline);
@@ -1121,6 +1171,8 @@
       source.onerror = () => setOnline(false);
       source.onmessage = (e) => onEvent({ type: 'message', data: JSON.parse(e.data) });
       source.addEventListener('activity', (e) => onEvent({ type: 'activity', data: JSON.parse(e.data) }));
+      source.addEventListener('config', (e) => onEvent({ type: 'config', data: JSON.parse(e.data) }));
+      source.addEventListener('reset', () => onEvent({ type: 'reset' }));
     }
 
     // Float the pals in an always-on-top window (Chrome/Edge Document Picture-in-Picture).

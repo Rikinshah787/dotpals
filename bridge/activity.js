@@ -103,6 +103,10 @@ export function createActivityLog({ limit = 800 } = {}) {
     has: (session) => bySession.has(session),
     /** Every entry, oldest first, for replaying to a new viewer. */
     all: () => [...bySession.values()].flat().sort((a, b) => a.at - b.at),
+    clear() {
+      bySession.clear();
+      byId.clear();
+    },
     forget(session) {
       for (const entry of bySession.get(session) ?? []) byId.delete(entry.id);
       bySession.delete(session);
