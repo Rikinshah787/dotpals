@@ -58,7 +58,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 ### One command
 
 ```bash
-npx github:rikinshah787/dotpals setup
+npx --allow-git=all github:rikinshah787/dotpals setup
 ```
 
 That's all. It:
@@ -68,7 +68,7 @@ That's all. It:
 3. picks up Codex automatically, if it's installed,
 4. starts the pal, turns on *open when I log in*, and opens the dashboard.
 
-Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
+`--allow-git=all` lets npm 12 and newer install straight from GitHub; older npm ignores it. Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
 
 ### Only the Claude Code plugin
 
@@ -98,7 +98,7 @@ Send JSON to the local bridge from your agent loop, a hook script or a wrapper. 
 | **×** | Hide to the tray. The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
 | 🔊 | Sounds on or off |
 
-From a terminal, after setup (or with `npx github:rikinshah787/dotpals <command>`):
+From a terminal, after setup (or with `npx --allow-git=all github:rikinshah787/dotpals <command>`):
 
 ```bash
 dotpals start       # open the floating pal

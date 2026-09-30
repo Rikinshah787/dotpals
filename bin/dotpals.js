@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // dotpals command line.
 //
-//   npx github:rikinshah787/dotpals setup     one command: install, connect your agents, start
+//   npx --allow-git=all github:rikinshah787/dotpals setup     one command: install, connect your agents, start
 //   dotpals start                             open the floating pal
 //   dotpals dashboard                         open the dashboard
 //   dotpals status                            what's running and connected
@@ -137,7 +137,7 @@ const flags = new Set(rest);
 switch (command) {
   case 'setup': await setup(flags); break;
   case 'start':
-    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx github:rikinshah787/dotpals setup'); process.exitCode = 1; }
+    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx --allow-git=all github:rikinshah787/dotpals setup'); process.exitCode = 1; }
     break;
   case 'dashboard':
     // The app's own window when the desktop pal is installed (a running pal just opens it);
