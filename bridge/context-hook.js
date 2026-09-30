@@ -8,7 +8,7 @@
 // chat. On session start it gets the whole note; on later prompts only news since
 // the last note. It never starts anything, gives up after ~1.5 s, and always exits
 // 0, so Claude carries on either way.
-import { basename } from 'node:path';
+import { folderName } from './activity.js';
 
 const bridge = process.env.DOTPALS_BRIDGE || `http://127.0.0.1:${Number(process.env.DOTPALS_PORT) || 5175}`;
 
@@ -22,7 +22,7 @@ process.stdin.on('end', async () => {
     if ((name === 'SessionStart' || name === 'UserPromptSubmit') && event.session_id && event.cwd) {
       const q = new URLSearchParams({
         session: String(event.session_id),
-        label: basename(String(event.cwd).replace(/[\\/]+$/, '')),
+        label: folderName(event.cwd), // the same project name the bridge uses (either slash)
         mode: name === 'SessionStart' ? 'start' : 'prompt',
       });
       const res = await fetch(`${bridge}/api/recap?${q}`, { signal: AbortSignal.timeout(1500) });

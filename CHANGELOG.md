@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-30
+
+### Fixed
+
+- Share with your agents: the hook now works out the project name the same way the bridge does (either slash style), so notes reach sessions on macOS and Linux too.
+
 ## [0.8.0] - 2026-09-30
 
 ### Added
@@ -146,7 +152,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/rikinshah787/dotpals/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/rikinshah787/dotpals/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/rikinshah787/dotpals/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rikinshah787/dotpals/compare/v0.5.0...v0.6.0
