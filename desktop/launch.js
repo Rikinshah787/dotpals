@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const shared = join(homedir(), '.dotpals');
+const shared = process.env.DOTPALS_HOME || join(homedir(), '.dotpals');
 
 /** Path to the Electron executable, or null if it isn't installed. */
 export function findElectron() {

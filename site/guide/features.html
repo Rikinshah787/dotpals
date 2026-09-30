@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Features · dotpals docs</title>
+  <meta name="description" content="Every dotpals feature: the story view, the notch, approve from the pal, context and compact, usage limits, the Using row, two agents on one file, custom pals, the dashboard, notifications and sounds.">
+  <meta name="theme-color" content="#0b0a0e">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="dotpals">
+  <meta property="og:title" content="Features · dotpals docs">
+  <meta property="og:description" content="Every dotpals feature: the story view, the notch, approve from the pal, context and compact, usage limits, the Using row, two agents on one file, custom pals, the dashboard, notifications and sounds.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%231e88ff' d='M6 64V40C6 20 18 10 32 10s26 10 26 30v24z'/%3E%3Cellipse cx='25' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3Cellipse cx='39' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Geist:wght@400..600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="./guide.css">
+  <script type="module" src="./guide.js"></script>
+</head>
+<body class="guide">
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="g-top">
+    <a class="brand" href="../" aria-label="dotpals home">
+      <dot-pal character="blu" size="34" static label="dotpals"></dot-pal>
+      <span class="brand-name">dotpals</span>
+    </a>
+    <a class="g-badge" href="./">Docs</a>
+    <nav class="g-toplinks" aria-label="Site">
+      <a href="../">Home</a>
+      <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+    </nav>
+    <button class="g-menu" type="button" aria-controls="g-side" aria-expanded="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span>Menu</span>
+    </button>
+  </header>
+
+  <div class="g-layout">
+    <aside class="g-side" id="g-side" aria-label="Documentation">
+      <div class="g-search">
+        <label class="sr" for="g-q">Search the docs</label>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4 14 14"/></svg>
+        <input id="g-q" type="search" placeholder="Search the docs" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <nav class="g-nav" aria-label="Pages">
+        <div class="g-group"><p class="g-group-name">Start</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="./" data-k="Install dotpals with one command, or add only the Claude Code plugin, and see what your coding agent did in plain words. Requirements, first run and next steps.">Overview</a><ul class="g-secs"><li><a href="./#what-you-get">What you get</a></li><li><a href="./#requirements">Requirements</a></li><li><a href="./#install">Install</a></li><li><a href="./#claude-code-plugin-only">Only the Claude Code plugin</a></li><li><a href="./#first-run">First run</a></li><li><a href="./#running-commands">Running dotpals commands</a></li><li><a href="./#without-the-desktop-app">Without the desktop app</a></li><li><a href="./#next-steps">Next steps</a></li></ul></li>
+          <li class="g-page is-current"><a href="features.html" data-k="Every dotpals feature: the story view, the notch, approve from the pal, context and compact, usage limits, the Using row, two agents on one file, custom pals, the dashboard, notifications and sounds." aria-current="page">Features</a><ul class="g-secs"><li><a href="features.html#the-pal" data-k="When pals come and go">The floating pal</a></li><li><a href="features.html#story" data-k="Chapters · Worth a second look · Today, Tools and Files">The story view</a></li><li><a href="features.html#notch">The notch</a></li><li><a href="features.html#approvals">Approve from the pal</a></li><li><a href="features.html#context">Context and compact</a></li><li><a href="features.html#usage-limits">Usage limits</a></li><li><a href="features.html#using">The “Using” row</a></li><li><a href="features.html#two-agents">Two agents on one file</a></li><li><a href="features.html#helpers">Helpers</a></li><li><a href="features.html#share">Share with your agents</a></li><li><a href="features.html#custom-pals">Make your own pal</a></li><li><a href="features.html#dashboard" data-k="Overview · Sessions · Map · Agents · Settings">The dashboard</a></li><li><a href="features.html#notifications">Notifications and sounds</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Set up</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="agents.html" data-k="Connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI or any agent to dotpals: how each one connects, what it reports, its limits, and the JSON event format.">Agents</a><ul class="g-secs"><li><a href="agents.html#at-a-glance">At a glance</a></li><li><a href="agents.html#agents-page">The Agents page</a></li><li><a href="agents.html#claude-code" data-k="Connect · What it reports · Sessions without the plugin · Limits">Claude Code</a></li><li><a href="agents.html#codex" data-k="Connect · What it reports · Limits">Codex</a></li><li><a href="agents.html#cursor" data-k="Connect · What it reports · Limits">Cursor</a></li><li><a href="agents.html#gemini-cli" data-k="Connect · What it reports · Limits">Gemini CLI</a></li><li><a href="agents.html#opencode" data-k="Connect · What it reports · Limits">OpenCode</a></li><li><a href="agents.html#copilot-cli" data-k="Connect · What it reports · Limits">GitHub Copilot CLI</a></li><li><a href="agents.html#any-agent" data-k="The event format · A request, start to finish · Helpers · From your language · Events the pal already understands">Any other agent</a></li><li><a href="agents.html#add-an-agent">Add a first-class adapter</a></li></ul></li>
+          <li class="g-page"><a href="cli.html" data-k="Every dotpals command and flag: setup, start, dashboard, status, notch, statusline and bridge, plus the dotpals-bridge and dotpals-float commands.">CLI</a><ul class="g-secs"><li><a href="cli.html#running">Running it</a></li><li><a href="cli.html#setup">setup</a></li><li><a href="cli.html#start">start</a></li><li><a href="cli.html#dashboard">dashboard</a></li><li><a href="cli.html#status">status</a></li><li><a href="cli.html#notch">notch</a></li><li><a href="cli.html#statusline">statusline</a></li><li><a href="cli.html#bridge">bridge</a></li><li><a href="cli.html#other-commands">Other commands</a></li><li><a href="cli.html#npm-scripts">From a checkout</a></li></ul></li>
+          <li class="g-page"><a href="configuration.html" data-k="Every key in ~/.dotpals/config.json with its default, every DOTPALS_ environment variable, and where dotpals keeps its files.">Configuration</a><ul class="g-secs"><li><a href="configuration.html#config-json" data-k="Keys">config.json</a></li><li><a href="configuration.html#environment-variables" data-k="For the bridge and the app · For the hooks · Changing the port">Environment variables</a></li><li><a href="configuration.html#files">Where files live</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Reference</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="api.html" data-k="The dotpals bridge API on 127.0.0.1:5175: HTTP routes, Server-Sent Events and their payloads, and the event format for POST /event.">HTTP API</a><ul class="g-secs"><li><a href="api.html#basics">Basics</a></li><li><a href="api.html#routes">All routes</a></li><li><a href="api.html#post-event">POST /event</a></li><li><a href="api.html#post-hook">POST /hook</a></li><li><a href="api.html#events" data-k="Event types · The activity entry">GET /events</a></li><li><a href="api.html#get-status">GET /api/status</a></li><li><a href="api.html#post-config">POST /api/config</a></li><li><a href="api.html#agents-api">Agents</a></li><li><a href="api.html#dismiss">POST /api/sessions/&lt;id&gt;/dismiss</a></li><li><a href="api.html#approvals-api">Approvals</a></li><li><a href="api.html#get-usage">GET /api/usage</a></li><li><a href="api.html#get-recap">GET /api/recap</a></li><li><a href="api.html#errors">Errors</a></li></ul></li>
+          <li class="g-page"><a href="component.html" data-k="Use the dotpals pal in your own app: attributes, properties, methods, events, states, moods, characters, registerCharacter, registerCustom, agent helpers and framework usage.">Web component</a><ul class="g-secs"><li><a href="component.html#install">Install</a></li><li><a href="component.html#quick-start">Quick start</a></li><li><a href="component.html#states">States and moods</a></li><li><a href="component.html#attributes">Attributes</a></li><li><a href="component.html#properties">Properties</a></li><li><a href="component.html#methods">Methods</a></li><li><a href="component.html#dom-events">DOM events</a></li><li><a href="component.html#characters" data-k="Add your own character">Characters</a></li><li><a href="component.html#custom-pals">Custom pals</a></li><li><a href="component.html#actions">Actions</a></li><li><a href="component.html#connect-agent" data-k="Stream events straight in · From your own event loop · Custom mapping · Events it understands">Connect an agent</a></li><li><a href="component.html#styling">Styling</a></li><li><a href="component.html#frameworks">Frameworks</a></li><li><a href="component.html#accessibility">Accessibility</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">More</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="architecture.html" data-k="How dotpals works inside: adapters, the bridge, the activity model, session lifetimes, the story engine, usage sources, approvals, the desktop app, persistence and security.">Architecture</a><ul class="g-secs"><li><a href="architecture.html#big-picture">The big picture</a></li><li><a href="architecture.html#components">Components</a></li><li><a href="architecture.html#activity-model">The activity entry model</a></li><li><a href="architecture.html#adapters" data-k="Claude Code · Codex · Cursor, Gemini CLI and GitHub Copilot CLI · OpenCode · Any agent · The hook forwarder">Adapters</a></li><li><a href="architecture.html#sessions">How sessions live and sleep</a></li><li><a href="architecture.html#story-engine">The story engine</a></li><li><a href="architecture.html#usage">Usage limits and context windows</a></li><li><a href="architecture.html#helpers">Helpers</a></li><li><a href="architecture.html#share">Share with your agents</a></li><li><a href="architecture.html#approvals">Approve from the pal</a></li><li><a href="architecture.html#desktop">The desktop app</a></li><li><a href="architecture.html#persistence">Persistence</a></li><li><a href="architecture.html#security">Security model</a></li><li><a href="architecture.html#testing">Testing</a></li><li><a href="architecture.html#adding-an-adapter">Adding an adapter</a></li></ul></li>
+          <li class="g-page"><a href="privacy.html" data-k="What dotpals stores and where, why nothing leaves your computer, how the local bridge is protected, and how approving from the pal is kept safe.">Privacy and security</a><ul class="g-secs"><li><a href="privacy.html#nothing-leaves">Nothing leaves your computer</a></li><li><a href="privacy.html#what-it-reads">What dotpals reads</a></li><li><a href="privacy.html#what-it-stores">What dotpals stores</a></li><li><a href="privacy.html#what-it-tells-agents">What dotpals tells your agents</a></li><li><a href="privacy.html#what-it-changes">What dotpals changes</a></li><li><a href="privacy.html#bridge-security">How the bridge is protected</a></li><li><a href="privacy.html#approvals">Approving from the pal, safely</a></li><li><a href="privacy.html#reporting">Reporting a vulnerability</a></li></ul></li>
+          <li class="g-page"><a href="troubleshooting.html" data-k="Fixes for common dotpals problems: no sessions on the pal, ELECTRON_RUN_AS_NODE, npm 12 and --allow-git, port 5175 in use, missing Claude limits, context in tokens, approvals and more.">Troubleshooting</a><ul class="g-secs"><li><a href="troubleshooting.html#no-sessions">The pal isn't showing my sessions</a></li><li><a href="troubleshooting.html#electron-run-as-node">The desktop pal doesn't open (ELECTRON_RUN_AS_NODE)</a></li><li><a href="troubleshooting.html#npm-allow-git">npm won't install from GitHub</a></li><li><a href="troubleshooting.html#port-in-use">Port 5175 is in use</a></li><li><a href="troubleshooting.html#claude-limits">Claude Code's usage limits don't show</a></li><li><a href="troubleshooting.html#context-in-tokens">The context shows tokens, not a percentage</a></li><li><a href="troubleshooting.html#approvals-waiting">Claude Code seems stuck, with no prompt</a></li><li><a href="troubleshooting.html#share-notes">Claude doesn't get notes about my other agents</a></li><li><a href="troubleshooting.html#linux-click-through">Clicks don't go through the pal on Linux</a></li><li><a href="troubleshooting.html#agent-connect">An agent won't connect, or its events don't arrive</a></li><li><a href="troubleshooting.html#command-not-found">“dotpals: command not found”</a></li><li><a href="troubleshooting.html#shortcut">Ctrl+Alt+P does nothing</a></li><li><a href="troubleshooting.html#no-sound">No sounds or notifications</a></li><li><a href="troubleshooting.html#reset">Resetting everything</a></li><li><a href="troubleshooting.html#getting-help">Still stuck?</a></li></ul></li>
+        </ul></div>
+      </nav>
+      <p class="g-none" id="g-none" hidden>No pages or sections match.</p>
+    </aside>
+
+    <main class="g-main" id="content">
+      <article class="doc">
+<p class="eyebrow-doc">Guide</p>
+<h1>Features</h1>
+<p class="lead">Everything the pal, the notch and the dashboard can show you, and how to use it.</p>
+
+<h2 id="the-pal">The floating pal</h2>
+<p>The pal's window floats above your other windows, even full-screen editors. It has two sizes:</p>
+<ul>
+  <li><strong>The full view</strong> (380 px wide, and you can make it taller): the pals on top, then the <strong>Summary</strong>, <strong>Tools</strong> and <strong>Files</strong> tabs. With several sessions, a row of tabs names each one (“Claude · my-app”) with a dot that pulses while it works. The tabs are for active sessions: those with a pal on screen, or busy in the last 30 minutes. Older ones are on the dashboard. The view follows the most recently active session until you pick one; <strong>All</strong> shows every session together.</li>
+  <li><strong>Just the pal</strong> (small mode, <strong>⤡</strong>): only the pals, side by side, one per active agent. A round bar above them names each one (“Claude”, “Codex”, or the project when one agent runs twice). Click a name to open the full view on that session.</li>
+</ul>
+<p>Drag the pal to move the window. A short click plays its tap animation instead. In small mode, clicks on the empty space around the pal go through to the window underneath, on Windows and macOS (<a href="troubleshooting.html#linux-click-through">not on Linux</a>).</p>
+<p>The pal's speech bubble says what the agent is doing in a few words: the step of its plan (“2/4 · Detecting the system setting”) or the current chapter (“Changing files · 4 so far”). It changes only when that changes, so you have time to read it.</p>
+
+<h3 id="come-and-go">When pals come and go</h3>
+<ul>
+  <li>Each agent session gets its own pal. The first uses your chosen character, the next ones the following characters in turn.</li>
+  <li>Small mode shows only the agents that are active: working, waiting, or busy in the last two minutes. When none are, it shows the most recent one.</li>
+  <li>A pal with nothing new for 3 minutes dozes off (floating <em>z</em>s) and wakes on the next event.</li>
+  <li>After 15 minutes of silence, or an hour if it's waiting for you, the bridge ends the session and its pal leaves. It also leaves when the agent says the session ended. A new event brings it back.</li>
+  <li><strong>Dismiss</strong> a session yourself with the <strong>×</strong> on its tab, or on its card in the notch. Its pal leaves everywhere at once, and comes back by itself if the agent does something new. Its history isn't touched.</li>
+</ul>
+
+<h2 id="story">The story view</h2>
+<p>The <strong>Summary</strong> tab has one card per request you gave the agent. Instead of hundreds of tool calls, each card reads as a few chapters:</p>
+<figure class="narrow">
+  <img src="../docs/summary.png" width="402" height="663" loading="lazy" decoding="async" alt="A Summary card: what you asked, Claude's reply, and the chapters of what it did.">
+  <figcaption>A request on the Summary tab.</figcaption>
+</figure>
+<ul>
+  <li><strong>You asked</strong>: your prompt. Click it to see all of it.</li>
+  <li><strong>What the agent said it did</strong>: its closing message, shortened with <em>more</em> and <em>less</em>. While it works, this line shows the current step, or “Waiting for your OK” with what it wants to do.</li>
+  <li><strong>The live plan</strong>, while it works: the agent's own to-do list (Claude's TodoWrite and tasks, Codex's plan, Gemini CLI's and OpenCode's to-do lists) with ticks and a progress bar, “Plan · 2/4”.</li>
+  <li><strong>Chapters</strong>, outcomes first. Click one to see its steps, and a step to see its command, output or diff.</li>
+  <li><strong>Worth a second look</strong>: flags for anything risky (below).</li>
+  <li>The footer: “✓ Done in 42s”, “✕ Stopped with an error” or “Working · 12 steps so far”, <strong>Copy</strong> (the request as Markdown, for a PR description or commit message) and <strong>All N steps</strong>.</li>
+</ul>
+
+<h3 id="chapters">Chapters</h3>
+<div class="g-table"><table>
+  <thead><tr><th>Chapter</th><th>Made of</th><th>Reads like</th></tr></thead>
+  <tbody>
+    <tr><td>Questions</td><td>The agent asking you something</td><td>Asked you a question</td></tr>
+    <tr><td>Changes</td><td>Edits, new files and deletes in the project, with lines added and removed</td><td>Changed 5 files (1 new) · app.js, style.css, dark.css +2 · +42 −7</td></tr>
+    <tr><td>Tests</td><td><code>npm test</code>, <code>pytest</code>, <code>go test</code>, <code>cargo test</code> and other test runners</td><td>Tests failed twice, then passed</td></tr>
+    <tr><td>Build and checks</td><td>Builds, type checks and linters (<code>tsc</code>, <code>eslint</code>, <code>npm run build</code>…)</td><td>Build and checks passed</td></tr>
+    <tr><td>Installs</td><td>Package installs (<code>npm install</code>, <code>pip install</code>…)</td><td>Installed packages · express, zod</td></tr>
+    <tr><td>Shipping</td><td>git commit, push, tag and merge, <code>gh pr create</code>, <code>gh release create</code>, <code>npm publish</code></td><td>Committed, pushed and released v0.6.0</td></tr>
+    <tr><td>Helpers, skills, tools</td><td>Subagents, skills and MCP tools</td><td>Used the frontend-design skill</td></tr>
+    <tr><td>Research</td><td>Web searches and fetches</td><td>Researched online</td></tr>
+    <tr><td>Looking around</td><td>Reading and searching files, and commands that only look (<code>ls</code>, <code>git status</code>, <code>cat</code>…)</td><td>Looked through 14 files · in src/, test/ · 3 searches</td></tr>
+    <tr><td>Commands</td><td>Any other command</td><td>Ran 3 commands · node, python</td></tr>
+    <tr><td>Scratch files</td><td>Files written outside the project (shown quietly)</td><td>Used 2 scratch files outside the project</td></tr>
+    <tr><td>Memory</td><td>Compacting the conversation</td><td>Tidied up its memory of the conversation</td></tr>
+  </tbody>
+</table></div>
+<p>These are plain rules, not AI, so they're instant, free and the same every time. The dashboard uses the same rules.</p>
+
+<h3 id="flags">Worth a second look</h3>
+<p>A request is flagged when it:</p>
+<ul>
+  <li>changed <code>.env</code> or another file that usually holds secrets (<code>.npmrc</code>, <code>.pypirc</code>, SSH keys, credentials, <code>*.pem</code>, <code>*.key</code>…), or read one (shown as a note),</li>
+  <li>deleted files recursively, force-pushed, or threw away changes in git,</li>
+  <li>dropped database tables, piped a download straight into a shell, used <code>sudo</code> or <code>chmod 777</code>, or force-stopped programs,</li>
+  <li>ran the same command and it failed 3 times,</li>
+  <li>published a package (shown as a note).</li>
+</ul>
+
+<h3 id="today">Today, Tools and Files</h3>
+<ul>
+  <li><strong>Today</strong>, at the top of the Summary: requests, files changed, commands run and time the agent spent working. <strong>Copy today</strong> copies it all as Markdown, ready for a standup.</li>
+  <li><strong>Tools</strong>: every tool call as it happens, with a spinner and a timer while it runs, “needs OK” while it waits for you, and ✓ or ✕ when it's done. Click one for the tool, time, status, files (click to open in VS Code), the command, the diff, the input and the output. Filters above the list, each with a count:
+    <ul>
+      <li><strong>Key steps</strong> (the default) hides file reads, searches and plan updates, which are most of the calls and rarely what you're looking for,</li>
+      <li><strong>Changes</strong>: edits, new files and deletes,</li>
+      <li><strong>Commands</strong>,</li>
+      <li><strong>Problems</strong>: calls that failed or are waiting for you,</li>
+      <li><strong>All</strong>.</li>
+    </ul>
+    The pal remembers the one you picked.</li>
+  <li><strong>Files</strong>: the files the agent changed come first, with the folder dimmed and the name bold, lines added and removed, and “edited 3×” when it changed a file more than once. Files it only read are folded under <strong>Show N files it only read</strong>. Click a file to open it in VS Code or see its last five diffs.</li>
+</ul>
+<div class="g-shots">
+  <figure><img src="../docs/tools.png" width="402" height="663" loading="lazy" decoding="async" alt="The Tools tab with an edit opened, showing its diff."><figcaption>Tools: click for the diff.</figcaption></figure>
+  <figure><img src="../docs/files.png" width="402" height="663" loading="lazy" decoding="async" alt="The Files tab listing changed, new and read files."><figcaption>Files: read, changed, created.</figcaption></figure>
+  <figure><img src="../docs/summary.png" width="402" height="663" loading="lazy" decoding="async" alt="The Summary tab."><figcaption>Summary: one card per request.</figcaption></figure>
+</div>
+
+<h2 id="notch">The notch</h2>
+<p>A small island that hangs from the top of your screen, so closing the pal doesn't mean losing track.</p>
+<figure>
+  <img src="../docs/notch.png" width="522" height="423" loading="lazy" decoding="async" alt="The notch, open: Codex needs your OK to run npm install, Claude is on step 2 of 4 of its plan, another session is done, and usage bars for Claude and Codex.">
+  <figcaption>The notch, open.</figcaption>
+</figure>
+<ul>
+  <li><strong>Closed</strong>, it shows each active agent's pal in a small badge, what one of them is doing (taking turns every few seconds, with an agent that needs you always first), its plan step (“2/4”), and a ring for your highest usage limit.</li>
+  <li><strong>Hover</strong> and it opens: every active agent with what it's doing, its plan and context window, any permission request to answer, and your usage limits, one row per agent. Buttons bring back the pal or open the dashboard. Click an agent to show the pal, or its <strong>×</strong> to dismiss that session.</li>
+  <li>It <strong>glows amber</strong> when an agent needs you, shows a moving light while agents work, <strong>flashes green</strong> when one is done and <strong>shakes</strong> on errors.</li>
+  <li>It lists agents that are working or waiting, plus any that finished in the last 90 seconds. Earlier sessions are on the dashboard.</li>
+</ul>
+<p><strong>When it shows</strong>: by default, whenever the pal is hidden. You can keep it on always, or never show it, from the tray (<em>Notch at the top of the screen</em>) or with <code>dotpals notch</code>, <code>dotpals notch --auto</code> or <code>dotpals notch --off</code> (see <a href="cli.html#notch">CLI</a>). Its window is always exactly the island's size, so it never blocks clicks around it.</p>
+
+<h2 id="approvals">Approve from the pal</h2>
+<p>Answer Claude Code's permission prompts (“Allow Bash: npm install?”) from the pal or the notch, without switching to the terminal.</p>
+<ol class="g-steps">
+  <li>Open the dashboard's <strong>Settings</strong> and turn on <strong>Approve from the pal</strong>.</li>
+  <li>Choose how long to wait for an answer: 15 seconds, 30 seconds (the default), 1 minute or 2 minutes.</li>
+</ol>
+<p>When Claude asks, a card appears on the pal (and the notch opens) with what Claude wants to do, the exact command or diff, anything risky (“Force-pushes to git (can overwrite others' work)”), and a countdown. <strong>Allow</strong> turns amber when the request is risky. The pal nods when you allow and shakes when you deny. If you don't answer in time, Claude asks in the terminal as usual.</p>
+<div class="g-note warn">
+  <p>While dotpals waits for your answer, Claude Code doesn't show its own prompt, so the terminal looks idle. That's why this is off by default, only waits while the pal, the notch or the dashboard is open, and uses a short wait. See <a href="privacy.html#approvals">how approvals are kept safe</a>.</p>
+</div>
+<p>This works with Claude Code only. Permission prompts from Gemini CLI, OpenCode and GitHub Copilot CLI still make the pal wait for you, but you answer them in the agent.</p>
+
+<h2 id="context">Context and compact</h2>
+<p>Each session's chip shows how full its context window is, as a ring with a percentage. The pal reacts:</p>
+<ul>
+  <li><strong>80%</strong>: surprised.</li>
+  <li><strong>90%</strong>: worried (“it'll compact soon”), with a sound, and a notification if the pal is hidden.</li>
+  <li>After the conversation is <strong>compacted</strong>: it cheers “Fresh context”.</li>
+</ul>
+<p>When the session you're looking at is half full (or holds 120k tokens, if its size isn't known), a bar above the requests shows how full it is, with <strong>Copy /compact</strong>. That copies a <code>/compact</code> command with a note on what to keep, written from the session's own record: the goal, what's still on the plan, the files changed so far and whether the tests are failing right now. Paste it into Claude Code or Codex to compact on your terms before the agent compacts on its own. The notch offers the same button from 60%.</p>
+<div class="g-note info">
+  <p>dotpals can't compact a running session for you: Claude Code and Codex don't offer any way to do that from outside the session. So the pal writes the command and copies it, and you paste it in.</p>
+</div>
+<p>Percentages show only when the window's size is known: always for Codex, and for Claude Code once you run <code>dotpals statusline</code> (or past 200k tokens). Otherwise you see a token count such as “143k”, and the pal doesn't react, so there are no false alarms. See <a href="troubleshooting.html#context-in-tokens">Context shown in tokens</a>.</p>
+
+<h2 id="usage-limits">Usage limits</h2>
+<p>The notch shows how much of your 5-hour and weekly limits you've used, for Claude Code and Codex, with the time each one resets (hover a bar). Bars turn amber at 70% and red at 90%, and the ring on the closed notch shows your highest one.</p>
+<ul>
+  <li><strong>Codex</strong>: automatic. dotpals reads the limits Codex writes to its own logs.</li>
+  <li><strong>Claude Code</strong>: run this once.
+<pre><code>dotpals statusline</code></pre>
+    Claude Code shares its limits only with a status line command, so this adds one to <code>~/.claude/settings.json</code>. If you already have a status line, it keeps showing yours. It backs up your settings first, and <code>dotpals statusline --off</code> puts everything back. See <a href="cli.html#statusline">CLI</a>.</li>
+</ul>
+<p>Only Claude Code and Codex have limits to show: the other agents don't keep theirs anywhere dotpals can read on your computer.</p>
+
+<h2 id="using">The “Using” row</h2>
+<p>For the session you're looking at, a row above its requests lists what it has been using: its skills (and the plugins they come from), MCP tools, and how many helper agents it started, most used first. For example: <em>Using · frontend-design · Adobe (plugin) · 2 helper agents</em>. Hover a chip for how many times it was used.</p>
+
+<h2 id="two-agents">Two agents on one file</h2>
+<p>Parallel agents can overwrite each other's work. When a file this session changed was also changed by another session at around the same time (within 30 minutes, in the last two hours), the Summary shows a note:</p>
+<blockquote><p><strong>dashboard.html</strong> was changed by Claude (Dot) and Codex (Dot). Check they didn't undo each other.</p></blockquote>
+<p>Click the file name to open it. The dashboard's <a href="#dashboard-map">Map</a> lists every crossing, with links to each request.</p>
+
+<h2 id="helpers">Helpers</h2>
+<p>When an agent starts helper agents (subagents), dotpals lists them, for any agent:</p>
+<ul>
+  <li>On the pal, the request that's running gets a <strong>Helpers</strong> list, such as “Helpers · 2 working”, with each helper's name and what it's doing right now (“Explore · Reading src/auth.js”), or a tick when it's done.</li>
+  <li>In the notch, each agent's card lists its helpers the same way. When the agent has no plan to show, the closed notch shows “2 helpers” instead.</li>
+  <li>Finished helpers stay listed for a minute, then leave.</li>
+</ul>
+<p>Helpers come from every agent's “start a helper” steps (Claude Code's Agent tool, Codex's <code>spawn_agent</code>, and so on). For Claude Code, its helper start and stop hooks also say exactly when each one finishes, and which helper made each tool call, so helpers running in the background are tracked correctly. Your own agent can report helpers too, with the <a href="agents.html#event-helpers"><code>helper</code> field</a>.</p>
+
+<h2 id="share">Share with your agents</h2>
+<p>When several agents work in the same project, each one works blind to the others. <strong>Share with your agents</strong> tells each Claude Code session what your other agents did there:</p>
+<ul>
+  <li>When a Claude Code session starts, it gets a short note about the other sessions that worked in the same project folder in the last two hours: which files they changed, whether their last test run passed, what they were asked, and whether they're still working.</li>
+  <li>Later prompts get a note only when there's news since the last one.</li>
+  <li>Sessions that only looked around aren't mentioned.</li>
+</ul>
+<p>A note reads like this:</p>
+<pre><code>dotpals: other coding agents worked in this project (my-app) recently:
+- Codex (session 3f9a, working now): changed src/auth.js, src/session.js; its tests passed; it was asked: "Add login rate limiting".
+Check these files for their changes before editing them, and avoid undoing their work.</code></pre>
+<p>Turn it on in <strong>Settings → Share with your agents</strong>. It's off by default, because it adds a little text to Claude's context (you don't see it in the chat), which Claude Code sends to its model with the rest of the conversation. See <a href="privacy.html#what-it-tells-agents">Privacy</a>. Only Claude Code can receive notes. The hook that delivers them gives up after a moment and never blocks Claude.</p>
+
+<h2 id="custom-pals">Make your own pal</h2>
+<figure>
+  <img src="../docs/custom-pals.png" width="1103" height="623" loading="lazy" decoding="async" alt="Eighteen home-made pals with different bodies, eyes, toppers and colors.">
+  <figcaption>A few of the thousands of combinations.</figcaption>
+</figure>
+<p>Open the dashboard (<strong>▦</strong> on the pal, or <code>dotpals dashboard</code>), go to <strong>Settings → Make your own pal</strong>, and pick:</p>
+<ul>
+  <li><strong>Name</strong>: up to 24 characters.</li>
+  <li><strong>Body</strong>: Round, Boxy, Fluffy, Pointy, Heart or Frog.</li>
+  <li><strong>Eyes</strong>: Dots, Button, Googly, Pixel, Visor or Shades.</li>
+  <li><strong>On top</strong>: Nothing, Cat ears, Horns, Antenna, Sprout, Sparkle, Bow, Crown or Beret.</li>
+  <li><strong>Color</strong>: one of ten swatches, or any color.</li>
+  <li><strong>Fluffy</strong>: fur, or smooth like vinyl.</li>
+</ul>
+<p>Try it thinking, working, needing you and done, then press <strong>Use this pal</strong>. The floating pal and the notch switch straight away. <strong>Surprise me</strong> rolls a random one. Your pal is saved in <code>~/.dotpals/config.json</code> as <code>custom</code>. To use it in your own app, see <a href="component.html#custom-pals">registerCustom</a>.</p>
+
+<h2 id="dashboard">The dashboard</h2>
+<p>Open it with <strong>▦</strong> on the pal, the tray's <em>Dashboard</em>, <code>dotpals dashboard</code>, or <code>http://127.0.0.1:5175/dashboard</code> in any browser. It has five pages.</p>
+
+<h3 id="dashboard-overview">Overview</h3>
+<figure>
+  <img src="../docs/dashboard.png" width="1282" height="802" loading="lazy" decoding="async" alt="The dashboard Overview with tiles, a chart of requests per day, a by-project table and recent requests.">
+  <figcaption>The Overview.</figcaption>
+</figure>
+<ul>
+  <li><strong>Today</strong> or <strong>7 days</strong>, and <strong>Copy recap</strong> for the whole range as Markdown.</li>
+  <li>Tiles: requests, files changed (and read), commands run (and how many failed), agent time, and sessions by agent.</li>
+  <li><strong>Sessions over time</strong>: one lane per session, colored by agent, with a “now” line. Each request is a bar split into its chapters (thinking, looking around, changes, tests…). Hover a bar for details and click it to open the request. <em>Show as a table</em> lists the same data.</li>
+  <li><strong>Requests per day</strong> for the last 7 days, stacked by agent.</li>
+  <li><strong>By project</strong>: requests, files changed, commands and time per project.</li>
+  <li><strong>Recent requests</strong>, with a ⚠ count when something was flagged. Click one to open it.</li>
+</ul>
+
+<h3 id="dashboard-sessions">Sessions</h3>
+<figure>
+  <img src="../docs/sessions.png" width="1282" height="802" loading="lazy" decoding="async" alt="The Sessions page: a list of sessions, and one session's requests with the agent's summary and chapters.">
+  <figcaption>The Sessions page.</figcaption>
+</figure>
+<ul>
+  <li>Search prompts, files, commands and replies; filter by agent; and choose today, the last 7 days or everything.</li>
+  <li>Each session has three tabs: <strong>Requests</strong> (each one as a story, with its flags, <strong>Copy</strong> and <strong>Show steps</strong>), <strong>Files</strong> (what happened to each file, and when) and <strong>Log</strong> (every entry; click one for its details).</li>
+  <li><strong>Copy recap</strong> copies the session as Markdown. <strong>Export</strong> downloads it as Markdown and as JSON.</li>
+  <li>Every session has its own link, <code>/dashboard#sessions/&lt;session id&gt;</code>.</li>
+</ul>
+
+<h3 id="dashboard-map">Map</h3>
+<p>What your agents touched, and where they crossed paths, for today or the last 7 days, for all projects or one:</p>
+<ul>
+  <li><strong>Where agents crossed paths</strong>: files changed by two sessions at around the same time, such as “dashboard.html · Claude (Dot) then Codex (Dot) · 29 min apart”, with a link to each request.</li>
+  <li><strong>Files changed</strong>: a folder tree of every file changed, with a bar for how often, colored by agent. Files two agents touched get a “2 agents” badge. Click a file to open its latest change.</li>
+  <li><strong>Sessions and their helpers</strong>: each session with the helper agents it started.</li>
+</ul>
+
+<h3 id="dashboard-agents">Agents</h3>
+<p>One card per integration, showing whether the agent is installed, whether it's connected, and when its last event arrived. Cards have <strong>Connect</strong> and <strong>Disconnect</strong>, <strong>Send a test event</strong>, and a switch that turns an agent off without disconnecting it. The <strong>Any agent</strong> card has copy-paste snippets for curl, PowerShell, Node, Python and the shell. See <a href="agents.html">Agents</a>.</p>
+
+<h3 id="dashboard-settings">Settings</h3>
+<ul>
+  <li><strong>Your pal</strong>: the character, sounds and notifications.</li>
+  <li><strong>Make your own pal</strong> (<a href="#custom-pals">above</a>).</li>
+  <li><strong>Approve from the pal</strong>, and how long to wait (<a href="#approvals">above</a>).</li>
+  <li><strong>Share with your agents</strong> (<a href="#share">above</a>).</li>
+  <li><strong>History</strong>: keep it or not, for 1, 3, 7, 14, 30 or 90 days, and <strong>Clear</strong>. Clearing removes what dotpals recorded; your agents' own logs aren't touched.</li>
+  <li><strong>About</strong>: the version, the port and where the settings file is.</li>
+</ul>
+<p>Settings are shared by the pal, the notch and the dashboard, and saved in <code>~/.dotpals/config.json</code>. See <a href="configuration.html">Configuration</a>.</p>
+
+<h2 id="notifications">Notifications and sounds</h2>
+<p><strong>Sounds</strong> are small synthesized chimes (no audio files):</p>
+<ul>
+  <li>a blip when you send a prompt,</li>
+  <li>a tick when a file is saved,</li>
+  <li>a double ping when the agent needs your OK (or a session's context reaches 90%),</li>
+  <li>a rising chime when it's done,</li>
+  <li>a low bonk on errors.</li>
+</ul>
+<p>Turn them on or off with 🔊 on the pal or in Settings.</p>
+<p><strong>Desktop notifications</strong> (desktop app only) come when you're probably not looking:</p>
+<ul>
+  <li><strong>“Claude needs your OK”</strong>: at once if the pal is hidden, otherwise after 20 seconds of waiting.</li>
+  <li><strong>“Claude is done”</strong>, with your prompt and what changed: when the pal is hidden, or the request took over a minute.</li>
+  <li><strong>“Claude's context is 92% full”</strong>: when the pal is hidden.</li>
+</ul>
+<p>Click a notification to bring back the pal. Turn them off in the tray menu or in Settings.</p>
+      </article>
+      <p class="g-edit"><a href="https://github.com/Rikinshah787/dotpals/blob/main/site/guide/features.html">Edit this page on GitHub</a></p>
+      <nav class="g-pager" aria-label="Previous and next page"><a class="g-pager-prev" href="./"><small>Previous</small><span>Overview</span></a><a class="g-pager-next" href="agents.html"><small>Next</small><span>Agents</span></a></nav>
+    </main>
+  </div>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <p><b>dotpals</b> · MIT licensed · made for people who like to know what just happened.</p>
+      <nav aria-label="Project links">
+        <a href="../">Home</a>
+        <a href="./">Docs</a>
+        <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+        <a href="https://github.com/Rikinshah787/dotpals/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/Rikinshah787/dotpals/issues">Issues</a>
+      </nav>
+      <p class="muted small">Not affiliated with or endorsed by any AI company. The pals are original artwork. No trackers on this page.</p>
+    </div>
+  </footer>
+</body>
+</html>

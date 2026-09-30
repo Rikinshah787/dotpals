@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const agent = /^[a-z][a-z0-9-]{0,30}$/.test(process.argv[2] ?? '') ? process.argv[2] : null;
-const base = process.env.DOTPALS_URL || 'http://127.0.0.1:5175/hook';
+const base = process.env.DOTPALS_URL || `http://127.0.0.1:${Number(process.env.DOTPALS_PORT) || 5175}/hook`;
 const url = agent ? `${base}${base.includes('?') ? '&' : '?'}agent=${agent}` : base;
 const eventArg = /^[A-Za-z]{1,40}$/.test(process.argv[3] ?? '') ? process.argv[3] : null;
 const AUTOSTART_EVENTS = ['SessionStart', 'UserPromptSubmit'];

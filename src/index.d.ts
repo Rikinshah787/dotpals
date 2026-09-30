@@ -79,7 +79,7 @@ export declare class DotPal extends HTMLElement {
 
 export declare const characters: Record<string, CharacterDefinition>;
 export declare const actions: Record<string, ActionDefinition>;
-export declare function registerCharacter(name: string, definition: CharacterDefinition): void;
+export declare function registerCharacter(name: string, definition: CharacterDefinition & { fur?: boolean }): void;
 
 /** Your own pal: a body, eyes, something on top, a color and a name. */
 export interface CustomPal {

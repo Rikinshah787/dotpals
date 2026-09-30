@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuration · dotpals docs</title>
+  <meta name="description" content="Every key in ~/.dotpals/config.json with its default, every DOTPALS_ environment variable, and where dotpals keeps its files.">
+  <meta name="theme-color" content="#0b0a0e">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="dotpals">
+  <meta property="og:title" content="Configuration · dotpals docs">
+  <meta property="og:description" content="Every key in ~/.dotpals/config.json with its default, every DOTPALS_ environment variable, and where dotpals keeps its files.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%231e88ff' d='M6 64V40C6 20 18 10 32 10s26 10 26 30v24z'/%3E%3Cellipse cx='25' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3Cellipse cx='39' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Geist:wght@400..600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="./guide.css">
+  <script type="module" src="./guide.js"></script>
+</head>
+<body class="guide">
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="g-top">
+    <a class="brand" href="../" aria-label="dotpals home">
+      <dot-pal character="blu" size="34" static label="dotpals"></dot-pal>
+      <span class="brand-name">dotpals</span>
+    </a>
+    <a class="g-badge" href="./">Docs</a>
+    <nav class="g-toplinks" aria-label="Site">
+      <a href="../">Home</a>
+      <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+    </nav>
+    <button class="g-menu" type="button" aria-controls="g-side" aria-expanded="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span>Menu</span>
+    </button>
+  </header>
+
+  <div class="g-layout">
+    <aside class="g-side" id="g-side" aria-label="Documentation">
+      <div class="g-search">
+        <label class="sr" for="g-q">Search the docs</label>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4 14 14"/></svg>
+        <input id="g-q" type="search" placeholder="Search the docs" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <nav class="g-nav" aria-label="Pages">
+        <div class="g-group"><p class="g-group-name">Start</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="./" data-k="Install dotpals with one command, or add only the Claude Code plugin, and see what your coding agent did in plain words. Requirements, first run and next steps.">Overview</a><ul class="g-secs"><li><a href="./#what-you-get">What you get</a></li><li><a href="./#requirements">Requirements</a></li><li><a href="./#install">Install</a></li><li><a href="./#claude-code-plugin-only">Only the Claude Code plugin</a></li><li><a href="./#first-run">First run</a></li><li><a href="./#running-commands">Running dotpals commands</a></li><li><a href="./#without-the-desktop-app">Without the desktop app</a></li><li><a href="./#next-steps">Next steps</a></li></ul></li>
+          <li class="g-page"><a href="features.html" data-k="Every dotpals feature: the story view, the notch, approve from the pal, context and compact, usage limits, the Using row, two agents on one file, custom pals, the dashboard, notifications and sounds.">Features</a><ul class="g-secs"><li><a href="features.html#the-pal" data-k="When pals come and go">The floating pal</a></li><li><a href="features.html#story" data-k="Chapters · Worth a second look · Today, Tools and Files">The story view</a></li><li><a href="features.html#notch">The notch</a></li><li><a href="features.html#approvals">Approve from the pal</a></li><li><a href="features.html#context">Context and compact</a></li><li><a href="features.html#usage-limits">Usage limits</a></li><li><a href="features.html#using">The “Using” row</a></li><li><a href="features.html#two-agents">Two agents on one file</a></li><li><a href="features.html#helpers">Helpers</a></li><li><a href="features.html#share">Share with your agents</a></li><li><a href="features.html#custom-pals">Make your own pal</a></li><li><a href="features.html#dashboard" data-k="Overview · Sessions · Map · Agents · Settings">The dashboard</a></li><li><a href="features.html#notifications">Notifications and sounds</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Set up</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="agents.html" data-k="Connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI or any agent to dotpals: how each one connects, what it reports, its limits, and the JSON event format.">Agents</a><ul class="g-secs"><li><a href="agents.html#at-a-glance">At a glance</a></li><li><a href="agents.html#agents-page">The Agents page</a></li><li><a href="agents.html#claude-code" data-k="Connect · What it reports · Sessions without the plugin · Limits">Claude Code</a></li><li><a href="agents.html#codex" data-k="Connect · What it reports · Limits">Codex</a></li><li><a href="agents.html#cursor" data-k="Connect · What it reports · Limits">Cursor</a></li><li><a href="agents.html#gemini-cli" data-k="Connect · What it reports · Limits">Gemini CLI</a></li><li><a href="agents.html#opencode" data-k="Connect · What it reports · Limits">OpenCode</a></li><li><a href="agents.html#copilot-cli" data-k="Connect · What it reports · Limits">GitHub Copilot CLI</a></li><li><a href="agents.html#any-agent" data-k="The event format · A request, start to finish · Helpers · From your language · Events the pal already understands">Any other agent</a></li><li><a href="agents.html#add-an-agent">Add a first-class adapter</a></li></ul></li>
+          <li class="g-page"><a href="cli.html" data-k="Every dotpals command and flag: setup, start, dashboard, status, notch, statusline and bridge, plus the dotpals-bridge and dotpals-float commands.">CLI</a><ul class="g-secs"><li><a href="cli.html#running">Running it</a></li><li><a href="cli.html#setup">setup</a></li><li><a href="cli.html#start">start</a></li><li><a href="cli.html#dashboard">dashboard</a></li><li><a href="cli.html#status">status</a></li><li><a href="cli.html#notch">notch</a></li><li><a href="cli.html#statusline">statusline</a></li><li><a href="cli.html#bridge">bridge</a></li><li><a href="cli.html#other-commands">Other commands</a></li><li><a href="cli.html#npm-scripts">From a checkout</a></li></ul></li>
+          <li class="g-page is-current"><a href="configuration.html" data-k="Every key in ~/.dotpals/config.json with its default, every DOTPALS_ environment variable, and where dotpals keeps its files." aria-current="page">Configuration</a><ul class="g-secs"><li><a href="configuration.html#config-json" data-k="Keys">config.json</a></li><li><a href="configuration.html#environment-variables" data-k="For the bridge and the app · For the hooks · Changing the port">Environment variables</a></li><li><a href="configuration.html#files">Where files live</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Reference</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="api.html" data-k="The dotpals bridge API on 127.0.0.1:5175: HTTP routes, Server-Sent Events and their payloads, and the event format for POST /event.">HTTP API</a><ul class="g-secs"><li><a href="api.html#basics">Basics</a></li><li><a href="api.html#routes">All routes</a></li><li><a href="api.html#post-event">POST /event</a></li><li><a href="api.html#post-hook">POST /hook</a></li><li><a href="api.html#events" data-k="Event types · The activity entry">GET /events</a></li><li><a href="api.html#get-status">GET /api/status</a></li><li><a href="api.html#post-config">POST /api/config</a></li><li><a href="api.html#agents-api">Agents</a></li><li><a href="api.html#dismiss">POST /api/sessions/&lt;id&gt;/dismiss</a></li><li><a href="api.html#approvals-api">Approvals</a></li><li><a href="api.html#get-usage">GET /api/usage</a></li><li><a href="api.html#get-recap">GET /api/recap</a></li><li><a href="api.html#errors">Errors</a></li></ul></li>
+          <li class="g-page"><a href="component.html" data-k="Use the dotpals pal in your own app: attributes, properties, methods, events, states, moods, characters, registerCharacter, registerCustom, agent helpers and framework usage.">Web component</a><ul class="g-secs"><li><a href="component.html#install">Install</a></li><li><a href="component.html#quick-start">Quick start</a></li><li><a href="component.html#states">States and moods</a></li><li><a href="component.html#attributes">Attributes</a></li><li><a href="component.html#properties">Properties</a></li><li><a href="component.html#methods">Methods</a></li><li><a href="component.html#dom-events">DOM events</a></li><li><a href="component.html#characters" data-k="Add your own character">Characters</a></li><li><a href="component.html#custom-pals">Custom pals</a></li><li><a href="component.html#actions">Actions</a></li><li><a href="component.html#connect-agent" data-k="Stream events straight in · From your own event loop · Custom mapping · Events it understands">Connect an agent</a></li><li><a href="component.html#styling">Styling</a></li><li><a href="component.html#frameworks">Frameworks</a></li><li><a href="component.html#accessibility">Accessibility</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">More</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="architecture.html" data-k="How dotpals works inside: adapters, the bridge, the activity model, session lifetimes, the story engine, usage sources, approvals, the desktop app, persistence and security.">Architecture</a><ul class="g-secs"><li><a href="architecture.html#big-picture">The big picture</a></li><li><a href="architecture.html#components">Components</a></li><li><a href="architecture.html#activity-model">The activity entry model</a></li><li><a href="architecture.html#adapters" data-k="Claude Code · Codex · Cursor, Gemini CLI and GitHub Copilot CLI · OpenCode · Any agent · The hook forwarder">Adapters</a></li><li><a href="architecture.html#sessions">How sessions live and sleep</a></li><li><a href="architecture.html#story-engine">The story engine</a></li><li><a href="architecture.html#usage">Usage limits and context windows</a></li><li><a href="architecture.html#helpers">Helpers</a></li><li><a href="architecture.html#share">Share with your agents</a></li><li><a href="architecture.html#approvals">Approve from the pal</a></li><li><a href="architecture.html#desktop">The desktop app</a></li><li><a href="architecture.html#persistence">Persistence</a></li><li><a href="architecture.html#security">Security model</a></li><li><a href="architecture.html#testing">Testing</a></li><li><a href="architecture.html#adding-an-adapter">Adding an adapter</a></li></ul></li>
+          <li class="g-page"><a href="privacy.html" data-k="What dotpals stores and where, why nothing leaves your computer, how the local bridge is protected, and how approving from the pal is kept safe.">Privacy and security</a><ul class="g-secs"><li><a href="privacy.html#nothing-leaves">Nothing leaves your computer</a></li><li><a href="privacy.html#what-it-reads">What dotpals reads</a></li><li><a href="privacy.html#what-it-stores">What dotpals stores</a></li><li><a href="privacy.html#what-it-tells-agents">What dotpals tells your agents</a></li><li><a href="privacy.html#what-it-changes">What dotpals changes</a></li><li><a href="privacy.html#bridge-security">How the bridge is protected</a></li><li><a href="privacy.html#approvals">Approving from the pal, safely</a></li><li><a href="privacy.html#reporting">Reporting a vulnerability</a></li></ul></li>
+          <li class="g-page"><a href="troubleshooting.html" data-k="Fixes for common dotpals problems: no sessions on the pal, ELECTRON_RUN_AS_NODE, npm 12 and --allow-git, port 5175 in use, missing Claude limits, context in tokens, approvals and more.">Troubleshooting</a><ul class="g-secs"><li><a href="troubleshooting.html#no-sessions">The pal isn't showing my sessions</a></li><li><a href="troubleshooting.html#electron-run-as-node">The desktop pal doesn't open (ELECTRON_RUN_AS_NODE)</a></li><li><a href="troubleshooting.html#npm-allow-git">npm won't install from GitHub</a></li><li><a href="troubleshooting.html#port-in-use">Port 5175 is in use</a></li><li><a href="troubleshooting.html#claude-limits">Claude Code's usage limits don't show</a></li><li><a href="troubleshooting.html#context-in-tokens">The context shows tokens, not a percentage</a></li><li><a href="troubleshooting.html#approvals-waiting">Claude Code seems stuck, with no prompt</a></li><li><a href="troubleshooting.html#share-notes">Claude doesn't get notes about my other agents</a></li><li><a href="troubleshooting.html#linux-click-through">Clicks don't go through the pal on Linux</a></li><li><a href="troubleshooting.html#agent-connect">An agent won't connect, or its events don't arrive</a></li><li><a href="troubleshooting.html#command-not-found">“dotpals: command not found”</a></li><li><a href="troubleshooting.html#shortcut">Ctrl+Alt+P does nothing</a></li><li><a href="troubleshooting.html#no-sound">No sounds or notifications</a></li><li><a href="troubleshooting.html#reset">Resetting everything</a></li><li><a href="troubleshooting.html#getting-help">Still stuck?</a></li></ul></li>
+        </ul></div>
+      </nav>
+      <p class="g-none" id="g-none" hidden>No pages or sections match.</p>
+    </aside>
+
+    <main class="g-main" id="content">
+      <article class="doc">
+<p class="eyebrow-doc">Set up</p>
+<h1>Configuration</h1>
+<p class="lead">Most settings are on the dashboard's Settings and Agents pages. They're saved in one small JSON file that you can also edit by hand, and a few environment variables cover the rest.</p>
+
+<h2 id="config-json">config.json</h2>
+<p>Settings live in <code>~/.dotpals/config.json</code> and are shared by the pal, the notch, the dashboard and the bridge. Changes made on the dashboard (or the tray) apply at once. If you edit the file by hand, restart dotpals to pick them up.</p>
+<pre><code>{
+  "character": "custom",
+  "sounds": true,
+  "notifications": true,
+  "history": true,
+  "historyDays": 14,
+  "approvals": true,
+  "approvalWait": 30,
+  "agents": { "cursor": false },
+  "custom": { "name": "Pip", "shape": "bean", "eyes": "googly", "top": "crown", "color": "#16c6ae", "fur": true }
+}</code></pre>
+<p>Only the keys below are kept, and only with valid values. Anything else is ignored, and dropped the next time dotpals saves the file. A key you leave out uses its default.</p>
+
+<h3 id="keys">Keys</h3>
+<div class="g-table"><table>
+  <thead><tr><th>Key</th><th>Default</th><th>Values</th></tr></thead>
+  <tbody>
+    <tr><td><code>character</code></td><td><code>"blu"</code></td><td>The first pal: <code>blu</code>, <code>hop</code>, <code>sunny</code>, <code>lovi</code>, <code>muse</code>, <code>grok</code>, <code>nova</code>, <code>byte</code>, or <code>custom</code> for <a href="features.html#custom-pals">your own</a>. More sessions get the next characters in turn.</td></tr>
+    <tr><td><code>sounds</code></td><td><code>true</code></td><td>Play <a href="features.html#notifications">sounds</a>.</td></tr>
+    <tr><td><code>notifications</code></td><td><code>true</code></td><td>Show desktop notifications (desktop app only).</td></tr>
+    <tr><td><code>history</code></td><td><code>true</code></td><td>Keep activity in <code>~/.dotpals/history.json</code>, so it survives restarts.</td></tr>
+    <tr><td><code>historyDays</code></td><td><code>7</code></td><td>How many days of history to keep: a whole number from 1 to 90. At most 5000 entries are kept.</td></tr>
+    <tr><td><code>codex</code></td><td><code>true</code></td><td>Follow Codex's session logs. The same switch as <code>agents.codex</code>.</td></tr>
+    <tr><td><code>approvals</code></td><td><code>false</code></td><td><a href="features.html#approvals">Approve from the pal</a>: answer Claude Code's permission prompts from the pal or the notch.</td></tr>
+    <tr><td><code>approvalWait</code></td><td><code>30</code></td><td>Seconds to wait for your answer before Claude asks in the terminal: a whole number from 10 to 120. The dashboard offers 15, 30, 60 and 120.</td></tr>
+    <tr><td><code>shareRecap</code></td><td><code>false</code></td><td><a href="features.html#share">Share with your agents</a>: tell each Claude Code session what your other agents did in the same project.</td></tr>
+    <tr id="agents"><td><code>agents</code></td><td><code>{}</code></td><td>Turn integrations off: <code>{ "cursor": false }</code>. Ids: <code>claude</code>, <code>codex</code>, <code>cursor</code>, <code>gemini</code>, <code>opencode</code>, <code>copilot</code>, <code>generic</code> (anything posting to <code>/event</code>). Every integration is on unless it's set to <code>false</code>.</td></tr>
+    <tr><td><code>custom</code></td><td><code>null</code></td><td>Your own pal: <code>{ name, shape, eyes, top, color, fur }</code>, as made in <strong>Settings → Make your own pal</strong>. See <a href="component.html#custom-pals">the options</a>.</td></tr>
+  </tbody>
+</table></div>
+<p>The bridge sends the full settings to every open view (<code>GET /api/config</code> returns them too), with <code>agents</code> filled in for every id.</p>
+
+<h2 id="environment-variables">Environment variables</h2>
+<p>Environment variables win over <code>config.json</code>. Set them where the process that reads them runs: bridge variables for the desktop app (or <code>dotpals bridge</code>), and hook variables in your agent's environment, since that's where the hook command runs.</p>
+
+<h3 id="env-bridge">For the bridge and the app</h3>
+<div class="g-table"><table>
+  <thead><tr><th>Variable</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>DOTPALS_HOME</code></td><td>Where dotpals keeps its settings, history, limits and installed copy. Default: <code>~/.dotpals</code>.</td></tr>
+    <tr><td><code>DOTPALS_HISTORY=0</code></td><td>Don't keep history on disk, whatever the setting says.</td></tr>
+    <tr><td><code>DOTPALS_CODEX=0</code></td><td>Don't follow Codex's logs, whatever the setting says.</td></tr>
+    <tr><td><code>DOTPALS_CLAUDE_LOGS=0</code></td><td>Don't follow Claude Code transcripts. Sessions then show up only through the plugin's hooks.</td></tr>
+    <tr><td><code>DOTPALS_CODEX_DIR</code></td><td>The Codex sessions folder to follow. Default: <code>~/.codex/sessions</code>.</td></tr>
+    <tr><td><code>DOTPALS_CURSOR_DIR</code></td><td>Cursor's config folder, for Connect. Default: <code>~/.cursor</code>.</td></tr>
+    <tr><td><code>DOTPALS_GEMINI_DIR</code></td><td>Gemini CLI's config folder. Default: <code>~/.gemini</code>.</td></tr>
+    <tr><td><code>DOTPALS_OPENCODE_DIR</code></td><td>OpenCode's config folder. Default: <code>$XDG_CONFIG_HOME/opencode</code>, or <code>~/.config/opencode</code>.</td></tr>
+    <tr><td><code>DOTPALS_COPILOT_DIR</code></td><td>GitHub Copilot CLI's folder. Default: <code>$COPILOT_HOME</code>, or <code>~/.copilot</code>.</td></tr>
+    <tr><td><code>DOTPALS_PORT</code></td><td>The port the desktop app and the <code>dotpals</code> command use. Falls back to <code>PORT</code>, then 5175.</td></tr>
+    <tr><td><code>PORT</code></td><td>The port a bridge started on its own uses (<code>dotpals bridge</code>, <code>dotpals-bridge</code>, <code>node bridge/server.js</code>). Default: 5175.</td></tr>
+    <tr><td><code>DOTPALS_ELECTRON</code></td><td>The Electron executable to run the desktop app with, instead of the one dotpals installed.</td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="env-hooks">For the hooks</h3>
+<div class="g-table"><table>
+  <thead><tr><th>Variable</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>DOTPALS_URL</code></td><td>Where the hook command (and the OpenCode plugin) sends events. Default: <code>http://127.0.0.1:5175/hook</code>. Setting it also stops hooks from starting the pal.</td></tr>
+    <tr><td><code>DOTPALS_AUTOSTART=0</code></td><td>Don't start the pal when a Claude Code session starts or a prompt is sent and dotpals isn't running.</td></tr>
+    <tr><td><code>DOTPALS_FLOAT=0</code></td><td>When the hooks start dotpals, start only the bridge, not the desktop pal.</td></tr>
+    <tr><td><code>DOTPALS_BRIDGE</code></td><td>The bridge address the <a href="features.html#share">Share with your agents</a> hook asks for its note. Default: <code>http://127.0.0.1:5175</code>.</td></tr>
+    <tr><td><code>DOTPALS_DEBUG</code></td><td>Set to anything to have that hook print its errors (it's silent otherwise).</td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="port">Changing the port</h3>
+<p>dotpals uses port 5175 everywhere by default. To use another one, every part has to agree:</p>
+<ol>
+  <li>Set <code>DOTPALS_PORT</code> for the desktop app and the <code>dotpals</code> command, or <code>PORT</code> for a bridge you run on its own.</li>
+  <li>Set <code>DOTPALS_URL=http://127.0.0.1:&lt;port&gt;/hook</code> in the environment of Claude Code, and of any agent you've connected (for OpenCode, the environment OpenCode runs in). This also turns off auto-start. If you use <a href="features.html#share">Share with your agents</a>, also set <code>DOTPALS_BRIDGE=http://127.0.0.1:&lt;port&gt;</code> for Claude Code.</li>
+  <li>Point your own agents' <code>POST /event</code> at the new port. The dashboard's <strong>Any agent</strong> card shows the right address.</li>
+</ol>
+<p>If something else is using 5175, see <a href="troubleshooting.html#port-in-use">Port 5175 is in use</a>.</p>
+
+<h2 id="files">Where files live</h2>
+<p>Everything dotpals writes for itself is in <code>~/.dotpals</code> (or <code>DOTPALS_HOME</code>):</p>
+<div class="g-table"><table>
+  <thead><tr><th>Path</th><th>What it is</th></tr></thead>
+  <tbody>
+    <tr><td><code>config.json</code></td><td>Your settings (above).</td></tr>
+    <tr><td><code>history.json</code></td><td>Recent activity: the last <code>historyDays</code> days, at most 5000 entries. Plain JSON.</td></tr>
+    <tr><td><code>claude-limits.json</code></td><td>Claude Code's usage limits, model name and context-window sizes, saved by the status line. Nothing from your conversations.</td></tr>
+    <tr><td><code>statusline.json</code></td><td>The status line you had before <code>dotpals statusline</code>, so it keeps working and can be put back.</td></tr>
+    <tr><td><code>app/</code></td><td>The installed copy of dotpals. Hook commands in other agents' configs point here.</td></tr>
+    <tr><td><code>node_modules/</code></td><td>The desktop runtime (Electron, about 100 MB).</td></tr>
+  </tbody>
+</table></div>
+<p>Also:</p>
+<ul>
+  <li><strong>Window position, size, small mode and notch mode</strong> are kept by the desktop app in <code>window.json</code> in its user-data folder: <code>%APPDATA%\dotpals</code> on Windows, <code>~/Library/Application Support/dotpals</code> on macOS, <code>~/.config/dotpals</code> on Linux.</li>
+  <li><strong>Other tools' files</strong> that dotpals can change, each only when you ask, with the original kept as <code>&lt;file&gt;.dotpals-backup</code>: <code>~/.claude/settings.json</code> (<code>dotpals statusline</code>), <code>~/.cursor/hooks.json</code>, <code>~/.gemini/settings.json</code>, <code>~/.config/opencode/plugins/dotpals.js</code> and <code>~/.copilot/hooks/dotpals.json</code> (<strong>Connect</strong>).</li>
+  <li><strong>The Claude Code plugin</strong> is installed and managed by Claude Code.</li>
+  <li><strong>The pal page</strong>, in the desktop app or a browser, remembers the sound toggle, your first pal and the Tools filter in its local storage.</li>
+</ul>
+<p>To remove everything, see <a href="troubleshooting.html#reset">Resetting everything</a>.</p>
+      </article>
+      <p class="g-edit"><a href="https://github.com/Rikinshah787/dotpals/blob/main/site/guide/configuration.html">Edit this page on GitHub</a></p>
+      <nav class="g-pager" aria-label="Previous and next page"><a class="g-pager-prev" href="cli.html"><small>Previous</small><span>CLI</span></a><a class="g-pager-next" href="api.html"><small>Next</small><span>HTTP API</span></a></nav>
+    </main>
+  </div>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <p><b>dotpals</b> · MIT licensed · made for people who like to know what just happened.</p>
+      <nav aria-label="Project links">
+        <a href="../">Home</a>
+        <a href="./">Docs</a>
+        <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+        <a href="https://github.com/Rikinshah787/dotpals/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/Rikinshah787/dotpals/issues">Issues</a>
+      </nav>
+      <p class="muted small">Not affiliated with or endorsed by any AI company. The pals are original artwork. No trackers on this page.</p>
+    </div>
+  </footer>
+</body>
+</html>

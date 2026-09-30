@@ -9,6 +9,11 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/hook.js\"",
             "async": true,
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/context-hook.js\"",
+            "timeout": 3
           }
         ]
       }
@@ -21,6 +26,11 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/hook.js\"",
             "async": true,
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/context-hook.js\"",
+            "timeout": 3
           }
         ]
       }

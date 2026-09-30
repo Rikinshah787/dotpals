@@ -18,6 +18,7 @@ export const DEFAULTS = {
   codex: true,          // follow Codex's session logs
   approvals: false,     // answer Claude Code's permission prompts from the pal (off unless you turn it on)
   approvalWait: 30,     // seconds to wait for an answer there before Claude asks in the terminal
+  shareRecap: false,    // tell each Claude Code session what your other agents did in the same project
   agents: {},           // per integration on/off, e.g. { cursor: false } (see bridge/adapters/index.js)
   custom: null,         // your own pal: { name, shape, eyes, top, color, fur }
 };
@@ -30,7 +31,7 @@ const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte
 /** Keep only known settings with sensible values. */
 function clean(input = {}) {
   const out = {};
-  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals']) if (typeof input[key] === 'boolean') out[key] = input[key];
+  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap']) if (typeof input[key] === 'boolean') out[key] = input[key];
   const wait = Number(input.approvalWait);
   if (Number.isInteger(wait) && wait >= 10 && wait <= 120) out.approvalWait = wait;
   if (CHARACTERS.includes(input.character)) out.character = input.character;

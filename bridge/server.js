@@ -18,6 +18,9 @@
 //                            config:   the settings, whenever they change
 //                            agents:   the integrations, after Connect or Disconnect
 //                            reset:    history was cleared
+//                            context:  how full a session's context window is
+//                            approval: a permission request to answer (or that it's settled)
+//                            helpers:  a session's helper agents (subagents)
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
@@ -28,6 +31,10 @@
 //   POST /api/agents/<id>/disconnect   take it out again
 //   POST /api/agents/<id>/test         run its hook with a sample event and show a pal
 //   GET  /api/usage      → { agents: [...] } plan usage, from usage.js
+//   GET  /api/approvals  → requests waiting for an answer; POST /api/approvals/<id> { decision }
+//   GET  /api/recap      → a note for one agent about the others (?session=&label=&mode=start|prompt)
+//   POST /api/sessions/<id>/dismiss → put a session to sleep (it wakes on new activity)
+//   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
 import { spawn } from 'node:child_process';
@@ -41,7 +48,8 @@ import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, createActivityLog, folderName } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, lastReply, watchClaude } from './adapters/claude.js';
-import { flags as riskFlags } from './ui/story.js';
+import { crossRecap, flags as riskFlags } from './ui/story.js';
+import { sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { configPath, home, loadConfig, saveConfig } from './config.js';
 import { claudeContextSize, readUsage } from './usage.js';
@@ -107,7 +115,7 @@ function createHistory(activity, getConfig) {
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING } = {}) {
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
@@ -141,12 +149,89 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
   }, Math.min(30_000, Math.max(50, sleepAfter / 4)));
   reaper.unref?.();
 
+  // -- helpers (subagents), for any agent ---------------------------------------------
+  // One list per session of the helper agents it started, what each is doing and
+  // whether it's done. Fed by every adapter's "agent" steps (Claude's Agent tool,
+  // Codex's spawn_agent…), by Claude's SubagentStart/SubagentStop hooks and the
+  // agent_id on a helper's own tool calls, and by `helper` in generic events.
+  const helpers = new Map(); // session → Map(id → { id, name, task, status, doing, startedAt, endedAt })
+  const HELPER_DONE_FOR = 60_000; // finished helpers stay listed this long
+  function helperList(session) {
+    const list = helpers.get(session);
+    if (!list) return [];
+    const now = Date.now();
+    for (const [id, h] of list) if (h.status !== 'running' && now - (h.endedAt ?? now) > HELPER_DONE_FOR) list.delete(id);
+    return [...list.values()].sort((a, b) => a.startedAt - b.startedAt).map(({ agentId, ...h }) => h);
+  }
+  function sendHelpers(session, harness) {
+    send('helpers', { session, harness, helpers: helperList(session) });
+  }
+  function helperFromEntry(e) {
+    if (e.kind !== 'agent' || !e.session || !e.id) return;
+    const list = helpers.get(e.session) ?? new Map();
+    helpers.set(e.session, list);
+    const h = list.get(e.id) ?? { id: e.id, name: e.detail || 'helper', task: e.title, startedAt: e.startedAt ?? e.at ?? Date.now(), status: 'running' };
+    h.task = e.title || h.task;
+    // Once Claude's lifecycle hooks know this helper, they decide when it's done
+    // (a background helper's tool call returns long before the helper finishes).
+    if (!h.agentId) {
+      if (e.status === 'failed' || e.status === 'stopped') { h.status = 'failed'; h.endedAt = Date.now(); }
+      else if (e.status === 'ok') { h.status = 'done'; h.endedAt = Date.now(); }
+    }
+    list.set(e.id, h);
+    sendHelpers(e.session, e.harness);
+  }
+  /** Claude Code: SubagentStart/SubagentStop, and tool calls made by a helper (they carry agent_id). */
+  function helperFromHook(event, session) {
+    const agentId = event.agent_id;
+    if (!agentId) return;
+    const list = helpers.get(session) ?? new Map();
+    helpers.set(session, list);
+    let h = [...list.values()].find((x) => x.agentId === agentId);
+    if (!h) {
+      // Pair it with the Agent tool call that started it: the oldest running one of this type.
+      h = [...list.values()].find((x) => !x.agentId && x.status === 'running' && (!event.agent_type || x.name === event.agent_type))
+        ?? [...list.values()].find((x) => !x.agentId && x.status === 'running');
+      if (!h) {
+        h = { id: `${session}:sub:${agentId}`, name: event.agent_type || 'helper', startedAt: Date.now(), status: 'running' };
+        list.set(h.id, h);
+      }
+      h.agentId = agentId;
+    }
+    if (event.hook_event_name === 'SubagentStop') {
+      h.status = 'done';
+      h.endedAt = Date.now();
+      h.doing = undefined;
+    } else if (event.hook_event_name === 'PreToolUse' && event.tool_name) {
+      const d = describeTool(event.tool_name, event.tool_input ?? {}, event.cwd);
+      h.doing = sentence({ ...d, tool: event.tool_name, status: 'running' });
+      h.status = 'running';
+    }
+    sendHelpers(session, 'claude');
+  }
+  /** Generic events: { session, helper: { id, name?, task?, state: 'working' | 'done' | 'error', text? } } */
+  function helperFromEvent(session, harness, helper) {
+    if (!helper || typeof helper !== 'object' || helper.id == null) return;
+    const id = `${session}:helper:${clip(String(helper.id), 80)}`;
+    const list = helpers.get(session) ?? new Map();
+    helpers.set(session, list);
+    const h = list.get(id) ?? { id, name: 'helper', startedAt: Date.now(), status: 'running' };
+    if (helper.name) h.name = clip(String(helper.name), 40);
+    if (helper.task) h.task = clip(String(helper.task), 120);
+    if (helper.text) h.doing = clip(String(helper.text), 120);
+    if (helper.state === 'done' || helper.state === 'error') { h.status = helper.state === 'done' ? 'done' : 'failed'; h.endedAt = Date.now(); h.doing = undefined; }
+    else h.status = 'running';
+    list.set(id, h);
+    sendHelpers(session, harness);
+  }
+
   function publish(entries) {
     let any = false;
     for (const entry of new Set(entries)) {
       if (!entry) continue;
       send('activity', entry);
       heard(entry.session, entry.at);
+      if (entry.kind === 'agent') helperFromEntry(entry);
       if (entry.harness) lastSeen[entry.harness] = Math.max(lastSeen[entry.harness] ?? 0, entry.at ?? 0);
       any = true;
     }
@@ -157,7 +242,7 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
     const update = { session, harness, label, ...next, at };
     if (harness && !test) lastSeen[harness] = Math.max(lastSeen[harness] ?? 0, at);
     if (!test && next.state !== 'sleeping') heard(session, at);
-    if (next.state === 'sleeping') { sessions.delete(session); contexts.delete(session); }
+    if (next.state === 'sleeping') { sessions.delete(session); contexts.delete(session); helpers.delete(session); }
     else sessions.set(session, update);
     send(null, update);
     return update;
@@ -181,6 +266,7 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
     }
     const changed = applyHook(event, activity, { session, label });
     publish(changed);
+    helperFromHook(event, session);
     if (event.hook_event_name === 'Stop' && event.transcript_path) addSummary(changed.find((e) => e.kind === 'done'), event.transcript_path);
     const next = toAgentState(event);
     return next ? setState(session, 'claude', label, next) : null;
@@ -205,9 +291,13 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
   // its own prompt while a hook runs, so if you don't answer (or nothing is open to
   // answer from) the bridge steps aside and Claude asks you in the terminal as usual.
   const approvals = new Map(); // id → { …what's asked, resolve }
+  const answerers = new Set(); // viewers that show approval cards (see /events?answers=1)
+  const recapTold = new Map(); // session → newest news it has been told about (see /api/recap)
   const approvalView = ({ resolve, timer, ...item }) => item;
   async function askApproval(event, req) {
-    if (!config.approvals || !clients.size || typeof event.tool_name !== 'string') return null;
+    // Only when something that can answer is open (the pal or the notch, which connect with
+    // ?answers=1): an open dashboard alone would leave Claude waiting with nothing to click.
+    if (!config.approvals || !answerers.size || typeof event.tool_name !== 'string') return null;
     const id = randomUUID();
     const session = String(event.session_id);
     const d = describeTool(event.tool_name, event.tool_input ?? {}, event.cwd);
@@ -277,6 +367,7 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
         ...(a.status === 'running' && !known ? { startedAt: Date.now() } : {}),
       });
     }));
+    helperFromEvent(session, harness, event.helper);
     const next = toAgentState(event);
     return next ? setState(session, harness, label, next) : null;
   }
@@ -412,6 +503,22 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
     if (req.method === 'GET' && path === '/api/status') return json(res, 200, await status());
     if (req.method === 'GET' && path === '/api/config') return json(res, 200, config);
     if (req.method === 'GET' && path === '/api/agents') return json(res, 200, { agents: agents() });
+    // What other agents did in this project, for a Claude Code hook to hand to a session
+    // (Settings → Share with your agents). `mode=start`: the whole note. `mode=prompt`:
+    // only when there's news since the last note this session got.
+    if (req.method === 'GET' && path === '/api/recap') {
+      if (!config.shareRecap) return json(res, 200, {});
+      const q = new URL(req.url, 'http://localhost').searchParams;
+      const session = q.get('session') ?? '';
+      const label = q.get('label') || undefined;
+      const states = new Map([...sessions].map(([id, u]) => [id, u.state]));
+      const recap = crossRecap(activity.all(), { session, label, states });
+      if (!recap) return json(res, 200, {});
+      const told = recapTold.get(session) ?? 0;
+      if (q.get('mode') === 'prompt' && recap.newest <= told) return json(res, 200, {});
+      recapTold.set(session, recap.newest);
+      return json(res, 200, { text: recap.text });
+    }
     if (req.method === 'GET' && path === '/api/approvals') return json(res, 200, { approvals: [...approvals.values()].map(approvalView) });
     if (req.method === 'GET' && path === '/api/usage') return json(res, 200, await usage());
 
@@ -443,6 +550,16 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
         return json(res, 400, { error: err.message });
       }
     }
+    // Dismiss a session (the × on its tab): its pal goes to sleep everywhere. It comes
+    // back by itself if the agent does something new. History isn't touched.
+    const dismiss = /^\/api\/sessions\/([^/]{1,200})\/dismiss$/.exec(path);
+    if (dismiss) {
+      const session = decodeURIComponent(dismiss[1]);
+      const update = sessions.get(session);
+      if (update) setState(session, update.harness, update.label, { state: 'sleeping' });
+      lastHeard.delete(session);
+      return json(res, 200, { ok: true, wasActive: !!update });
+    }
     const answer = /^\/api\/approvals\/([\w-]{8,64})$/.exec(path);
     if (answer) {
       const item = approvals.get(answer[1]);
@@ -471,6 +588,10 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
     const url = new URL(req.url, 'http://localhost');
 
     if (req.method === 'POST' && (url.pathname === '/hook' || url.pathname === '/event')) {
+      // Agents' hooks and scripts don't send an Origin; a web page does. Only this
+      // computer's own pages may post, so another site can't fake activity or approvals.
+      const origin = req.headers.origin;
+      if (!allowedHost(req.headers.host) || (origin && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin))) return res.writeHead(403).end();
       const body = await readBody(req);
       let reply = null;
       try {
@@ -495,12 +616,15 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
       for (const entry of activity.all()) res.write(`event: activity\ndata: ${JSON.stringify(entry)}\n\n`);
       for (const update of sessions.values()) res.write(`data: ${JSON.stringify(update)}\n\n`);
       for (const ctx of contexts.values()) res.write(`event: context\ndata: ${JSON.stringify(ctx)}\n\n`);
+      for (const session of helpers.keys()) { const list = helperList(session); if (list.length) res.write(`event: helpers\ndata: ${JSON.stringify({ session, harness: sessions.get(session)?.harness, helpers: list })}\n\n`); }
       for (const item of approvals.values()) res.write(`event: approval\ndata: ${JSON.stringify({ ...approvalView(item), status: 'pending' })}\n\n`);
       clients.add(res);
+      if (url.searchParams.get('answers') === '1') answerers.add(res);
       const ping = setInterval(() => res.write(': ping\n\n'), 15000);
       req.on('close', () => {
         clearInterval(ping);
         clients.delete(res);
+        answerers.delete(res);
       });
       return;
     }

@@ -56,7 +56,7 @@ body::before {
 }
 img { max-width: 100%; height: auto; display: block; }
 a { color: inherit; }
-code, pre { font-family: var(--f-mono); }
+code, pre, kbd { font-family: var(--f-mono); font-variant-ligatures: none; } /* "--flag" must not become a dash */
 p code, li code {
   font-size: .86em;
   padding: .1em .38em;
@@ -133,6 +133,12 @@ p { margin: 0 0 1rem; }
 .brand dot-pal { --dp-size: 34px; }
 .brand-name { padding-bottom: 5px; }
 .nav { display: flex; align-items: center; gap: 1.2rem; font-size: .95rem; }
+/* The docs link sits by the brand: the notch owns the middle of the bar. */
+.top-docs {
+  margin: 0 auto 0 .6rem; padding: .28rem .7rem; border-radius: 999px;
+  border: 1px solid var(--line-2); color: var(--muted); text-decoration: none; font-size: .86rem; font-weight: 500;
+}
+.top-docs:hover { color: var(--text); border-color: #55525f; }
 .nav a:not(.btn) { color: var(--muted); text-decoration: none; }
 .nav a:not(.btn):hover { color: var(--text); }
 
@@ -648,6 +654,7 @@ legend { font: 600 .72rem/1 var(--f-body); letter-spacing: .09em; text-transform
   .notch { --w: min(380px, calc(100vw - 440px)); }
 }
 @media (max-width: 960px) {
+  .top-docs { padding: .28rem .2rem; border-color: transparent; }
   .two, .story-grid { grid-template-columns: minmax(0, 1fr); }
   .story-copy { position: static; }
   .agents-grid { grid-template-columns: 1fr 1fr; }
@@ -661,7 +668,7 @@ legend { font: 600 .72rem/1 var(--f-body); letter-spacing: .09em; text-transform
   :root { --gutter: 16px; }
   body { font-size: 1rem; }
   .top { height: 56px; }
-  .brand-name, .hide-sm { display: none; }
+  .brand-name, .hide-sm, .top-docs { display: none; }
   .notch { --w: calc(100vw - 200px); --open-w: calc(100vw - 16px); }
   .notch-pill { padding: 0 .6rem 0 .75rem; font-size: .78rem; height: 36px; gap: .45rem; }
   .notch-ring { width: 16px; height: 16px; }

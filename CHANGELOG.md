@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-30
+
+### Added
+
+- **Share with your agents** (off unless you turn it on in Settings): when a Claude Code session starts, it gets a short note about the other agents that worked in the same project in the last 2 hours: what they changed, whether their tests pass, and whether they're still working. Later prompts only get a note when there's news. It uses the documented `additionalContext` from a new foreground hook, `bridge/context-hook.js` (3 s timeout, never blocks), and the new `GET /api/recap` route.
+- **Dismiss a session**: a × on each session tab and each notch card puts that session to sleep everywhere (`POST /api/sessions/<id>/dismiss`). It comes back if the agent does something new.
+- **Tools filters**: Key steps (the default: no file reads or searches), Changes, Commands, Problems and All, with counts.
+- **Helpers (subagents), for any agent**: the notch and the pal list each session's helper agents, what each is doing now ("Explore · Reading src/auth.js") and a ✓ when done. They come from every agent's "start a helper" steps (Claude's Agent tool, Codex's `spawn_agent`), from Claude Code's `SubagentStart`/`SubagentStop` hooks and the `agent_id` on a helper's tool calls (so background helpers are tracked correctly), and from a new `helper` field in the generic event format: `{ "session": "s1", "helper": { "id": "w1", "name": "tester", "task": "Run e2e", "state": "working" | "done" | "error", "text": "Running playwright" } }`. There's a new `helpers` event on `/events`.
+
+### Changed
+
+- **Files** lists changed files first, with the folder dimmed, +adds −dels and "edited N×". Files it only read are folded away.
+- Session tabs show only active sessions (on the stage, or busy in the last 30 minutes).
+- The pal's bubble no longer shows your own message as a step, and it cuts text at a whole word instead of with "…".
+- **Documentation**: a 10-page guide on the website (`site/guide/`: getting started, features, agents, CLI, configuration, HTTP API, the web component, architecture, privacy and security, troubleshooting) and `docs/ARCHITECTURE.md` for contributors.
+- `dotpals setup` adds the `dotpals` command to your terminal (a global npm link to `~/.dotpals/app`; skip it with `--no-path`).
+- Approve from the pal waits only while the pal or the notch is open (they can show the card), not for a dashboard tab alone.
+- One port setting everywhere: `DOTPALS_PORT` (then `PORT`) for the bridge, the hooks and the recap hook. `DOTPALS_CODEX_DIR` also applies to usage limits, and `DOTPALS_HOME` also sets where Electron is downloaded.
+
+### Security
+
+- `POST /hook` and `POST /event` now refuse requests from other websites (a browser `Origin` that isn't this computer) and requests addressed to another host name, so a web page can't inject fake activity or fake approval cards.
+
 ## [0.7.0] - 2026-09-30
 
 ### Added
@@ -19,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context window alerts**: each session chip shows how full its context window is. The pal is surprised at 80%, worried at 90% ("it'll compact soon") and cheers after compaction. Percentages show only when the window size is known (Codex, or Claude with the status line), so there are no false alarms.
 - **Using**: the skills, plugins, MCP tools and helper agents the session you're looking at has used.
 - **Two agents, one file**: a note when another agent changed a file this session also changed within 30 minutes.
-- **Approve from the pal**: answer Claude Code's permission prompts ("Allow Bash: git push?") with Allow or Deny from the pal or the notch. The request shows exactly what will run, with warnings such as "Force-pushes to git". Off by default; turn it on in Settings. It waits only while a pal, the notch or the dashboard is open, for up to 30 seconds (15 to 120 in Settings). If you don't answer, Claude asks in the terminal as usual. It uses Claude Code's documented `PermissionRequest` hook. In `hooks/hooks.json` that hook now runs in the foreground (130 s timeout) so it can answer.
+- **Approve from the pal**: answer Claude Code's permission prompts ("Allow Bash: git push?") with Allow or Deny from the pal or the notch. The request shows exactly what will run, with warnings such as "Force-pushes to git". Off by default; turn it on in Settings. It waits only while a pal, the notch or the dashboard is open, for up to 30 seconds (15 seconds to 2 minutes in Settings). If you don't answer, Claude asks in the terminal as usual. It uses Claude Code's documented `PermissionRequest` hook. In `hooks/hooks.json` that hook now runs in the foreground (130 s timeout) so it can answer.
 - **Copy /compact**: when a session's context fills up, the pal and the notch offer a `/compact` with a note on what to keep: the goal, what's still to do, the files changed and failing tests. Paste it into the agent.
 - **Avatars in the notch**: each agent shows its own live pal in a round badge, in the pal, in the notch and on the landing page.
 - **Landing page** in `site/`, using the real live pals. `site/build.mjs` builds it for any static host. `vercel.json` hosts it on Vercel, and there's a GitHub Pages workflow you can run by hand.
@@ -123,7 +146,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/rikinshah787/dotpals/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/rikinshah787/dotpals/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rikinshah787/dotpals/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rikinshah787/dotpals/compare/v0.4.0...v0.5.0

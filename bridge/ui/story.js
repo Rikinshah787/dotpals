@@ -33,6 +33,8 @@ const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
 /** What kind of chapter a step belongs to. */
 export function stepType(e) {
   switch (e.kind) {
+    // Not steps: what you asked, and how the turn ended.
+    case 'prompt': case 'done': case 'error': return 'quiet';
     case 'read': case 'search': return 'explore';
     case 'edit': case 'write': case 'delete': return 'change';
     case 'web': return 'web';
@@ -354,7 +356,7 @@ export function planOf(steps) {
 export function headline(steps, plan) {
   if (plan?.current) {
     const text = plan.current.active || plan.current.text;
-    return `${plan.done + 1}/${plan.total} · ${text.length > 40 ? `${text.slice(0, 39)}…` : text}`;
+    return `${plan.done + 1}/${plan.total} · ${words(text, 40)}`;
   }
   const chs = chapters(steps);
   const newest = steps.filter((e) => !['plan', 'quiet'].includes(stepType(e))).at(-1);
@@ -373,7 +375,7 @@ export function headline(steps, plan) {
     ask: 'Has a question for you',
   }[ch.type];
   const text = ch.status === 'running' || !short ? (short ?? ch.title) : short;
-  return text.length > 44 ? `${text.slice(0, 43)}…` : text;
+  return words(text, 48);
 }
 
 // -- what a session has been using ----------------------------------------------------
@@ -473,6 +475,77 @@ export function compactNote(entries) {
   ].filter(Boolean);
   const sentences = parts.map((x) => x[0].toUpperCase() + x.slice(1));
   return `/compact ${sentences.length ? `${sentences.join('. ')}.` : 'Keep the current goal and the files changed so far.'}`;
+}
+
+// -- telling one agent what the others did -------------------------------------------
+
+/**
+ * A short note for an agent session about what *other* sessions did in the same
+ * project recently: what they changed, whether their tests pass, whether they're
+ * still at it. So two agents don't work blind on the same code. Returns
+ * { text, newest } or null when there's nothing worth saying.
+ *
+ *   entries   every activity entry (any order)
+ *   session   the session the note is for; label: its project (folder name)
+ *   since     only work after this time (default: the last 2 hours)
+ *   states    session → its current state ('working', 'done'…), if known
+ */
+export function crossRecap(entries, { session, label, since = Date.now() - 2 * 3600_000, states = new Map(), max = 4 } = {}) {
+  if (!label) return null;
+  const others = new Map(); // session → its entries
+  for (const e of entries) {
+    if (e.session === session || e.label !== label || e.at < since) continue;
+    if (!others.has(e.session)) others.set(e.session, []);
+    others.get(e.session).push(e);
+  }
+  const agoText = (at) => { const m = Math.round((Date.now() - at) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)}h ago`; };
+  const lines = [];
+  let newest = 0;
+  for (const [id, list] of [...others].sort((a, b) => Math.max(...b[1].map((e) => e.at)) - Math.max(...a[1].map((e) => e.at)))) {
+    list.sort((a, b) => a.at - b.at);
+    const last = list.at(-1).at;
+    const files = [];
+    for (const e of list.slice().reverse()) {
+      if (e.status === 'failed') continue;
+      for (const f of e.files ?? []) if (['edit', 'write', 'delete'].includes(f.change) && !files.includes(f.path)) files.push(f.path);
+    }
+    const test = list.findLast((e) => e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running');
+    const asked = list.findLast((e) => e.kind === 'prompt')?.title;
+    if (!files.length && !test) continue; // only looked around: not worth mentioning
+    newest = Math.max(newest, last);
+    const agent = { claude: 'Claude', codex: 'Codex' }[list[0].harness] ?? list[0].harness ?? 'Another agent';
+    const state = states.get(id);
+    const status = ['working', 'thinking', 'speaking', 'waiting'].includes(state) ? 'working now' : `last active ${agoText(last)}`;
+    const parts = [];
+    if (files.length) parts.push(`changed ${files.slice(0, 5).map((p) => relativeish(p, label)).join(', ')}${files.length > 5 ? ` and ${files.length - 5} more` : ''}`);
+    if (test) parts.push(test.status === 'failed' ? `its last test run failed (${words(commandOf(test), 40)})` : 'its tests passed');
+    if (asked) parts.push(`it was asked: "${words(asked, 80)}"`);
+    lines.push(`- ${agent} (session ${String(id).slice(-4)}, ${status}): ${parts.join('; ')}.`);
+    if (lines.length >= max) break;
+  }
+  if (!lines.length) return null;
+  return {
+    newest,
+    text: [`dotpals: other coding agents worked in this project (${label}) recently:`, ...lines,
+      'Check these files for their changes before editing them, and avoid undoing their work.'].join('\n'),
+  };
+}
+
+/** A path from the project folder on ("src/app.js"), or just the file name. */
+function relativeish(path, label) {
+  const p = String(path).replace(/\\/g, '/');
+  const i = p.toLowerCase().lastIndexOf(`/${String(label).toLowerCase()}/`);
+  return i >= 0 ? p.slice(i + label.length + 2) : baseName(p);
+}
+
+/** Shorten to whole words (no "…"): the pal's bubble should read as a phrase. */
+function words(text, n) {
+  text = String(text).split('\n')[0].trim();
+  if (text.length <= n) return text;
+  let cut = text.slice(0, n + 1).replace(/\s+\S*$/, '').replace(/[\s,;:·–-]+$/, '');
+  // Don't end on a word that needs another after it ("…scheme and").
+  while (/\s(and|or|but|the|a|an|to|of|for|with|in|on|at|by|from|into|that)$/i.test(cut)) cut = cut.replace(/\s\S+$/, '');
+  return cut.length >= n / 2 ? cut : text.slice(0, n).trim();
 }
 
 /** A turn's story: chapters, flags for the whole turn, and the plan. */

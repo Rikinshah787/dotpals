@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agents and integrations · dotpals docs</title>
+  <meta name="description" content="Connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI or any agent to dotpals: how each one connects, what it reports, its limits, and the JSON event format.">
+  <meta name="theme-color" content="#0b0a0e">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="dotpals">
+  <meta property="og:title" content="Agents and integrations · dotpals docs">
+  <meta property="og:description" content="Connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI or any agent to dotpals: how each one connects, what it reports, its limits, and the JSON event format.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%231e88ff' d='M6 64V40C6 20 18 10 32 10s26 10 26 30v24z'/%3E%3Cellipse cx='25' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3Cellipse cx='39' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Geist:wght@400..600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="./guide.css">
+  <script type="module" src="./guide.js"></script>
+</head>
+<body class="guide">
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="g-top">
+    <a class="brand" href="../" aria-label="dotpals home">
+      <dot-pal character="blu" size="34" static label="dotpals"></dot-pal>
+      <span class="brand-name">dotpals</span>
+    </a>
+    <a class="g-badge" href="./">Docs</a>
+    <nav class="g-toplinks" aria-label="Site">
+      <a href="../">Home</a>
+      <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+    </nav>
+    <button class="g-menu" type="button" aria-controls="g-side" aria-expanded="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span>Menu</span>
+    </button>
+  </header>
+
+  <div class="g-layout">
+    <aside class="g-side" id="g-side" aria-label="Documentation">
+      <div class="g-search">
+        <label class="sr" for="g-q">Search the docs</label>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4 14 14"/></svg>
+        <input id="g-q" type="search" placeholder="Search the docs" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <nav class="g-nav" aria-label="Pages">
+        <div class="g-group"><p class="g-group-name">Start</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="./" data-k="Install dotpals with one command, or add only the Claude Code plugin, and see what your coding agent did in plain words. Requirements, first run and next steps.">Overview</a><ul class="g-secs"><li><a href="./#what-you-get">What you get</a></li><li><a href="./#requirements">Requirements</a></li><li><a href="./#install">Install</a></li><li><a href="./#claude-code-plugin-only">Only the Claude Code plugin</a></li><li><a href="./#first-run">First run</a></li><li><a href="./#running-commands">Running dotpals commands</a></li><li><a href="./#without-the-desktop-app">Without the desktop app</a></li><li><a href="./#next-steps">Next steps</a></li></ul></li>
+          <li class="g-page"><a href="features.html" data-k="Every dotpals feature: the story view, the notch, approve from the pal, context and compact, usage limits, the Using row, two agents on one file, custom pals, the dashboard, notifications and sounds.">Features</a><ul class="g-secs"><li><a href="features.html#the-pal" data-k="When pals come and go">The floating pal</a></li><li><a href="features.html#story" data-k="Chapters · Worth a second look · Today, Tools and Files">The story view</a></li><li><a href="features.html#notch">The notch</a></li><li><a href="features.html#approvals">Approve from the pal</a></li><li><a href="features.html#context">Context and compact</a></li><li><a href="features.html#usage-limits">Usage limits</a></li><li><a href="features.html#using">The “Using” row</a></li><li><a href="features.html#two-agents">Two agents on one file</a></li><li><a href="features.html#helpers">Helpers</a></li><li><a href="features.html#share">Share with your agents</a></li><li><a href="features.html#custom-pals">Make your own pal</a></li><li><a href="features.html#dashboard" data-k="Overview · Sessions · Map · Agents · Settings">The dashboard</a></li><li><a href="features.html#notifications">Notifications and sounds</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Set up</p>
+        <ul class="g-pages">
+          <li class="g-page is-current"><a href="agents.html" data-k="Connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI or any agent to dotpals: how each one connects, what it reports, its limits, and the JSON event format." aria-current="page">Agents</a><ul class="g-secs"><li><a href="agents.html#at-a-glance">At a glance</a></li><li><a href="agents.html#agents-page">The Agents page</a></li><li><a href="agents.html#claude-code" data-k="Connect · What it reports · Sessions without the plugin · Limits">Claude Code</a></li><li><a href="agents.html#codex" data-k="Connect · What it reports · Limits">Codex</a></li><li><a href="agents.html#cursor" data-k="Connect · What it reports · Limits">Cursor</a></li><li><a href="agents.html#gemini-cli" data-k="Connect · What it reports · Limits">Gemini CLI</a></li><li><a href="agents.html#opencode" data-k="Connect · What it reports · Limits">OpenCode</a></li><li><a href="agents.html#copilot-cli" data-k="Connect · What it reports · Limits">GitHub Copilot CLI</a></li><li><a href="agents.html#any-agent" data-k="The event format · A request, start to finish · Helpers · From your language · Events the pal already understands">Any other agent</a></li><li><a href="agents.html#add-an-agent">Add a first-class adapter</a></li></ul></li>
+          <li class="g-page"><a href="cli.html" data-k="Every dotpals command and flag: setup, start, dashboard, status, notch, statusline and bridge, plus the dotpals-bridge and dotpals-float commands.">CLI</a><ul class="g-secs"><li><a href="cli.html#running">Running it</a></li><li><a href="cli.html#setup">setup</a></li><li><a href="cli.html#start">start</a></li><li><a href="cli.html#dashboard">dashboard</a></li><li><a href="cli.html#status">status</a></li><li><a href="cli.html#notch">notch</a></li><li><a href="cli.html#statusline">statusline</a></li><li><a href="cli.html#bridge">bridge</a></li><li><a href="cli.html#other-commands">Other commands</a></li><li><a href="cli.html#npm-scripts">From a checkout</a></li></ul></li>
+          <li class="g-page"><a href="configuration.html" data-k="Every key in ~/.dotpals/config.json with its default, every DOTPALS_ environment variable, and where dotpals keeps its files.">Configuration</a><ul class="g-secs"><li><a href="configuration.html#config-json" data-k="Keys">config.json</a></li><li><a href="configuration.html#environment-variables" data-k="For the bridge and the app · For the hooks · Changing the port">Environment variables</a></li><li><a href="configuration.html#files">Where files live</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Reference</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="api.html" data-k="The dotpals bridge API on 127.0.0.1:5175: HTTP routes, Server-Sent Events and their payloads, and the event format for POST /event.">HTTP API</a><ul class="g-secs"><li><a href="api.html#basics">Basics</a></li><li><a href="api.html#routes">All routes</a></li><li><a href="api.html#post-event">POST /event</a></li><li><a href="api.html#post-hook">POST /hook</a></li><li><a href="api.html#events" data-k="Event types · The activity entry">GET /events</a></li><li><a href="api.html#get-status">GET /api/status</a></li><li><a href="api.html#post-config">POST /api/config</a></li><li><a href="api.html#agents-api">Agents</a></li><li><a href="api.html#dismiss">POST /api/sessions/&lt;id&gt;/dismiss</a></li><li><a href="api.html#approvals-api">Approvals</a></li><li><a href="api.html#get-usage">GET /api/usage</a></li><li><a href="api.html#get-recap">GET /api/recap</a></li><li><a href="api.html#errors">Errors</a></li></ul></li>
+          <li class="g-page"><a href="component.html" data-k="Use the dotpals pal in your own app: attributes, properties, methods, events, states, moods, characters, registerCharacter, registerCustom, agent helpers and framework usage.">Web component</a><ul class="g-secs"><li><a href="component.html#install">Install</a></li><li><a href="component.html#quick-start">Quick start</a></li><li><a href="component.html#states">States and moods</a></li><li><a href="component.html#attributes">Attributes</a></li><li><a href="component.html#properties">Properties</a></li><li><a href="component.html#methods">Methods</a></li><li><a href="component.html#dom-events">DOM events</a></li><li><a href="component.html#characters" data-k="Add your own character">Characters</a></li><li><a href="component.html#custom-pals">Custom pals</a></li><li><a href="component.html#actions">Actions</a></li><li><a href="component.html#connect-agent" data-k="Stream events straight in · From your own event loop · Custom mapping · Events it understands">Connect an agent</a></li><li><a href="component.html#styling">Styling</a></li><li><a href="component.html#frameworks">Frameworks</a></li><li><a href="component.html#accessibility">Accessibility</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">More</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="architecture.html" data-k="How dotpals works inside: adapters, the bridge, the activity model, session lifetimes, the story engine, usage sources, approvals, the desktop app, persistence and security.">Architecture</a><ul class="g-secs"><li><a href="architecture.html#big-picture">The big picture</a></li><li><a href="architecture.html#components">Components</a></li><li><a href="architecture.html#activity-model">The activity entry model</a></li><li><a href="architecture.html#adapters" data-k="Claude Code · Codex · Cursor, Gemini CLI and GitHub Copilot CLI · OpenCode · Any agent · The hook forwarder">Adapters</a></li><li><a href="architecture.html#sessions">How sessions live and sleep</a></li><li><a href="architecture.html#story-engine">The story engine</a></li><li><a href="architecture.html#usage">Usage limits and context windows</a></li><li><a href="architecture.html#helpers">Helpers</a></li><li><a href="architecture.html#share">Share with your agents</a></li><li><a href="architecture.html#approvals">Approve from the pal</a></li><li><a href="architecture.html#desktop">The desktop app</a></li><li><a href="architecture.html#persistence">Persistence</a></li><li><a href="architecture.html#security">Security model</a></li><li><a href="architecture.html#testing">Testing</a></li><li><a href="architecture.html#adding-an-adapter">Adding an adapter</a></li></ul></li>
+          <li class="g-page"><a href="privacy.html" data-k="What dotpals stores and where, why nothing leaves your computer, how the local bridge is protected, and how approving from the pal is kept safe.">Privacy and security</a><ul class="g-secs"><li><a href="privacy.html#nothing-leaves">Nothing leaves your computer</a></li><li><a href="privacy.html#what-it-reads">What dotpals reads</a></li><li><a href="privacy.html#what-it-stores">What dotpals stores</a></li><li><a href="privacy.html#what-it-tells-agents">What dotpals tells your agents</a></li><li><a href="privacy.html#what-it-changes">What dotpals changes</a></li><li><a href="privacy.html#bridge-security">How the bridge is protected</a></li><li><a href="privacy.html#approvals">Approving from the pal, safely</a></li><li><a href="privacy.html#reporting">Reporting a vulnerability</a></li></ul></li>
+          <li class="g-page"><a href="troubleshooting.html" data-k="Fixes for common dotpals problems: no sessions on the pal, ELECTRON_RUN_AS_NODE, npm 12 and --allow-git, port 5175 in use, missing Claude limits, context in tokens, approvals and more.">Troubleshooting</a><ul class="g-secs"><li><a href="troubleshooting.html#no-sessions">The pal isn't showing my sessions</a></li><li><a href="troubleshooting.html#electron-run-as-node">The desktop pal doesn't open (ELECTRON_RUN_AS_NODE)</a></li><li><a href="troubleshooting.html#npm-allow-git">npm won't install from GitHub</a></li><li><a href="troubleshooting.html#port-in-use">Port 5175 is in use</a></li><li><a href="troubleshooting.html#claude-limits">Claude Code's usage limits don't show</a></li><li><a href="troubleshooting.html#context-in-tokens">The context shows tokens, not a percentage</a></li><li><a href="troubleshooting.html#approvals-waiting">Claude Code seems stuck, with no prompt</a></li><li><a href="troubleshooting.html#share-notes">Claude doesn't get notes about my other agents</a></li><li><a href="troubleshooting.html#linux-click-through">Clicks don't go through the pal on Linux</a></li><li><a href="troubleshooting.html#agent-connect">An agent won't connect, or its events don't arrive</a></li><li><a href="troubleshooting.html#command-not-found">“dotpals: command not found”</a></li><li><a href="troubleshooting.html#shortcut">Ctrl+Alt+P does nothing</a></li><li><a href="troubleshooting.html#no-sound">No sounds or notifications</a></li><li><a href="troubleshooting.html#reset">Resetting everything</a></li><li><a href="troubleshooting.html#getting-help">Still stuck?</a></li></ul></li>
+        </ul></div>
+      </nav>
+      <p class="g-none" id="g-none" hidden>No pages or sections match.</p>
+    </aside>
+
+    <main class="g-main" id="content">
+      <article class="doc">
+<p class="eyebrow-doc">Set up</p>
+<h1>Agents and integrations</h1>
+<p class="lead">dotpals works with any coding agent. Each one connects through a small adapter, and every adapter feeds the same activity feed, so every agent gets the same story view, pal and dashboard.</p>
+
+<h2 id="at-a-glance">At a glance</h2>
+<div class="g-table"><table>
+  <thead><tr><th>Agent</th><th>Connects through</th><th>Setup</th></tr></thead>
+  <tbody>
+    <tr><td><a href="#claude-code">Claude Code</a></td><td>Plugin hooks, plus every session's transcript</td><td>The one-command setup, or the plugin</td></tr>
+    <tr><td><a href="#codex">Codex</a> (CLI, IDE extension, app)</td><td>Its session logs in <code>~/.codex/sessions</code></td><td>None</td></tr>
+    <tr><td><a href="#cursor">Cursor</a> (editor and CLI)</td><td>Hooks in <code>~/.cursor/hooks.json</code></td><td><strong>Connect</strong> on the Agents page</td></tr>
+    <tr><td><a href="#gemini-cli">Gemini CLI</a></td><td>Hooks in <code>~/.gemini/settings.json</code></td><td><strong>Connect</strong> on the Agents page</td></tr>
+    <tr><td><a href="#opencode">OpenCode</a></td><td>A plugin in <code>~/.config/opencode/plugins/</code></td><td><strong>Connect</strong>, then restart OpenCode</td></tr>
+    <tr><td><a href="#copilot-cli">GitHub Copilot CLI</a></td><td>Hooks in <code>~/.copilot/hooks/dotpals.json</code></td><td><strong>Connect</strong> on the Agents page</td></tr>
+    <tr><td><a href="#any-agent">Any other agent</a></td><td><code>POST http://127.0.0.1:5175/event</code></td><td>A few lines in your agent loop, a hook script or a wrapper</td></tr>
+  </tbody>
+</table></div>
+<p>The hook-based integrations run <code>node ~/.dotpals/app/bridge/hook.js &lt;agent&gt;</code>, so Node has to be on your <code>PATH</code>. The command forwards each event to the bridge and always exits successfully and quickly, so it never blocks or slows the agent.</p>
+
+<h2 id="agents-page">The Agents page</h2>
+<p>Open the dashboard and go to <strong>Agents</strong>. Each card shows whether the agent is installed on this computer, whether it's connected, and when its last event arrived.</p>
+<ul>
+  <li><strong>Connect</strong> adds one small command (or, for OpenCode, a plugin) to that agent's own config. It backs up the original first (as <code>&lt;file&gt;.dotpals-backup</code>), merges instead of overwriting, and leaves a file it can't read untouched. It's available once the agent is found on this computer.</li>
+  <li><strong>Disconnect</strong> takes out only what dotpals added.</li>
+  <li><strong>Send a test event</strong> runs the real hook command (or loads the real plugin). If it reaches dotpals, a pal says “Hello from the dashboard”. If it doesn't, the card says why, such as a wrong path or a missing <code>node</code>.</li>
+  <li>The <strong>switch</strong> on each card turns an agent off without disconnecting it: its events are ignored until you switch it back on. The same setting is <code>{ "agents": { "cursor": false } }</code> in <a href="configuration.html#agents">config.json</a>.</li>
+</ul>
+<div class="g-table"><table>
+  <thead><tr><th>Agent</th><th>What Connect changes</th></tr></thead>
+  <tbody>
+    <tr><td>Cursor</td><td>Adds a command to <code>~/.cursor/hooks.json</code> for 12 hook events. Cursor reloads the file on save.</td></tr>
+    <tr><td>Gemini CLI</td><td>Adds a hook group to <code>~/.gemini/settings.json</code> for 8 hook events.</td></tr>
+    <tr><td>OpenCode</td><td>Adds <code>~/.config/opencode/plugins/dotpals.js</code> (or under <code>$XDG_CONFIG_HOME/opencode</code>). Restart OpenCode to load it.</td></tr>
+    <tr><td>GitHub Copilot CLI</td><td>Adds its own file, <code>~/.copilot/hooks/dotpals.json</code> (or under <code>$COPILOT_HOME/hooks</code>), so your other hooks are never touched.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="claude-code">Claude Code</h2>
+<h3 id="claude-connect">Connect</h3>
+<p>The <a href="./#install">one-command setup</a> adds the plugin for you. Or add it from inside Claude Code (<a href="./#claude-code-plugin-only">details</a>):</p>
+<pre><code>/plugin marketplace add rikinshah787/dotpals
+/plugin install dotpals@dotpals</code></pre>
+<p>Restart Claude Code to load it. The plugin registers a hook for session start and end, prompts, every tool call before and after (and failures), permission requests, notifications, helper agents, compaction and the end of each turn.</p>
+<h3 id="claude-reports">What it reports</h3>
+<ul>
+  <li>Your prompts. Slash commands and skills show by name, as <code>/name args</code>; context the editor adds to a prompt is left out.</li>
+  <li>Every tool call, live: files read, edits and new files with their diffs, commands with their output and duration, searches, web lookups, helper agents, skills and MCP tools, and whether each one worked.</li>
+  <li>Permission prompts (the pal waits for you, and you can <a href="features.html#approvals">answer from the pal</a>), compaction, and Claude's own summary at the end of each turn.</li>
+  <li>Its plan, from TodoWrite or tasks, and how full the context window is.</li>
+  <li>Its <a href="features.html#helpers">helper agents</a>, what each one is doing, and when each finishes, even in the background.</li>
+</ul>
+<p>Claude Code is also the one agent that can receive notes from dotpals: with <a href="features.html#share">Share with your agents</a> on, each session hears what your other agents did in the same project. The plugin delivers them with a second, short hook on session start and on each prompt.</p>
+<h3 id="claude-transcripts">Sessions without the plugin</h3>
+<p>dotpals also follows every session's transcript in <code>~/.claude/projects</code>. So sessions that started before dotpals was installed, or without the plugin, show up too, a second or two behind. It picks up transcripts written in the last three hours. When a session sends hook events, the hooks take over and nothing shows twice. When the pal opens partway through a session, its history is filled in from the transcript.</p>
+<h3 id="claude-limits">Limits</h3>
+<ul>
+  <li>Usage limits, and the context window as a percentage, need <code>dotpals statusline</code> (see <a href="features.html#usage-limits">Usage limits</a>).</li>
+  <li>Sessions followed only through their transcripts don't report permission prompts, so they can't be answered from the pal.</li>
+  <li><code>DOTPALS_CLAUDE_LOGS=0</code> stops following transcripts. The switch on the Agents page turns Claude Code off entirely.</li>
+</ul>
+
+<h2 id="codex">Codex</h2>
+<h3 id="codex-connect">Connect</h3>
+<p>Nothing to install. dotpals follows Codex's session logs in <code>~/.codex/sessions</code>, so the Codex CLI, the IDE extension and the app all show up while the pal is running. The one-command setup starts dotpals when you log in, so it's always there.</p>
+<h3 id="codex-reports">What it reports</h3>
+<ul>
+  <li>Your prompts, commands (with Codex's own reason for running them), patches with their diffs and the files they touched, images viewed, web searches, helper agents, MCP tools and its plan.</li>
+  <li>Codex's closing message for each turn, how full the context window is (always as a percentage, because Codex logs the window size), and your <a href="features.html#usage-limits">usage limits</a>.</li>
+</ul>
+<h3 id="codex-limits">Limits</h3>
+<ul>
+  <li>Codex doesn't log whether a command failed, so dotpals guesses from the output (“exited with code 1”, “error: …”).</li>
+  <li>It follows logs from today and yesterday that changed in the last 12 hours, and gives a live pal only to sessions active in the last 10 minutes.</li>
+  <li>Permission prompts can't be answered from the pal.</li>
+  <li><code>DOTPALS_CODEX=0</code> (or <code>"codex": false</code>) stops following Codex. <code>DOTPALS_CODEX_DIR</code> points dotpals at another sessions folder.</li>
+</ul>
+
+<h2 id="cursor">Cursor</h2>
+<h3 id="cursor-connect">Connect</h3>
+<p>Press <strong>Connect</strong> on the Cursor card. It adds <code>node ".../bridge/hook.js" cursor</code> to <code>~/.cursor/hooks.json</code> for session start and end, prompts, shell commands, file edits, MCP calls, other tool calls and failures, helper agents, replies, compaction and stop. Cursor reloads the file when it changes. See <a href="https://cursor.com/docs/hooks">Cursor's hooks docs</a>.</p>
+<h3 id="cursor-reports">What it reports</h3>
+<ul>
+  <li>Prompts, shell commands with their output and duration, file edits with their diffs, MCP calls, file reads, searches, deletes, web lookups and helper agents.</li>
+  <li>The agent's reply as the turn's summary, compaction, and whether the turn finished, was stopped or failed.</li>
+</ul>
+<h3 id="cursor-limits">Limits</h3>
+<ul>
+  <li>dotpals uses only hooks that watch, never the ones that can approve or block (so it can't change what the agent is allowed to do). That's why tool calls show up once they've finished, rather than while they run, and why permission prompts don't show.</li>
+  <li>No context window or usage limits.</li>
+</ul>
+
+<h2 id="gemini-cli">Gemini CLI</h2>
+<h3 id="gemini-connect">Connect</h3>
+<p>Press <strong>Connect</strong> on the Gemini CLI card. It adds a hook (named <code>dotpals</code>, matching every tool) to <code>~/.gemini/settings.json</code> for session start and end, before and after each prompt, before and after each tool, notifications and compression. See <a href="https://geminicli.com/docs/hooks/">Gemini CLI's hooks docs</a>.</p>
+<div class="g-note info">
+  <p>Gemini CLI runs hooks from version 0.26, and only in folders you've trusted. If hooks are turned off in your Gemini settings (<code>hooksConfig.enabled</code>), Connect tells you, and nothing arrives until you turn them on.</p>
+</div>
+<h3 id="gemini-reports">What it reports</h3>
+<ul>
+  <li>Prompts; every tool call live (shell commands, file writes and replacements with diffs, reads, searches, folder listings, web fetches and searches, MCP tools); and its to-do list as the plan.</li>
+  <li>Permission prompts (the pal waits for you; answer in Gemini CLI), compression, and Gemini's final response as the summary.</li>
+</ul>
+<h3 id="gemini-limits">Limits</h3>
+<ul>
+  <li>Gemini's tool events carry no call id, so a tool's start and end are paired by the tool's name and input.</li>
+  <li>No context window or usage limits.</li>
+</ul>
+
+<h2 id="opencode">OpenCode</h2>
+<h3 id="opencode-connect">Connect</h3>
+<p>Press <strong>Connect</strong> on the OpenCode card, then <strong>restart OpenCode</strong>. Connect writes a small plugin to <code>~/.config/opencode/plugins/dotpals.js</code> (or <code>$XDG_CONFIG_HOME/opencode/plugins/</code>), which OpenCode loads when it starts. If a different file was already there, it's backed up and put back on Disconnect. See <a href="https://opencode.ai/docs/plugins/">OpenCode's plugin docs</a>.</p>
+<p>The plugin only reports what it sees to <code>http://127.0.0.1:5175</code>. It never changes what OpenCode does, and it's written so it can't throw (an error in a plugin could block a tool).</p>
+<h3 id="opencode-reports">What it reports</h3>
+<ul>
+  <li>Prompts; every tool call live (shell commands, reads, edits and writes with diffs, patches, searches, web fetches and searches, helper agents, skills) and tool errors; its to-do list as the plan.</li>
+  <li>Permission prompts (the pal waits for you; answer in OpenCode), compaction, session errors, and the last reply as the turn's summary.</li>
+</ul>
+<h3 id="opencode-limits">Limits</h3>
+<ul>
+  <li>OpenCode loads plugins only at start, so restart it after Connect or Disconnect.</li>
+  <li>No context window or usage limits.</li>
+</ul>
+
+<h2 id="copilot-cli">GitHub Copilot CLI</h2>
+<h3 id="copilot-connect">Connect</h3>
+<p>Press <strong>Connect</strong> on the GitHub Copilot CLI card. It writes a hooks file of its own, <code>~/.copilot/hooks/dotpals.json</code> (or under <code>$COPILOT_HOME/hooks</code>), for session start and end, prompts, tool calls and failures, notifications, errors and the agent stopping. Each command names its event: <code>node ".../bridge/hook.js" copilot &lt;event&gt;</code>. See <a href="https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference">Copilot CLI's hooks reference</a>.</p>
+<h3 id="copilot-reports">What it reports</h3>
+<ul>
+  <li>Prompts; tool calls (shell commands, file views, creates and edits, searches, web fetches and searches, helper agents) with their output; permission prompts (answer in Copilot CLI); errors that stop the agent; and the end of each turn.</li>
+</ul>
+<h3 id="copilot-limits">Limits</h3>
+<ul>
+  <li>The hook that runs before a tool can block tools, so dotpals leaves it alone. Tool calls show up once they've finished.</li>
+  <li>No closing summary, live plan, context window or usage limits.</li>
+</ul>
+
+<h2 id="any-agent">Any other agent</h2>
+<p>Send JSON to the bridge from your agent loop, a hook script or a wrapper:</p>
+<pre><code>POST http://127.0.0.1:5175/event
+content-type: application/json</code></pre>
+<p>Send the pal's state, activity rows, or both. The bridge always answers <code>200</code> with <code>{}</code>, and if the pal isn't running your request simply fails, so wrap it in a try/catch and carry on.</p>
+
+<h3 id="event-format">The event format</h3>
+<div class="g-table"><table>
+  <thead><tr><th>Field</th><th>Values</th></tr></thead>
+  <tbody>
+    <tr><td><code>session</code></td><td>Any id (<code>session_id</code> works too). Each session gets its own pal and tab. Default: <code>"default"</code>.</td></tr>
+    <tr><td><code>harness</code></td><td>Your agent's name, shown on the tab and the dashboard (up to 30 characters).</td></tr>
+    <tr><td><code>label</code></td><td>Usually the project, shown next to the name, as in “My-agent · my-project”. Or send <code>cwd</code> and the folder's name is used.</td></tr>
+    <tr><td><code>state</code></td><td>The pal's state: <code>idle</code>, <code>listening</code>, <code>thinking</code>, <code>working</code>, <code>speaking</code>, <code>waiting</code>, <code>done</code>, <code>error</code> or <code>sleeping</code> (which ends the session).</td></tr>
+    <tr><td><code>text</code></td><td>The pal's speech bubble, such as “Running tests”.</td></tr>
+    <tr><td><code>activity</code></td><td>One row, or an array of rows (below).</td></tr>
+    <tr><td><code>helper</code></td><td>A helper agent (subagent) your agent started, and how it's doing. See <a href="#event-helpers">Helpers</a>.</td></tr>
+  </tbody>
+</table></div>
+<p>An activity row:</p>
+<div class="g-table"><table>
+  <thead><tr><th>Field</th><th>Values</th></tr></thead>
+  <tbody>
+    <tr><td><code>id</code></td><td>Your id for the row. Rows with the same <code>id</code> (in the same session) are merged, so you can send a tool call when it starts and again when it finishes. Without an id, every event adds a new row.</td></tr>
+    <tr><td><code>kind</code></td><td><code>prompt</code> · <code>read</code> · <code>edit</code> · <code>write</code> · <code>run</code> · <code>search</code> · <code>web</code> · <code>agent</code> · <code>mcp</code> · <code>skill</code> · <code>plan</code> · <code>tool</code> · <code>done</code> · <code>error</code> · <code>compact</code>. Default: <code>tool</code>.</td></tr>
+    <tr><td><code>status</code></td><td><code>running</code> · <code>waiting</code> · <code>ok</code> · <code>failed</code> · <code>stopped</code> · <code>info</code>. Default for a new row: <code>ok</code>. Once a row is <code>ok</code> or <code>failed</code>, it stays that way.</td></tr>
+    <tr><td><code>title</code></td><td>One line: the prompt, a file, a command's description. Default: <code>tool</code> or <code>kind</code>.</td></tr>
+    <tr><td><code>tool</code>, <code>detail</code></td><td>Your tool's name, and a second line.</td></tr>
+    <tr><td><code>files</code></td><td><code>[{ "path": "/abs/path", "change": "read" | "edit" | "write" | "delete" }]</code>. These fill the Files tab and the Map.</td></tr>
+    <tr><td><code>body</code></td><td><code>{ "command", "patch", "output", "args" }</code>, plain text, shown when the row is opened. A <code>patch</code> is lines starting with <code>-</code> and <code>+</code>.</td></tr>
+    <tr><td><code>ms</code>, <code>at</code>, <code>error</code></td><td>How long it took, when it happened (ms since 1970; default now), and an error message.</td></tr>
+    <tr><td><code>summary</code></td><td>On a <code>done</code> row: what the agent says it did. It's shown on the request's card.</td></tr>
+    <tr><td><code>plan</code></td><td>On a <code>plan</code> row: <code>[{ "text", "status": "pending" | "in_progress" | "completed" }]</code>, shown as the live plan.</td></tr>
+  </tbody>
+</table></div>
+<p>A request is a <code>prompt</code> row, the rows after it, and a <code>done</code> (or <code>error</code>) row that ends it. Chapters, flags and tallies are worked out from <code>kind</code>, <code>files</code>, <code>body.command</code> and <code>body.patch</code>, so fill those in and your agent gets the full <a href="features.html#story">story view</a>.</p>
+
+<h3 id="event-examples">A request, start to finish</h3>
+<pre><code># 1. You asked for something
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42", "harness": "my-agent", "label": "my-project", "state": "thinking",
+  "activity": { "id": "p1", "kind": "prompt", "title": "Fix the failing date test", "status": "info" }
+}'
+
+# 2. A tool call starts…
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42", "state": "working", "text": "Running tests",
+  "activity": { "id": "call-1", "kind": "run", "tool": "shell", "title": "Run the tests",
+                "status": "running", "body": { "command": "npm test" } }
+}'
+
+# 3. …and finishes (same id: only what changed)
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42", "state": "thinking",
+  "activity": { "id": "call-1", "status": "ok", "ms": 5120, "body": { "output": "42 passing" } }
+}'
+
+# 4. A file edit, with its diff
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42",
+  "activity": { "id": "call-2", "kind": "edit", "tool": "write_file", "title": "src/date.js", "status": "ok",
+                "files": [{ "path": "/work/my-project/src/date.js", "change": "edit" }],
+                "body": { "patch": "-const days = 30;\n+const days = 31;" } }
+}'
+
+# 5. Done, with what the agent says it did
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42", "state": "done", "text": "All green!",
+  "activity": { "id": "end-1", "kind": "done", "title": "Finished", "summary": "Fixed the off-by-one in date.js. Tests pass." }
+}'</code></pre>
+<div class="g-note warn">
+  <p>Don't put a <code>hook_event_name</code> field in your own events: the bridge reads anything with <code>hook_event_name</code> and <code>session_id</code> as a Claude Code hook.</p>
+</div>
+
+<h3 id="event-helpers">Helpers</h3>
+<p>If your agent starts helper agents, report each one with <code>helper</code>, and it's listed on the pal and under your agent in the notch (see <a href="features.html#helpers">Helpers</a>):</p>
+<pre><code># a helper starts, and says what it's doing
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42", "harness": "my-agent",
+  "helper": { "id": "w1", "name": "tester", "task": "Run the e2e tests", "state": "working", "text": "Running playwright" }
+}'
+
+# …and finishes
+curl -s localhost:5175/event -H "content-type: application/json" -d '{
+  "session": "run-42", "helper": { "id": "w1", "state": "done" }
+}'</code></pre>
+<div class="g-table"><table>
+  <thead><tr><th>Field</th><th>Values</th></tr></thead>
+  <tbody>
+    <tr><td><code>id</code></td><td>Required. Your id for the helper; send it again to update the same one.</td></tr>
+    <tr><td><code>name</code></td><td>A short name, such as “tester” (up to 40 characters).</td></tr>
+    <tr><td><code>task</code></td><td>What it was asked to do.</td></tr>
+    <tr><td><code>state</code></td><td><code>working</code>, <code>done</code> or <code>error</code>. Anything but <code>done</code> and <code>error</code> counts as working.</td></tr>
+    <tr><td><code>text</code></td><td>What it's doing right now.</td></tr>
+  </tbody>
+</table></div>
+<p>An activity row with <code>kind: "agent"</code> also counts as a helper, finishing when the row does.</p>
+
+<h3 id="event-snippets">From your language</h3>
+<p>The <strong>Any agent</strong> card on the Agents page has these ready to copy, with the right address filled in.</p>
+<h4>Node (18 or newer)</h4>
+<pre><code>// If the pal isn't running, carry on.
+const send = (event) => fetch('http://127.0.0.1:5175/event', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(event),
+}).catch(() => {});
+
+await send({ session: 'run-1', harness: 'my-agent', label: 'my-project', state: 'working', text: 'Running tests',
+  activity: { id: 'call-1', kind: 'run', title: 'npm test', status: 'running' } });
+// …later, the same id finishes the row:
+await send({ session: 'run-1', state: 'done', text: 'Tests pass',
+  activity: { id: 'call-1', status: 'ok', ms: 5120, body: { output: '42 passing' } } });</code></pre>
+<h4>Python 3 (no packages needed)</h4>
+<pre><code>import json, urllib.request
+
+def send(event):
+    req = urllib.request.Request("http://127.0.0.1:5175/event", data=json.dumps(event).encode(),
+                                 headers={"content-type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=1)
+    except OSError:
+        pass  # the pal isn't running: carry on
+
+send({"session": "run-1", "harness": "my-agent", "label": "my-project", "state": "working", "text": "Running tests",
+      "activity": {"id": "call-1", "kind": "run", "title": "npm test", "status": "running"}})
+send({"session": "run-1", "state": "done", "text": "Tests pass",
+      "activity": {"id": "call-1", "status": "ok", "ms": 5120}})</code></pre>
+<h4>PowerShell</h4>
+<pre><code>Invoke-RestMethod http://127.0.0.1:5175/event -Method Post -ContentType application/json -Body (@{
+  session = "run-1"; harness = "my-agent"; label = "my-project"
+  state = "working"; text = "Running tests"
+  activity = @{ id = "call-1"; kind = "run"; title = "npm test"; status = "running" }
+} | ConvertTo-Json)</code></pre>
+<h4>The shell</h4>
+<pre><code># Run any command, then tell the pal how it went.
+npm test &amp;&amp; s=done || s=error; curl -s http://127.0.0.1:5175/event -d "{\"session\":\"sh\",\"harness\":\"shell\",\"state\":\"$s\",\"text\":\"npm test: $s\"}" &gt;/dev/null</code></pre>
+
+<h3 id="stream-events">Events the pal already understands</h3>
+<p>Instead of <code>state</code>, you can post events straight from a model's stream. They set the pal's state (not activity rows): Anthropic Messages API stream events, Claude Agent SDK messages, OpenAI Responses API stream events, and generic <code>{ "type": "tool_call" | "permission_request" | "error" | … }</code> events. The full mapping is on the <a href="component.html#events-it-understands">web component page</a>.</p>
+
+<h2 id="add-an-agent">Add a first-class adapter</h2>
+<p>To support an agent properly, with Connect and a card on the Agents page, add a module in <code>bridge/adapters/</code> and list it in <code>bridge/adapters/index.js</code>. <code>bridge/adapters/codex.js</code> is a good template for an agent that writes a session log, and <code>cursor.js</code> for one with hooks. The steps are in <a href="architecture.html#adding-an-adapter">Architecture</a>.</p>
+      </article>
+      <p class="g-edit"><a href="https://github.com/Rikinshah787/dotpals/blob/main/site/guide/agents.html">Edit this page on GitHub</a></p>
+      <nav class="g-pager" aria-label="Previous and next page"><a class="g-pager-prev" href="features.html"><small>Previous</small><span>Features</span></a><a class="g-pager-next" href="cli.html"><small>Next</small><span>CLI</span></a></nav>
+    </main>
+  </div>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <p><b>dotpals</b> · MIT licensed · made for people who like to know what just happened.</p>
+      <nav aria-label="Project links">
+        <a href="../">Home</a>
+        <a href="./">Docs</a>
+        <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+        <a href="https://github.com/Rikinshah787/dotpals/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/Rikinshah787/dotpals/issues">Issues</a>
+      </nav>
+      <p class="muted small">Not affiliated with or endorsed by any AI company. The pals are original artwork. No trackers on this page.</p>
+    </div>
+  </footer>
+</body>
+</html>

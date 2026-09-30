@@ -493,12 +493,19 @@ You can add actions too, with `registerAction('pop', { keyframes, duration, part
 - With `prefers-reduced-motion: reduce`, idle loops, eye wandering and the floating *z*s are turned off, but state changes are still shown.
 - Speech bubbles are decorative. Keep your own visible status text for screen-reader users.
 
+## Documentation
+
+The full guide is at **[rikinshah787.github.io/dotpals/guide](https://rikinshah787.github.io/dotpals/guide/)**: getting started, every feature, each agent integration, the CLI, configuration and environment variables, the bridge's HTTP API, the `<dot-pal>` component, privacy and security, and troubleshooting. Its source is in [`site/guide/`](site/guide) in this repository, so it's also published wherever the site is hosted.
+
+For contributors, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together: adapters, the bridge, the activity model, the story engine, the desktop app, and how to add an adapter.
+
 ## Roadmap
 
-- **Approve from the pal**: answer "Allow Bash?" with buttons on the pal, without switching windows.
-- **More adapters**: Cursor, Gemini CLI, Aider and OpenCode.
-- **Weekly recap**: what your agents did this week, per project.
-- Signed installers for Windows and macOS.
+- **"It's stuck" alerts**: a gentle ping when an agent goes in circles (no progress, the same file back and forth, a test that won't pass).
+- **Morning brief and weekly recap**: what your agents did, what's unfinished and what's failing, per project.
+- **Token use per request**, from the agents' own logs.
+- **More agents**: Windsurf, Cline, Aider and others, as each gets a documented way in.
+- Signed installers for Windows and macOS, so Node isn't needed.
 
 Ideas and pull requests are welcome. Open an [issue](https://github.com/rikinshah787/dotpals/issues) to discuss.
 

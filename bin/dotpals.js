@@ -28,7 +28,12 @@ const ok = (s) => console.log(`  ${process.stdout.isTTY ? '\x1b[32m✓\x1b[39m' 
 const skip = (s) => console.log(`  ${dim('–')} ${dim(s)}`);
 const warn = (s) => console.log(`  ${process.stdout.isTTY ? '\x1b[33m!\x1b[39m' : '!'} ${s}`);
 const has = (cmd) => spawnSync(platform() === 'win32' ? 'where' : 'which', [cmd], { stdio: 'ignore' }).status === 0;
-const run = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', shell: platform() === 'win32' });
+// On Windows, npm and claude are .cmd files, which need a shell: pass one quoted
+// command line (Node warns about separate args with a shell).
+const quote = (a) => (/^[\w@./:=\\-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '\\"')}"`);
+const run = (cmd, args) => (platform() === 'win32'
+  ? spawnSync([cmd, ...args].map(quote).join(' '), { encoding: 'utf8', shell: true })
+  : spawnSync(cmd, args, { encoding: 'utf8' }));
 
 async function bridgeUp() {
   try { return (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
@@ -67,6 +72,15 @@ async function setup(flags) {
     }
   }
   ok(`Installed to ${appDir}`);
+
+  // The `dotpals` command, in any terminal: link the installed copy as a global npm package.
+  if (flags.has('--no-path')) skip('Not adding the dotpals command (--no-path)');
+  else if (has('dotpals')) ok('The `dotpals` command works in any terminal');
+  else {
+    const linked = run('npm', ['install', '--global', '--no-audit', '--no-fund', appDir]);
+    if (linked.status === 0) ok('The `dotpals` command works in any terminal');
+    else warn(`Couldn’t add the \`dotpals\` command (${`${linked.stderr}`.trim().split('\n').pop() || 'npm failed'}). Use: node "${join(appDir, 'bin', 'dotpals.js')}" <command>`);
+  }
 
   // 3. The desktop window's runtime (Electron), once.
   if (findElectron()) ok('Desktop runtime already installed');
@@ -205,7 +219,7 @@ switch (command) {
     console.log(`dotpals ${version}
 
   setup       install, connect Claude Code and Codex, and start the pal
-              (--no-claude, --no-login, --no-start)
+              (--no-claude, --no-login, --no-start, --no-path)
   start       open the floating pal
   dashboard   open the dashboard
   status      what's running and connected

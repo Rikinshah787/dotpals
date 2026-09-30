@@ -38,7 +38,7 @@ async function claude() {
 }
 
 /** The newest rate_limits in Codex's logs (the last few days, newest file first). */
-async function codex(dir = join(homedir(), '.codex', 'sessions')) {
+async function codex(dir = process.env.DOTPALS_CODEX_DIR || join(homedir(), '.codex', 'sessions')) {
   const files = [];
   for (let days = 0; days < 7; days++) {
     const d = new Date(Date.now() - days * 86_400_000);

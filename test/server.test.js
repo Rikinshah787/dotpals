@@ -59,6 +59,15 @@ function readEvents(port, ms = 500) {
   });
 }
 
+test('a web page from another site cannot post events', async () => {
+  const { port, server } = await start();
+  const res = await fetch(`http://127.0.0.1:${port}/event`, { method: 'POST', headers: { origin: 'https://evil.example' }, body: JSON.stringify({ session: 'x', state: 'working' }) });
+  assert.equal(res.status, 403);
+  const ok = await fetch(`http://127.0.0.1:${port}/event`, { method: 'POST', body: JSON.stringify({ session: 'x', state: 'working' }) });
+  assert.equal(ok.status, 200);
+  server.close();
+});
+
 test('generic /event: a follow-up with the same id merges into the entry', async (t) => {
   const { port, server } = await start();
   t.after(async () => {
@@ -149,9 +158,14 @@ test('approve from the pal: off answers at once; on waits for Allow or Deny', as
   // On, but nothing is open to answer from: still no waiting.
   assert.deepEqual(await ask('npm install'), {});
 
-  // On, with a viewer: the request shows up there, and the answer goes back to Claude.
+  // On, with only the dashboard open (it can't show approval cards): still no waiting.
+  const dashboard = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
+  assert.deepEqual(await ask('npm install'), {});
+  dashboard.destroy();
+
+  // On, with a pal or the notch open: the request shows up there, and the answer goes back to Claude.
   const approvals = [];
-  const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
+  const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events?answers=1' }, ok));
   stream.setEncoding('utf8');
   let buffer = '';
   stream.on('data', (chunk) => {
@@ -185,4 +199,103 @@ test('approve from the pal: off answers at once; on waits for Allow or Deny', as
   await setConfig({ approvals: false });
   stream.destroy();
   server.close();
+});
+
+test('dismissing a session puts its pal to sleep; new activity brings it back', async () => {
+  const { port, server } = await start();
+  const base = `http://127.0.0.1:${port}`;
+  const states = [];
+  const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk) => { for (const b of chunk.split('\n\n')) if (b.startsWith('data:')) states.push(JSON.parse(b.slice(5))); });
+  await post(port, '/event', { session: 'stale', harness: 'codex', state: 'thinking' });
+  assert.equal((await fetch(`${base}/api/sessions/stale/dismiss`, { method: 'POST' })).status, 403); // needs the dotpals header
+  const res = await fetch(`${base}/api/sessions/stale/dismiss`, { method: 'POST', headers: { 'x-dotpals': '1' } });
+  assert.deepEqual(await res.json(), { ok: true, wasActive: true });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(states.filter((u) => u.session === 'stale').at(-1).state, 'sleeping');
+  await post(port, '/event', { session: 'stale', harness: 'codex', state: 'working' });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(states.filter((u) => u.session === 'stale').at(-1).state, 'working');
+  stream.destroy();
+  server.close();
+});
+
+test('share with your agents: the context hook tells a Claude session what the others did', async (t) => {
+  const { spawn } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const { port, server } = await start();
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${port}`;
+  const runHook = (event) => new Promise((ok) => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL('../bridge/context-hook.js', import.meta.url))], { env: { ...process.env, DOTPALS_BRIDGE: base } });
+    let out = '';
+    child.stdout.on('data', (c) => (out += c));
+    child.on('exit', () => ok(out));
+    child.stdin.end(JSON.stringify({ session_id: 'mine', cwd: String.raw`C:\code\shop`, ...event }));
+  });
+  const codexEdit = (file) => post(port, '/event', { session: 'codex-9999', harness: 'codex', label: 'shop', state: 'working', activity: { kind: 'edit', title: file, files: [{ path: `C:/code/shop/${file}`, change: 'edit' }] } });
+
+  await codexEdit('api/login.ts');
+  // Off by default: nothing is added.
+  assert.equal(await runHook({ hook_event_name: 'SessionStart', source: 'startup' }), '');
+
+  await fetch(`${base}/api/config`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ shareRecap: true }) });
+  const start1 = JSON.parse(await runHook({ hook_event_name: 'SessionStart', source: 'startup' }));
+  assert.equal(start1.hookSpecificOutput.hookEventName, 'SessionStart');
+  assert.match(start1.hookSpecificOutput.additionalContext, /Codex \(session 9999, working now\): changed api\/login\.ts/);
+  // Nothing new since: the next prompt gets nothing.
+  assert.equal(await runHook({ hook_event_name: 'UserPromptSubmit', prompt: 'hi' }), '');
+  // News: another change by Codex.
+  await new Promise((r) => setTimeout(r, 10));
+  await codexEdit('api/routes.ts');
+  const prompt = JSON.parse(await runHook({ hook_event_name: 'UserPromptSubmit', prompt: 'next' }));
+  assert.match(prompt.hookSpecificOutput.additionalContext, /routes\.ts/);
+
+  await fetch(`${base}/api/config`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ shareRecap: false }) });
+  server.close();
+});
+
+test('helpers: Claude subagents and any agent\'s helpers, live', async (t) => {
+  const { port, server } = await start();
+  t.after(() => server.close());
+  const seen = [];
+  const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
+  t.after(() => stream.destroy());
+  stream.setEncoding('utf8');
+  let buffer = '';
+  stream.on('data', (chunk) => {
+    buffer += chunk;
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop();
+    for (const b of blocks) if (b.startsWith('event: helpers')) seen.push(JSON.parse(b.split('\ndata: ')[1]));
+  });
+  const last = (session) => seen.filter((x) => x.session === session).at(-1)?.helpers ?? [];
+  const settle = () => new Promise((r) => setTimeout(r, 150));
+  const hook = (e) => post(port, '/hook', { session_id: 'lead', cwd: '/work/app', ...e });
+
+  // Claude starts a background helper: the Agent tool call returns at once, the helper keeps going.
+  await hook({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_use_id: 'tu1', tool_input: { description: 'Find the auth code', subagent_type: 'Explore', prompt: 'look' } });
+  await hook({ hook_event_name: 'SubagentStart', agent_id: 'ag1', agent_type: 'Explore' });
+  await hook({ hook_event_name: 'PostToolUse', tool_name: 'Agent', tool_use_id: 'tu1', tool_input: {}, tool_response: 'launched' });
+  await hook({ hook_event_name: 'PreToolUse', agent_id: 'ag1', agent_type: 'Explore', tool_name: 'Read', tool_use_id: 'tu2', tool_input: { file_path: '/work/app/src/auth.js' } });
+  await settle();
+  let h = last('lead');
+  assert.equal(h.length, 1);
+  assert.equal(h[0].name, 'Explore');
+  assert.equal(h[0].task, 'Find the auth code');
+  assert.equal(h[0].status, 'running'); // still running, though its tool call returned
+  assert.equal(h[0].doing, 'Reading src/auth.js');
+  await hook({ hook_event_name: 'SubagentStop', agent_id: 'ag1', agent_type: 'Explore' });
+  await settle();
+  h = last('lead');
+  assert.equal(h[0].status, 'done');
+
+  // Any agent: the generic event format.
+  await post(port, '/event', { session: 'mine', harness: 'my-agent', helper: { id: 'w1', name: 'tester', task: 'Run the e2e suite', state: 'working', text: 'Running playwright' } });
+  await settle();
+  assert.deepEqual(last('mine').map((x) => [x.name, x.task, x.status, x.doing]), [['tester', 'Run the e2e suite', 'running', 'Running playwright']]);
+  await post(port, '/event', { session: 'mine', helper: { id: 'w1', state: 'done' } });
+  await settle();
+  assert.equal(last('mine')[0].status, 'done');
 });

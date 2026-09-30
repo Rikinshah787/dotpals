@@ -471,6 +471,11 @@
           </div>
 
           <div class="card">
+            <h2>Share with your agents</h2>
+            <div class="row"><div class="text">Tell each Claude Code session what your other agents did here<small>When a Claude session starts in a project, it gets a short note about the other agents that worked there in the last 2 hours: what they changed, whether their tests pass, and whether they’re still at it. Later prompts only get a note when there’s news. dotpals doesn’t send it anywhere itself, but it becomes part of Claude’s context, which Claude Code sends to the model like the rest of your conversation (you won’t see it in the chat). Codex can’t receive notes.</small></div><input type="checkbox" class="switch" id="s-share" aria-label="Share with your agents"></div>
+          </div>
+
+          <div class="card">
             <h2>History</h2>
             <div class="row"><div class="text">Keep history<small id="history-where">Saved on this computer only.</small></div><input type="checkbox" class="switch" id="s-history" aria-label="Keep history"></div>
             <div class="row"><div class="text">Keep for<small>Older activity is dropped.</small></div>
@@ -1404,6 +1409,7 @@
     $('s-sounds').onchange = (e) => save({ sounds: e.target.checked });
     $('s-notifications').onchange = (e) => save({ notifications: e.target.checked });
     $('s-approvals').onchange = (e) => save({ approvals: e.target.checked });
+    $('s-share').onchange = (e) => save({ shareRecap: e.target.checked });
     $('s-approval-wait').onchange = (e) => save({ approvalWait: Number(e.target.value) });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
     $('s-days').onchange = (e) => save({ historyDays: Number(e.target.value) });
@@ -1421,6 +1427,7 @@
       $('s-sounds').checked = config.sounds;
       $('s-notifications').checked = config.notifications;
       $('s-approvals').checked = !!config.approvals;
+      $('s-share').checked = !!config.shareRecap;
       if (![...$('s-approval-wait').options].some((o) => o.value === String(config.approvalWait))) $('s-approval-wait').add(new Option(`${config.approvalWait} seconds`, String(config.approvalWait)));
       $('s-approval-wait').value = String(config.approvalWait ?? 30);
       $('s-approval-wait').disabled = !config.approvals;

@@ -147,3 +147,30 @@ test('compactNote: a /compact with what to keep', async () => {
   assert.equal(note, '/compact Keep the current goal: "Add dark mode". Still to do: Add Auto option. Files changed so far: useTheme.ts. The tests are failing right now (npm test).');
   assert.equal(compactNote([]), '/compact Keep the current goal and the files changed so far.');
 });
+
+test('headline: prompts are not steps, and it shortens to whole words', async () => {
+  const { headline } = await import('../bridge/ui/story.js');
+  assert.equal(headline([step('prompt', { title: 'also on the notch would be good right' })]), null);
+  const long = headline([], { done: 1, total: 3, current: { text: 'Detect the system colour scheme and apply it everywhere', status: 'in_progress' }, items: [] });
+  assert.ok(!long.includes('…'));
+  assert.equal(long, '2/3 · Detect the system colour scheme');
+});
+
+test('crossRecap: what the other agents in this project did', async () => {
+  const { crossRecap } = await import('../bridge/ui/story.js');
+  const now = Date.now();
+  const at = (min) => now - min * 60_000;
+  const e = (session, harness, extra) => ({ id: `${session}${Math.random()}`, session, harness, label: 'shop', status: 'ok', ...extra });
+  const entries = [
+    e('mine-1111', 'claude', { kind: 'edit', at: at(3), files: [{ path: 'C:/code/shop/src/cart.js', change: 'edit' }] }),
+    e('codex-2222', 'codex', { kind: 'prompt', at: at(20), title: 'Add rate limiting to the login route' }),
+    e('codex-2222', 'codex', { kind: 'edit', at: at(18), files: [{ path: 'C:/code/shop/api/login.ts', change: 'edit' }] }),
+    e('codex-2222', 'codex', { kind: 'run', at: at(15), status: 'failed', body: { command: 'npm test' } }),
+    e('looker-3333', 'claude', { kind: 'read', at: at(10), files: [{ path: 'C:/code/shop/README.md', change: 'read' }] }),
+    e('other-4444', 'claude', { kind: 'edit', at: at(5), label: 'blog', files: [{ path: 'C:/code/blog/a.md', change: 'edit' }] }),
+  ];
+  const r = crossRecap(entries, { session: 'mine-1111', label: 'shop', states: new Map([['codex-2222', 'working']]) });
+  assert.match(r.text, /Codex \(session 2222, working now\): changed api\/login\.ts; its last test run failed \(npm test\); it was asked: "Add rate limiting to the login route"\./);
+  assert.doesNotMatch(r.text, /3333|4444|mine|cart\.js/); // only looked around / another project / itself
+  assert.equal(crossRecap(entries, { session: 'mine-1111', label: 'nothing-here' }), null);
+});

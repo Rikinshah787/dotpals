@@ -370,7 +370,7 @@ if (!app.requestSingleInstanceLock()) {
     (async () => {
       while (!stopped && !target.isDestroyed()) {
         try {
-          const res = await fetch(`${bridge}/events`, { signal: controller.signal });
+          const res = await fetch(`${bridge}/events?answers=1`, { signal: controller.signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           send('bridge:status', true);
           const decoder = new TextDecoder();

@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The &lt;dot-pal&gt; web component · dotpals docs</title>
+  <meta name="description" content="Use the dotpals pal in your own app: attributes, properties, methods, events, states, moods, characters, registerCharacter, registerCustom, agent helpers and framework usage.">
+  <meta name="theme-color" content="#0b0a0e">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="dotpals">
+  <meta property="og:title" content="The &lt;dot-pal&gt; web component · dotpals docs">
+  <meta property="og:description" content="Use the dotpals pal in your own app: attributes, properties, methods, events, states, moods, characters, registerCharacter, registerCustom, agent helpers and framework usage.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%231e88ff' d='M6 64V40C6 20 18 10 32 10s26 10 26 30v24z'/%3E%3Cellipse cx='25' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3Cellipse cx='39' cy='38' rx='3.5' ry='5.5' fill='%230b0b12'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Geist:wght@400..600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="./guide.css">
+  <script type="module" src="./guide.js"></script>
+</head>
+<body class="guide">
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="g-top">
+    <a class="brand" href="../" aria-label="dotpals home">
+      <dot-pal character="blu" size="34" static label="dotpals"></dot-pal>
+      <span class="brand-name">dotpals</span>
+    </a>
+    <a class="g-badge" href="./">Docs</a>
+    <nav class="g-toplinks" aria-label="Site">
+      <a href="../">Home</a>
+      <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+    </nav>
+    <button class="g-menu" type="button" aria-controls="g-side" aria-expanded="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg><span>Menu</span>
+    </button>
+  </header>
+
+  <div class="g-layout">
+    <aside class="g-side" id="g-side" aria-label="Documentation">
+      <div class="g-search">
+        <label class="sr" for="g-q">Search the docs</label>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4 14 14"/></svg>
+        <input id="g-q" type="search" placeholder="Search the docs" autocomplete="off" spellcheck="false">
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <nav class="g-nav" aria-label="Pages">
+        <div class="g-group"><p class="g-group-name">Start</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="./" data-k="Install dotpals with one command, or add only the Claude Code plugin, and see what your coding agent did in plain words. Requirements, first run and next steps.">Overview</a><ul class="g-secs"><li><a href="./#what-you-get">What you get</a></li><li><a href="./#requirements">Requirements</a></li><li><a href="./#install">Install</a></li><li><a href="./#claude-code-plugin-only">Only the Claude Code plugin</a></li><li><a href="./#first-run">First run</a></li><li><a href="./#running-commands">Running dotpals commands</a></li><li><a href="./#without-the-desktop-app">Without the desktop app</a></li><li><a href="./#next-steps">Next steps</a></li></ul></li>
+          <li class="g-page"><a href="features.html" data-k="Every dotpals feature: the story view, the notch, approve from the pal, context and compact, usage limits, the Using row, two agents on one file, custom pals, the dashboard, notifications and sounds.">Features</a><ul class="g-secs"><li><a href="features.html#the-pal" data-k="When pals come and go">The floating pal</a></li><li><a href="features.html#story" data-k="Chapters · Worth a second look · Today, Tools and Files">The story view</a></li><li><a href="features.html#notch">The notch</a></li><li><a href="features.html#approvals">Approve from the pal</a></li><li><a href="features.html#context">Context and compact</a></li><li><a href="features.html#usage-limits">Usage limits</a></li><li><a href="features.html#using">The “Using” row</a></li><li><a href="features.html#two-agents">Two agents on one file</a></li><li><a href="features.html#helpers">Helpers</a></li><li><a href="features.html#share">Share with your agents</a></li><li><a href="features.html#custom-pals">Make your own pal</a></li><li><a href="features.html#dashboard" data-k="Overview · Sessions · Map · Agents · Settings">The dashboard</a></li><li><a href="features.html#notifications">Notifications and sounds</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Set up</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="agents.html" data-k="Connect Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI or any agent to dotpals: how each one connects, what it reports, its limits, and the JSON event format.">Agents</a><ul class="g-secs"><li><a href="agents.html#at-a-glance">At a glance</a></li><li><a href="agents.html#agents-page">The Agents page</a></li><li><a href="agents.html#claude-code" data-k="Connect · What it reports · Sessions without the plugin · Limits">Claude Code</a></li><li><a href="agents.html#codex" data-k="Connect · What it reports · Limits">Codex</a></li><li><a href="agents.html#cursor" data-k="Connect · What it reports · Limits">Cursor</a></li><li><a href="agents.html#gemini-cli" data-k="Connect · What it reports · Limits">Gemini CLI</a></li><li><a href="agents.html#opencode" data-k="Connect · What it reports · Limits">OpenCode</a></li><li><a href="agents.html#copilot-cli" data-k="Connect · What it reports · Limits">GitHub Copilot CLI</a></li><li><a href="agents.html#any-agent" data-k="The event format · A request, start to finish · Helpers · From your language · Events the pal already understands">Any other agent</a></li><li><a href="agents.html#add-an-agent">Add a first-class adapter</a></li></ul></li>
+          <li class="g-page"><a href="cli.html" data-k="Every dotpals command and flag: setup, start, dashboard, status, notch, statusline and bridge, plus the dotpals-bridge and dotpals-float commands.">CLI</a><ul class="g-secs"><li><a href="cli.html#running">Running it</a></li><li><a href="cli.html#setup">setup</a></li><li><a href="cli.html#start">start</a></li><li><a href="cli.html#dashboard">dashboard</a></li><li><a href="cli.html#status">status</a></li><li><a href="cli.html#notch">notch</a></li><li><a href="cli.html#statusline">statusline</a></li><li><a href="cli.html#bridge">bridge</a></li><li><a href="cli.html#other-commands">Other commands</a></li><li><a href="cli.html#npm-scripts">From a checkout</a></li></ul></li>
+          <li class="g-page"><a href="configuration.html" data-k="Every key in ~/.dotpals/config.json with its default, every DOTPALS_ environment variable, and where dotpals keeps its files.">Configuration</a><ul class="g-secs"><li><a href="configuration.html#config-json" data-k="Keys">config.json</a></li><li><a href="configuration.html#environment-variables" data-k="For the bridge and the app · For the hooks · Changing the port">Environment variables</a></li><li><a href="configuration.html#files">Where files live</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">Reference</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="api.html" data-k="The dotpals bridge API on 127.0.0.1:5175: HTTP routes, Server-Sent Events and their payloads, and the event format for POST /event.">HTTP API</a><ul class="g-secs"><li><a href="api.html#basics">Basics</a></li><li><a href="api.html#routes">All routes</a></li><li><a href="api.html#post-event">POST /event</a></li><li><a href="api.html#post-hook">POST /hook</a></li><li><a href="api.html#events" data-k="Event types · The activity entry">GET /events</a></li><li><a href="api.html#get-status">GET /api/status</a></li><li><a href="api.html#post-config">POST /api/config</a></li><li><a href="api.html#agents-api">Agents</a></li><li><a href="api.html#dismiss">POST /api/sessions/&lt;id&gt;/dismiss</a></li><li><a href="api.html#approvals-api">Approvals</a></li><li><a href="api.html#get-usage">GET /api/usage</a></li><li><a href="api.html#get-recap">GET /api/recap</a></li><li><a href="api.html#errors">Errors</a></li></ul></li>
+          <li class="g-page is-current"><a href="component.html" data-k="Use the dotpals pal in your own app: attributes, properties, methods, events, states, moods, characters, registerCharacter, registerCustom, agent helpers and framework usage." aria-current="page">Web component</a><ul class="g-secs"><li><a href="component.html#install">Install</a></li><li><a href="component.html#quick-start">Quick start</a></li><li><a href="component.html#states">States and moods</a></li><li><a href="component.html#attributes">Attributes</a></li><li><a href="component.html#properties">Properties</a></li><li><a href="component.html#methods">Methods</a></li><li><a href="component.html#dom-events">DOM events</a></li><li><a href="component.html#characters" data-k="Add your own character">Characters</a></li><li><a href="component.html#custom-pals">Custom pals</a></li><li><a href="component.html#actions">Actions</a></li><li><a href="component.html#connect-agent" data-k="Stream events straight in · From your own event loop · Custom mapping · Events it understands">Connect an agent</a></li><li><a href="component.html#styling">Styling</a></li><li><a href="component.html#frameworks">Frameworks</a></li><li><a href="component.html#accessibility">Accessibility</a></li></ul></li>
+        </ul></div>
+        <div class="g-group"><p class="g-group-name">More</p>
+        <ul class="g-pages">
+          <li class="g-page"><a href="architecture.html" data-k="How dotpals works inside: adapters, the bridge, the activity model, session lifetimes, the story engine, usage sources, approvals, the desktop app, persistence and security.">Architecture</a><ul class="g-secs"><li><a href="architecture.html#big-picture">The big picture</a></li><li><a href="architecture.html#components">Components</a></li><li><a href="architecture.html#activity-model">The activity entry model</a></li><li><a href="architecture.html#adapters" data-k="Claude Code · Codex · Cursor, Gemini CLI and GitHub Copilot CLI · OpenCode · Any agent · The hook forwarder">Adapters</a></li><li><a href="architecture.html#sessions">How sessions live and sleep</a></li><li><a href="architecture.html#story-engine">The story engine</a></li><li><a href="architecture.html#usage">Usage limits and context windows</a></li><li><a href="architecture.html#helpers">Helpers</a></li><li><a href="architecture.html#share">Share with your agents</a></li><li><a href="architecture.html#approvals">Approve from the pal</a></li><li><a href="architecture.html#desktop">The desktop app</a></li><li><a href="architecture.html#persistence">Persistence</a></li><li><a href="architecture.html#security">Security model</a></li><li><a href="architecture.html#testing">Testing</a></li><li><a href="architecture.html#adding-an-adapter">Adding an adapter</a></li></ul></li>
+          <li class="g-page"><a href="privacy.html" data-k="What dotpals stores and where, why nothing leaves your computer, how the local bridge is protected, and how approving from the pal is kept safe.">Privacy and security</a><ul class="g-secs"><li><a href="privacy.html#nothing-leaves">Nothing leaves your computer</a></li><li><a href="privacy.html#what-it-reads">What dotpals reads</a></li><li><a href="privacy.html#what-it-stores">What dotpals stores</a></li><li><a href="privacy.html#what-it-tells-agents">What dotpals tells your agents</a></li><li><a href="privacy.html#what-it-changes">What dotpals changes</a></li><li><a href="privacy.html#bridge-security">How the bridge is protected</a></li><li><a href="privacy.html#approvals">Approving from the pal, safely</a></li><li><a href="privacy.html#reporting">Reporting a vulnerability</a></li></ul></li>
+          <li class="g-page"><a href="troubleshooting.html" data-k="Fixes for common dotpals problems: no sessions on the pal, ELECTRON_RUN_AS_NODE, npm 12 and --allow-git, port 5175 in use, missing Claude limits, context in tokens, approvals and more.">Troubleshooting</a><ul class="g-secs"><li><a href="troubleshooting.html#no-sessions">The pal isn't showing my sessions</a></li><li><a href="troubleshooting.html#electron-run-as-node">The desktop pal doesn't open (ELECTRON_RUN_AS_NODE)</a></li><li><a href="troubleshooting.html#npm-allow-git">npm won't install from GitHub</a></li><li><a href="troubleshooting.html#port-in-use">Port 5175 is in use</a></li><li><a href="troubleshooting.html#claude-limits">Claude Code's usage limits don't show</a></li><li><a href="troubleshooting.html#context-in-tokens">The context shows tokens, not a percentage</a></li><li><a href="troubleshooting.html#approvals-waiting">Claude Code seems stuck, with no prompt</a></li><li><a href="troubleshooting.html#share-notes">Claude doesn't get notes about my other agents</a></li><li><a href="troubleshooting.html#linux-click-through">Clicks don't go through the pal on Linux</a></li><li><a href="troubleshooting.html#agent-connect">An agent won't connect, or its events don't arrive</a></li><li><a href="troubleshooting.html#command-not-found">“dotpals: command not found”</a></li><li><a href="troubleshooting.html#shortcut">Ctrl+Alt+P does nothing</a></li><li><a href="troubleshooting.html#no-sound">No sounds or notifications</a></li><li><a href="troubleshooting.html#reset">Resetting everything</a></li><li><a href="troubleshooting.html#getting-help">Still stuck?</a></li></ul></li>
+        </ul></div>
+      </nav>
+      <p class="g-none" id="g-none" hidden>No pages or sections match.</p>
+    </aside>
+
+    <main class="g-main" id="content">
+      <article class="doc">
+<p class="eyebrow-doc">Reference</p>
+<h1>The <em>&lt;dot-pal&gt;</em> web component</h1>
+<p class="lead">The pal is a dependency-free Web Component that you can drop into your own chat UI, IDE panel or dashboard. Send it your agent's state and it shows thinking dots while the model reasons, a progress bubble while tools run, a talking mouth while text streams, a question bubble when it needs approval, a jump when it's done and a frown when something fails.</p>
+
+<h2 id="install">Install</h2>
+<p>From a CDN, with no build step:</p>
+<pre><code>&lt;script type="module" src="https://unpkg.com/dotpals"&gt;&lt;/script&gt;</code></pre>
+<p>Or from npm:</p>
+<pre><code>npm install dotpals</code></pre>
+<pre><code>import 'dotpals';                                   // registers &lt;dot-pal&gt;
+import { connectAgent, registerCustom } from 'dotpals';</code></pre>
+<p>Importing the main entry registers the <code>&lt;dot-pal&gt;</code> element. The package also exports <code>dotpals/element</code>, <code>dotpals/characters</code>, <code>dotpals/custom</code>, <code>dotpals/actions</code> and <code>dotpals/agent</code> on their own; those don't register the element. To use another tag name, call <code>define('my-pal')</code>. Types are included.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<pre><code>&lt;script type="module" src="https://unpkg.com/dotpals"&gt;&lt;/script&gt;
+
+&lt;dot-pal id="agent" character="grok"&gt;&lt;/dot-pal&gt;
+
+&lt;script type="module"&gt;
+  const pal = document.getElementById('agent');
+  pal.setState('thinking');
+  pal.setState('working', { text: 'Running tests…' });
+  pal.setState('done', { text: 'All green!' });
+&lt;/script&gt;</code></pre>
+
+<h2 id="states">States and moods</h2>
+<p>A <strong>state</strong> is where your agent is in its lifecycle. Each state shows a <strong>mood</strong>. Use <code>mood</code> directly if you aren't driving an agent.</p>
+<div class="g-table"><table>
+  <thead><tr><th>State</th><th>Mood</th><th>What the pal does</th></tr></thead>
+  <tbody>
+    <tr><td><code>idle</code></td><td><code>neutral</code></td><td>Breathes, blinks and follows the cursor.</td></tr>
+    <tr><td><code>listening</code></td><td><code>listening</code></td><td>Leans in with wide eyes, for while the user is typing.</td></tr>
+    <tr><td><code>thinking</code></td><td><code>thinking</code></td><td>Looks up and glances around, with a bubble of bouncing dots.</td></tr>
+    <tr><td><code>working</code></td><td><code>working</code></td><td>A busy bob, eyes scanning down, with a progress bar or your <code>text</code>.</td></tr>
+    <tr><td><code>speaking</code></td><td><code>speaking</code></td><td>Its mouth moves, for while tokens stream in.</td></tr>
+    <tr><td><code>waiting</code></td><td><code>waiting</code></td><td>Wobbles, with a <code>?</code> bubble or your <code>text</code> (“Allow edit?”).</td></tr>
+    <tr><td><code>done</code></td><td><code>happy</code></td><td>Jumps and smiles, then settles back to calm after about 2.4 seconds.</td></tr>
+    <tr><td><code>error</code></td><td><code>sad</code></td><td>Shakes, then looks sad.</td></tr>
+    <tr><td><code>sleeping</code></td><td><code>sleepy</code></td><td>Eyes closed, with floating <em>z</em>s.</td></tr>
+  </tbody>
+</table></div>
+<p>The moods are <code>neutral</code>, <code>happy</code>, <code>sad</code>, <code>surprised</code>, <code>thinking</code>, <code>sleepy</code>, <code>shy</code>, <code>listening</code>, <code>working</code>, <code>speaking</code> and <code>waiting</code>. A state's <code>text</code> stays in the bubble while the pal is thinking, working, waiting, listening or sleeping, and disappears after a moment for <code>done</code>, <code>error</code>, <code>speaking</code> and <code>idle</code>.</p>
+<p>Three ways to set a state:</p>
+<pre><code>&lt;dot-pal character="muse" state="thinking"&gt;&lt;/dot-pal&gt;</code></pre>
+<pre><code>pal.state = 'speaking';
+pal.setState('working', { text: 'web_search' });</code></pre>
+
+<h2 id="attributes">Attributes</h2>
+<div class="g-table"><table>
+  <thead><tr><th>Attribute</th><th>Values</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>character</code></td><td>A <a href="#characters">built-in character</a> or any registered name.</td><td><code>blu</code></td></tr>
+    <tr><td><code>state</code></td><td><code>idle</code> · <code>listening</code> · <code>thinking</code> · <code>working</code> · <code>speaking</code> · <code>waiting</code> · <code>done</code> · <code>error</code> · <code>sleeping</code></td><td><code>idle</code></td></tr>
+    <tr><td><code>mood</code></td><td>Any mood above.</td><td><code>neutral</code></td></tr>
+    <tr><td><code>size</code></td><td>A number (pixels) or any CSS length.</td><td><code>160px</code></td></tr>
+    <tr><td><code>color</code></td><td>Any CSS color.</td><td>The character's color</td></tr>
+    <tr><td><code>idle</code></td><td><code>breathe</code> · <code>bounce</code> · <code>float</code> · <code>wobble</code> · <code>sway</code> · <code>none</code></td><td><code>breathe</code></td></tr>
+    <tr><td><code>look</code></td><td><code>cursor</code> · <code>none</code> (the eyes stay put)</td><td><code>cursor</code></td></tr>
+    <tr><td><code>static</code></td><td>Boolean: turns off the hover and click reactions.</td><td>off</td></tr>
+    <tr><td><code>label</code></td><td>The accessible name.</td><td>The character's name</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="properties">Properties</h2>
+<p><code>character</code>, <code>color</code>, <code>idle</code>, <code>mood</code>, <code>state</code>, <code>look</code> and <code>static</code> mirror their attributes. Setting <code>state</code> is the same as <code>setState(value)</code>. Setting <code>mood</code> cancels any temporary mood from <code>flash()</code>, <code>during()</code> or <code>watch()</code>.</p>
+<p>Static members on <code>DotPal</code>:</p>
+<div class="g-table"><table>
+  <thead><tr><th>Member</th><th>Returns</th></tr></thead>
+  <tbody>
+    <tr><td><code>DotPal.characters</code></td><td>Every registered character name, including your own.</td></tr>
+    <tr><td><code>DotPal.actions</code></td><td>Every registered action name.</td></tr>
+    <tr><td><code>DotPal.moods</code>, <code>DotPal.states</code></td><td>Every mood and every state.</td></tr>
+    <tr><td><code>DotPal.refresh(name)</code></td><td>Redraws every pal using character <code>name</code>, after you've changed it with <code>registerCharacter()</code> or <code>registerCustom()</code>.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="methods">Methods</h2>
+<dl>
+  <dt><code>setState(state, { text? })</code></dt>
+  <dd>Show what your agent is doing. <code>text</code> appears in the bubble, such as the tool being run or the question being asked. Calling it again with the same state just updates the text.</dd>
+  <dt><code>say(text, { duration? })</code></dt>
+  <dd>Show a speech bubble. It hides after <code>duration</code> milliseconds (by default, longer for longer text, up to 6 seconds). <code>duration: 0</code> keeps it until you call <code>say('')</code>.</dd>
+  <dt><code>play(action)</code> → <code>Promise</code></dt>
+  <dd>Play a one-shot action: <code>jump</code>, <code>squish</code>, <code>wiggle</code>, <code>shake</code>, <code>nod</code>, <code>spin</code>, <code>love</code> (with hearts), or <a href="#actions">your own</a>. Resolves when it finishes or is interrupted.</dd>
+  <dt><code>flash(mood, ms = 2000)</code></dt>
+  <dd>Show a mood for a moment, then go back to the previous one.</dd>
+  <dt><code>during(task, options?)</code> → <code>Promise</code></dt>
+  <dd>Loading feedback for any promise (or a function that returns one): thinking while it runs, then happy and a jump on success, or sad and a shake on failure. Returns the task's result, or throws its error. Options: <code>success</code> and <code>error</code> (moods, default <code>happy</code> and <code>sad</code>), <code>revert</code> (ms before the previous mood comes back, default 2200), <code>thinkingText</code>, <code>successText</code> and <code>errorText</code>.</dd>
+  <dt><code>watch(target)</code> → <code>stop()</code></dt>
+  <dd>A form companion. <code>target</code> is a form, any container, or a selector. The pal follows the text caret, covers its eyes on password fields, frowns at invalid fields and cheers on submit. Returns a function that stops watching.</dd>
+  <dt><code>blink()</code></dt>
+  <dd>Blink once (skipped while the eyes are closed).</dd>
+  <dt><code>lookAt(x, y)</code></dt>
+  <dd>Point the eyes: <code>x</code> and <code>y</code> go from -1 to 1, and <code>lookAt(0, 0)</code> looks straight ahead.</dd>
+</dl>
+<pre><code>// Loading feedback for any promise
+const data = await pal.during(fetch('/api/save'), { successText: 'Saved!' });
+
+// A form companion
+const stop = pal.watch('#login-form');
+
+pal.say('Hi! Ask me anything.');
+pal.flash('surprised', 1500);
+await pal.play('love');</code></pre>
+
+<h2 id="dom-events">DOM events</h2>
+<p>The element fires these events. They bubble and cross shadow roots.</p>
+<pre><code>pal.addEventListener('dotpal-state',  (e) =&gt; e.detail); // { state, text }
+pal.addEventListener('dotpal-mood',   (e) =&gt; e.detail); // { mood }
+pal.addEventListener('dotpal-action', (e) =&gt; e.detail); // { action }</code></pre>
+
+<h2 id="characters">Characters</h2>
+<div class="g-table"><table>
+  <thead><tr><th>Id</th><th>Pal</th><th>On click</th></tr></thead>
+  <tbody>
+    <tr><td><code>blu</code></td><td>Blu, a blue cloud in a beret</td><td>jump</td></tr>
+    <tr><td><code>hop</code></td><td>Hop, a green frog</td><td>jump</td></tr>
+    <tr><td><code>sunny</code></td><td>Sunny, a yellow gumdrop in glasses</td><td>wiggle</td></tr>
+    <tr><td><code>lovi</code></td><td>Lovi, a pink heart in sunglasses</td><td>love</td></tr>
+    <tr><td><code>muse</code></td><td>Muse, a violet flame with sparkles</td><td>spin</td></tr>
+    <tr><td><code>grok</code></td><td>Grok, a slate bot with a glowing visor</td><td>nod</td></tr>
+    <tr><td><code>nova</code></td><td>Nova, an orange bot with a light-bulb antenna</td><td>jump</td></tr>
+    <tr><td><code>byte</code></td><td>Byte, a teal cat with pixel eyes</td><td>wiggle</td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="register-character">Add your own character</h3>
+<p>Characters are plain SVG, drawn in a 200×200 viewBox. They sit on the bottom edge and peek up over it.</p>
+<pre><code>import { registerCharacter } from 'dotpals';
+
+registerCharacter('ghost', {
+  label: 'Ghost',
+  color: '#e8e8ff',
+  tap: 'spin',        // the action played on click
+  look: 6,            // how far the eyes follow the cursor
+  mouth: [100, 170],  // where mood mouths are drawn
+  cheek: 34,          // blush distance from the mouth
+  render: ({ body }) =&gt; ({
+    body: `&lt;rect fill="${body}" x="30" y="50" width="140" height="220" rx="70"/&gt;`,
+    face: `
+      &lt;g class="dp-look"&gt;
+        &lt;g class="dp-blink"&gt;&lt;circle cx="80" cy="130" r="9"/&gt;&lt;/g&gt;
+        &lt;g class="dp-blink"&gt;&lt;circle cx="120" cy="130" r="9"/&gt;&lt;/g&gt;
+      &lt;/g&gt;`,
+  }),
+});</code></pre>
+<ul>
+  <li><code>render({ id, body, fur })</code> returns SVG strings: <code>body</code> (required), and optionally <code>defs</code>, <code>accessories</code> and <code>face</code>. <code>body</code> is the <code>url(#…)</code> of the shaded body gradient, which follows the <code>color</code> attribute; <code>id(name)</code> makes ids unique to each pal, for your own gradients.</li>
+  <li>The body is automatically covered in fur and shaded.</li>
+  <li>Put <code>class="dp-blink"</code> on each eye so it blinks and reacts to moods, and <code>class="dp-look"</code> on anything that should follow the cursor.</li>
+  <li>Let bodies run below <code>y=200</code>, so a jump reveals more body instead of a flat edge.</li>
+  <li>Defaults for anything you leave out: <code>label</code> is the name, <code>color</code> <code>#888888</code>, <code>tap</code> <code>jump</code>, <code>look</code> 5, <code>mouth</code> <code>[100, 172]</code>, <code>cheek</code> 36.</li>
+  <li>Registering a name again replaces it. Pals already on the page keep the old drawing until you call <code>DotPal.refresh(name)</code> or set their <code>character</code> again.</li>
+</ul>
+
+<h2 id="custom-pals">Custom pals</h2>
+<p>The same pal builder as the dashboard's <strong>Make your own pal</strong>: pick a body, eyes, something on top, a color and a name.</p>
+<pre><code>import { registerCustom } from 'dotpals';
+
+registerCustom({ name: 'Pip', shape: 'bean', eyes: 'googly', top: 'crown', color: '#16c6ae', fur: true });
+// then: &lt;dot-pal character="custom"&gt;&lt;/dot-pal&gt;</code></pre>
+<div class="g-table"><table>
+  <thead><tr><th>Field</th><th>Values</th><th>Default</th></tr></thead>
+  <tbody>
+    <tr><td><code>name</code></td><td>Any text, up to 24 characters.</td><td><code>My pal</code></td></tr>
+    <tr><td><code>shape</code></td><td><code>round</code> (Round) · <code>square</code> (Boxy) · <code>blob</code> (Fluffy) · <code>tall</code> (Pointy) · <code>heart</code> (Heart) · <code>bean</code> (Frog)</td><td><code>round</code></td></tr>
+    <tr><td><code>eyes</code></td><td><code>dots</code> (Dots) · <code>round</code> (Button) · <code>googly</code> · <code>pixel</code> · <code>visor</code> · <code>shades</code></td><td><code>googly</code></td></tr>
+    <tr><td><code>top</code></td><td><code>none</code> · <code>ears</code> (Cat ears) · <code>horns</code> · <code>antenna</code> · <code>sprout</code> · <code>sparkle</code> · <code>bow</code> · <code>crown</code> · <code>beret</code></td><td><code>sprout</code></td></tr>
+    <tr><td><code>color</code></td><td>A hex color, <code>#rrggbb</code>.</td><td><code>#ff7a2f</code></td></tr>
+    <tr><td><code>fur</code></td><td><code>true</code> for fur, <code>false</code> for smooth.</td><td><code>true</code></td></tr>
+  </tbody>
+</table></div>
+<ul>
+  <li><code>registerCustom(spec, name = 'custom')</code> registers the pal and returns its name. Pass a name to keep several.</li>
+  <li><code>cleanCustom(anything)</code> returns a valid spec, with unknown values replaced by the defaults (or <code>null</code> if it isn't an object). Specs are plain JSON, so you can store them.</li>
+  <li><code>buildCharacter(spec)</code> returns the character definition without registering it.</li>
+  <li><code>CUSTOM_OPTIONS</code> lists every <code>shape</code>, <code>eyes</code> and <code>top</code> value with its label, and <code>DEFAULT_CUSTOM</code> is the default spec.</li>
+</ul>
+
+<h2 id="actions">Actions</h2>
+<p>Add a one-shot animation for <code>play()</code>. It runs with the Web Animations API on the pal's body, on top of its idle loop:</p>
+<pre><code>import { registerAction } from 'dotpals';
+
+registerAction('pop', {
+  keyframes: [{ transform: 'scale(1)' }, { transform: 'scale(1.2)' }, { transform: 'scale(1)' }],
+  duration: 400,       // ms, default 600
+  easing: 'ease-out',  // the default
+  particles: '✦',      // optional: a glyph that bursts out
+});
+pal.play('pop');</code></pre>
+
+<h2 id="connect-agent">Connect an agent</h2>
+<h3 id="connectagent">Stream events straight in</h3>
+<p><code>connectAgent(pal, source, options?)</code> accepts an <strong>EventSource</strong>, a <strong>WebSocket</strong>, any <strong>EventTarget</strong>, or an <strong>async iterable</strong> such as an SDK stream. It maps each event to a state and returns a function that disconnects.</p>
+<pre><code>import { connectAgent } from 'dotpals';
+
+// Server-Sent Events from your backend
+connectAgent(pal, new EventSource('/agent/events'));
+
+// A WebSocket
+connectAgent(pal, new WebSocket('wss://my-harness/agent'));
+
+// An SDK stream (async iterable), such as the Anthropic TypeScript SDK
+const stream = client.messages.stream({ model, max_tokens, messages, tools });
+connectAgent(pal, stream);</code></pre>
+<ul>
+  <li>For event targets it listens for <code>message</code> (change it with <code>{ event: 'name' }</code>) and reads <code>e.data</code> or <code>e.detail</code>. JSON strings are parsed. An <code>error</code> event sets the <code>error</code> state.</li>
+  <li>For async iterables, an exception sets the <code>error</code> state with its message.</li>
+</ul>
+<h3 id="agenthandler">From your own event loop</h3>
+<pre><code>import { agentHandler } from 'dotpals';
+
+const onEvent = agentHandler(pal);
+for await (const event of myAgent.run(prompt)) {
+  onEvent(event); // unknown events are ignored
+  render(event);
+}</code></pre>
+<p><code>agentHandler(pal, options?)</code> returns a function that applies one event and returns the <code>{ state, text }</code> it chose, or <code>null</code>.</p>
+<h3 id="custom-mapping">Custom mapping</h3>
+<pre><code>import { connectAgent, toAgentState } from 'dotpals';
+
+connectAgent(pal, source, {
+  map: (e) =&gt; {
+    if (e.kind === 'plan') return { state: 'thinking', text: 'Planning…' };
+    if (e.kind === 'shell') return { state: 'working', text: `$ ${e.cmd}` };
+    return toAgentState(e); // fall back to the built-in mapping
+  },
+});</code></pre>
+<p><code>toAgentState(event)</code> is the built-in mapping on its own: it returns <code>{ state, text? }</code> or <code>null</code>.</p>
+
+<h3 id="events-it-understands">Events it understands</h3>
+<div class="g-table"><table>
+  <thead><tr><th>Source</th><th>Event</th><th>State</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="6">Anthropic Messages API (streaming)</td><td><code>message_start</code></td><td>thinking</td></tr>
+    <tr><td><code>content_block_start</code> with a <code>thinking</code> block</td><td>thinking</td></tr>
+    <tr><td><code>content_block_start</code> with a <code>tool_use</code> block</td><td>working, with the tool name</td></tr>
+    <tr><td><code>content_block_start</code> with a <code>text</code> block</td><td>speaking</td></tr>
+    <tr><td><code>message_delta</code> stopping for <code>tool_use</code></td><td>working</td></tr>
+    <tr><td><code>message_stop</code></td><td>done</td></tr>
+    <tr><td rowspan="5">Claude Agent SDK</td><td><code>system</code> / <code>init</code></td><td>thinking</td></tr>
+    <tr><td><code>assistant</code> message with a <code>tool_use</code></td><td>working, with the tool name</td></tr>
+    <tr><td><code>assistant</code> message with text</td><td>speaking</td></tr>
+    <tr><td><code>user</code> message with a <code>tool_result</code></td><td>thinking</td></tr>
+    <tr><td><code>result</code></td><td>done, or error if it failed</td></tr>
+    <tr><td rowspan="5">OpenAI Responses API (streaming)</td><td><code>response.created</code>, <code>response.in_progress</code>, <code>response.reasoning…</code></td><td>thinking</td></tr>
+    <tr><td><code>response.output_item.added</code> with a function or tool call</td><td>working, with its name</td></tr>
+    <tr><td><code>response.output_text.*</code></td><td>speaking</td></tr>
+    <tr><td><code>response.completed</code></td><td>done</td></tr>
+    <tr><td><code>response.failed</code>, <code>response.incomplete</code></td><td>error</td></tr>
+    <tr><td>Claude Code hooks</td><td><code>{ hook_event_name: … }</code>: prompts, tool use, permission requests, notifications, subagents, compaction, stop</td><td>the matching state</td></tr>
+    <tr><td>Generic</td><td><code>{ type: 'start' | 'thinking' | 'tool_call' | 'tool_result' | 'text_delta' | 'permission_request' | 'user_typing' | 'done' | 'error' | 'sleep' | … }</code></td><td>the matching state, with <code>text</code>, <code>message</code>, <code>name</code> or <code>tool</code> as the bubble</td></tr>
+    <tr><td>Your own</td><td><code>{ state: 'working', text: 'Deploying…' }</code></td><td>exactly what you send</td></tr>
+  </tbody>
+</table></div>
+<p>Plain strings work too: <code>'thinking'</code>, or a JSON string of any of the above.</p>
+<p>A runnable example: <code>npm run example:agent</code> in a checkout opens a Server-Sent Events harness on <code>http://localhost:5174</code> (see <code>examples/sse-harness</code>). Replace its fake <code>runAgent</code> with your real loop.</p>
+
+<h2 id="styling">Styling</h2>
+<pre><code>dot-pal {
+  --dp-size: 200px;     /* same as the size attribute */
+  --dp-color: hotpink;  /* same as the color attribute */
+}
+
+dot-pal::part(bubble) { background: #111; color: #fff; }
+dot-pal::part(svg)    { filter: drop-shadow(0 10px 20px rgb(0 0 0 / .4)); }</code></pre>
+<p>The parts you can style are <code>root</code>, <code>idle</code>, <code>actor</code>, <code>svg</code> and <code>bubble</code>. The <code>color</code> attribute wins over <code>--dp-color</code>, which wins over the character's own color.</p>
+
+<h2 id="frameworks">Frameworks</h2>
+<ul>
+  <li><strong>Plain HTML</strong>, Electron and VS Code webviews: import it once and use the tag.</li>
+  <li><strong>React 19+</strong>: <code>import 'dotpals'</code>, then <code>&lt;dot-pal character="grok" state={agentState} /&gt;</code>.</li>
+  <li><strong>Vue</strong>: set <code>compilerOptions.isCustomElement = (tag) =&gt; tag === 'dot-pal'</code>.</li>
+  <li><strong>Svelte</strong>: import it once and use the tag.</li>
+  <li><strong>TypeScript</strong>: types are included, and <code>document.querySelector('dot-pal')</code> is typed as <code>DotPal</code>, with typed <code>dotpal-*</code> events.</li>
+  <li><strong>SSR</strong>: importing on the server is safe. The element renders once it reaches the browser.</li>
+</ul>
+
+<h2 id="accessibility">Accessibility</h2>
+<ul>
+  <li>Each pal has <code>role="img"</code> and an <code>aria-label</code> that includes its mood, such as “Grok (working)”.</li>
+  <li>With <code>prefers-reduced-motion: reduce</code>, idle loops, eye wandering and the floating <em>z</em>s are turned off, but state changes still show.</li>
+  <li>Speech bubbles are decorative. Keep your own visible status text for screen-reader users.</li>
+</ul>
+      </article>
+      <p class="g-edit"><a href="https://github.com/Rikinshah787/dotpals/blob/main/site/guide/component.html">Edit this page on GitHub</a></p>
+      <nav class="g-pager" aria-label="Previous and next page"><a class="g-pager-prev" href="api.html"><small>Previous</small><span>HTTP API</span></a><a class="g-pager-next" href="architecture.html"><small>Next</small><span>Architecture</span></a></nav>
+    </main>
+  </div>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <p><b>dotpals</b> · MIT licensed · made for people who like to know what just happened.</p>
+      <nav aria-label="Project links">
+        <a href="../">Home</a>
+        <a href="./">Docs</a>
+        <a href="https://github.com/Rikinshah787/dotpals">GitHub</a>
+        <a href="https://github.com/Rikinshah787/dotpals/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/Rikinshah787/dotpals/issues">Issues</a>
+      </nav>
+      <p class="muted small">Not affiliated with or endorsed by any AI company. The pals are original artwork. No trackers on this page.</p>
+    </div>
+  </footer>
+</body>
+</html>

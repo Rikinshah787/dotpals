@@ -107,6 +107,10 @@
     .agent b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .agent b small { color: var(--muted); font-weight: 500; }
     .agent .state { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .agent .side { display: flex; align-items: center; gap: 4px; }
+    .agent .x { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--faint); font-size: 14px; line-height: 1; opacity: 0; transition: opacity .15s; }
+    .agent:hover .x, .agent .x:focus-visible { opacity: 1; }
+    .agent .x:hover { background: #2a2a33; color: var(--text); }
     .agent .state.waiting { color: var(--warn); } .agent .state.done { color: var(--ok); } .agent .state.error { color: var(--bad); }
     .agent .doing { grid-column: 2 / 4; color: #cfcfd6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .meters { grid-column: 2 / 4; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 3px; }
@@ -117,6 +121,16 @@
     .m.warm { color: var(--warn); } .m.warm .track i { background: var(--warn); }
     .m.hot { color: var(--bad); } .m.hot .track i { background: var(--bad); }
     .meter-text { font-size: 10.5px; color: var(--faint); }
+    /* An agent's helpers (subagents): one line each, with what it's doing. */
+    .crew { grid-column: 2 / 4; display: grid; gap: 3px; margin-top: 5px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--h) 45%, transparent); }
+    .helper { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; color: var(--muted); }
+    .helper i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--h); }
+    .helper.is-running i { animation: breathe 1.3s ease-in-out infinite; }
+    .helper.is-done i { background: var(--ok); } .helper.is-failed i { background: var(--bad); }
+    .helper.is-done { color: var(--faint); }
+    .helper b { flex: none; color: var(--text); font-weight: 600; }
+    .helper span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .helper.more { color: var(--faint); padding-left: 12px; }
     .ask { grid-column: 2 / 4; display: grid; gap: 5px; margin-top: 6px; padding: 8px 9px; border-radius: 10px; background: #1a1712; border: 1px solid rgb(245 185 74 / .45); cursor: default; }
     .ask .what { color: var(--warn); font-weight: 600; font-size: 11.5px; overflow-wrap: anywhere; }
     .ask code { max-height: 46px; overflow: auto; padding: 4px 7px; border-radius: 7px; background: #0e0e12; font: 10.5px/1.45 ui-monospace, Consolas, monospace; color: #e6e6ec; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -170,6 +184,7 @@
     const contexts = new Map(); // session → { used, size, known }
     let usage = [];
     const asks = new Map(); // permission requests to answer (Settings → Approve from the pal)
+    const helpers = new Map(); // session → its helper agents (subagents), from any agent
     let open = false;
 
     // -- avatars: each agent's own pal, small ---------------------------------------
@@ -233,12 +248,15 @@
         schedule();
       } else if (type === 'message' && data.session) {
         const before = sessions.get(data.session);
-        if (data.state === 'sleeping') { sessions.delete(data.session); avatars.bar.delete(data.session); avatars.card.delete(data.session); }
+        if (data.state === 'sleeping') { helpers.delete(data.session); sessions.delete(data.session); avatars.bar.delete(data.session); avatars.card.delete(data.session); }
         else sessions.set(data.session, { ...before, ...data, id: data.session, at: data.at ?? Date.now() });
         if (before?.state !== data.state && Date.now() - (data.at ?? 0) < 5000) flash(data.state);
         schedule();
       } else if (type === 'context' && data.session) {
         contexts.set(data.session, data);
+        schedule();
+      } else if (type === 'helpers' && data.session) {
+        helpers.set(data.session, data.helpers ?? []);
         schedule();
       } else if (type === 'approval') {
         if (data.status === 'pending') asks.set(data.id, data); else asks.delete(data.id);
@@ -327,6 +345,10 @@
       const parts = [dots, now];
       const plan = lead && BUSY.includes(lead.state) && planOf(stepsOf(lead));
       if (plan) parts.push(el('span', 'step', `${plan.done}/${plan.total}`));
+      else if (lead) {
+        const busy = (helpers.get(lead.id) ?? []).filter((x) => x.status === 'running').length;
+        if (busy) parts.push(el('span', 'step', `${busy} helper${busy > 1 ? 's' : ''}`));
+      }
       const worst = usage.flatMap((u) => u.limits ?? []).map((l) => l.used_percent).sort((a, b) => b - a)[0];
       if (typeof worst === 'number') parts.push(ring(worst));
       bar.replaceChildren(...parts);
@@ -377,7 +399,19 @@
       row.style.animationDelay = `${i * 40}ms`;
       const name = el('b', '', harnessName(s.harness));
       if (s.label) name.append(el('small', '', ` · ${s.label}`));
-      row.append(avatar('card', s), name, el('span', `state ${s.state}`, stateWord[s.state] ?? s.state), el('span', 'doing', doing(s)));
+      const side = el('span', 'side');
+      const x = el('button', 'x', '×');
+      x.type = 'button';
+      x.title = 'Dismiss this session (it comes back if the agent does something new)';
+      x.setAttribute('aria-label', `Dismiss ${who(s)}`);
+      x.onclick = (e) => {
+        e.stopPropagation();
+        sessions.delete(s.id);
+        schedule();
+        fetch(`/api/sessions/${encodeURIComponent(s.id)}/dismiss`, { method: 'POST', headers: { 'x-dotpals': '1' } }).catch(() => {});
+      };
+      side.append(el('span', `state ${s.state}`, stateWord[s.state] ?? s.state), x);
+      row.append(avatar('card', s), name, side, el('span', 'doing', doing(s)));
       const meters = el('div', 'meters');
       const p = s.state !== 'done' && planOf(stepsOf(s));
       if (p) meters.append(meter(`Plan ${p.done}/${p.total}`, (p.done / p.total) * 100, 'plan'));
@@ -389,6 +423,18 @@
           : el('span', 'meter-text', `Context ${k(c.used)} tokens`));
       }
       if (meters.childNodes.length) row.append(meters);
+      const crew = helpers.get(s.id) ?? [];
+      if (crew.length) {
+        const list = el('div', 'crew');
+        for (const x of crew.slice(0, 4)) {
+          const item = el('span', `helper is-${x.status}`);
+          item.append(el('i'), el('b', '', x.name), el('span', '', x.status === 'running' ? (x.doing || x.task || 'working') : x.status === 'done' ? `done${x.task ? ` · ${x.task}` : ''}` : 'stopped'));
+          item.title = [x.task, x.doing].filter(Boolean).join(' · ');
+          list.append(item);
+        }
+        if (crew.length > 4) list.append(el('span', 'helper more', `+${crew.length - 4} more helpers`));
+        row.append(list);
+      }
       const ask = [...asks.values()].find((a) => a.session === s.id);
       if (ask) row.append(askBox(ask));
       if (c && (c.known ? (c.used / c.size) * 100 >= 60 : c.used >= 120_000) && desktop?.copy) {
