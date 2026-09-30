@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dotpals playground</title>
+  <script type="module" src="../src/index.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000;
+      --panel: #111114;
+      --line: #26262c;
+      --text: #f2f2f5;
+      --muted: #9a9aa6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+    }
+    main { max-width: 1040px; margin: 0 auto; padding: 48px 16px 80px; }
+    h1 { font-size: clamp(40px, 8vw, 72px); line-height: 1; margin: 0 0 8px; letter-spacing: -.03em; }
+    h2 { font-size: 22px; margin: 56px 0 4px; }
+    .lede, .sub { color: var(--muted); margin: 0 0 24px; max-width: 640px; }
+
+    .hero {
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      padding-top: 90px;
+      border-bottom: 1px solid var(--line);
+      overflow-x: clip;
+    }
+    .hero dot-pal { --dp-size: min(150px, 12vw); margin: 0 -.6%; }
+
+    .grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; }
+    .stage { display: grid; place-items: end center; min-height: 400px; padding-top: 90px; overflow: hidden; position: relative; }
+    .state-tag {
+      position: absolute; top: 14px; left: 14px;
+      font: 600 13px ui-monospace, monospace; color: var(--muted);
+      background: #1c1c21; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+    }
+    .controls { padding: 18px; display: grid; gap: 14px; align-content: start; }
+    label, .label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+    select, input[type=range] { width: 100%; }
+    select, button, input[type=color], textarea {
+      font: inherit; color: var(--text); background: #1c1c21;
+      border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px;
+    }
+    input[type=color] { height: 38px; padding: 4px; width: 100%; }
+    textarea { font: 13px ui-monospace, monospace; min-height: 84px; resize: vertical; width: 100%; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    button { cursor: pointer; padding: 5px 11px; font-size: 14px; }
+    button:hover { border-color: #55555f; }
+    button[aria-pressed=true] { background: #f2f2f5; color: #111; border-color: #f2f2f5; }
+    .primary { background: #f2f2f5; color: #111; border-color: #f2f2f5; font-weight: 600; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .log { font: 12px/1.6 ui-monospace, monospace; color: var(--muted); max-height: 120px; overflow: auto; margin: 0; }
+
+    .form-demo { display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: end; padding: 24px; }
+    @media (max-width: 640px) { .form-demo { grid-template-columns: 1fr; justify-items: center; } }
+    form { display: grid; gap: 10px; width: 100%; }
+    form input { font: inherit; color: var(--text); background: #1c1c21; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+
+    pre {
+      margin: 16px 0 0; padding: 16px; background: var(--panel);
+      border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>dotpals</h1>
+    <p class="lede">Plug-and-play animated characters for AI agents. Send your agent's state and the pal thinks, works, talks, asks and celebrates. It works with any harness.</p>
+
+    <section class="hero" aria-label="The pals" id="hero"></section>
+
+    <h2>Agent states</h2>
+    <p class="sub">Pick a pal, then click a state, run a simulated agent session, or paste a raw event from your harness.</p>
+
+    <section class="grid">
+      <div class="panel stage">
+        <span class="state-tag" id="tag">state: idle</span>
+        <dot-pal id="pal" character="grok" size="260"></dot-pal>
+      </div>
+      <div class="panel controls">
+        <label>Character <select id="character"></select></label>
+        <div class="label">State <div class="chips" id="states"></div></div>
+        <button class="primary" id="simulate" type="button">▶ Simulate an agent run</button>
+        <label><span>Paste a harness event (Anthropic, OpenAI, Agent SDK or <code>{state}</code>)</span>
+          <textarea id="raw">{"type":"content_block_start","content_block":{"type":"tool_use","name":"web_search"}}</textarea>
+        </label>
+        <button id="send" type="button">Send event</button>
+        <pre class="log" id="log"></pre>
+      </div>
+    </section>
+
+    <h2>Tweak</h2>
+    <section class="panel controls">
+      <div class="row">
+        <label>Color <input id="color" type="color"></label>
+        <label>Size <input id="size" type="range" min="100" max="320" value="260"></label>
+      </div>
+      <div class="row">
+        <label>Idle <select id="idle">
+          <option>breathe</option><option>bounce</option><option>float</option>
+          <option>wobble</option><option>sway</option><option>none</option>
+        </select></label>
+        <label>&nbsp;<button id="reset" type="button">Reset color</button></label>
+      </div>
+      <div class="label">Actions <div class="chips" id="actions"></div></div>
+    </section>
+    <pre><code id="code"></code></pre>
+
+    <h2>Form companion</h2>
+    <p class="sub">Calling <code>pal.watch(form)</code> makes the pal follow your typing, cover its eyes on passwords, frown at invalid input and cheer when you submit.</p>
+    <section class="panel form-demo">
+      <dot-pal id="buddy" character="lovi" size="200"></dot-pal>
+      <form id="form">
+        <input type="email" placeholder="Email" autocomplete="email" required>
+        <input type="password" placeholder="Password" autocomplete="current-password" required minlength="6">
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+    </section>
+  </main>
+
+  <script type="module">
+    import { DotPal, characters, toAgentState, agentHandler } from '../src/index.js';
+
+    const $ = (id) => document.getElementById(id);
+    const pal = $('pal');
+
+    // Hero row with every character.
+    for (const name of DotPal.characters) {
+      const p = document.createElement('dot-pal');
+      p.character = name;
+      $('hero').append(p);
+    }
+
+    for (const name of DotPal.characters) $('character').add(new Option(characters[name].label, name));
+    $('character').value = pal.character;
+
+    // State chips.
+    const sample = { working: 'Running tests…', waiting: 'Allow edit?', done: 'Done!', error: 'Build failed' };
+    for (const s of DotPal.states) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = s;
+      b.dataset.state = s;
+      b.onclick = () => { stopSim(); pal.setState(s, { text: sample[s] }); };
+      $('states').append(b);
+    }
+    pal.addEventListener('dotpal-state', (e) => {
+      $('tag').textContent = `state: ${e.detail.state}`;
+      for (const b of $('states').children) b.setAttribute('aria-pressed', b.dataset.state === e.detail.state);
+      log(`→ ${e.detail.state}${e.detail.text ? `  "${e.detail.text}"` : ''}`);
+      code();
+    });
+
+    const log = (line) => {
+      $('log').textContent = (line + '\n' + $('log').textContent).split('\n').slice(0, 30).join('\n');
+    };
+
+    // Simulated run using real Anthropic-style stream events.
+    const script = [
+      [0, { type: 'message_start' }],
+      [1600, { type: 'content_block_start', content_block: { type: 'thinking' } }],
+      [1800, { type: 'content_block_start', content_block: { type: 'tool_use', name: 'read_file' } }],
+      [2000, { type: 'content_block_start', content_block: { type: 'tool_use', name: 'web_search' } }],
+      [2000, { type: 'permission_request', text: 'Allow edit to app.js?' }],
+      [2400, { type: 'content_block_start', content_block: { type: 'text' } }],
+      [2600, { type: 'message_stop' }],
+      [2600, { state: 'idle' }],
+    ];
+    let timers = [];
+    const stopSim = () => { timers.forEach(clearTimeout); timers = []; };
+    const feed = agentHandler(pal);
+    $('simulate').onclick = () => {
+      stopSim();
+      let t = 0;
+      for (const [delay, event] of script) {
+        t += delay;
+        timers.push(setTimeout(() => { log(`event ${event.type ?? event.state}`); feed(event); }, t));
+      }
+    };
+    $('send').onclick = () => {
+      stopSim();
+      const result = toAgentState($('raw').value);
+      if (!result) return log('ignored (unrecognised event)');
+      pal.setState(result.state, { text: result.text });
+    };
+
+    // Tweaks.
+    for (const name of DotPal.actions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = name;
+      b.onclick = () => pal.play(name);
+      $('actions').append(b);
+    }
+    const code = () => {
+      const attrs = ['character', 'state', 'idle', 'color', 'size']
+        .filter((a) => pal.hasAttribute(a))
+        .map((a) => ` ${a}="${pal.getAttribute(a)}"`)
+        .join('');
+      $('code').textContent =
+        `<script type="module" src="https://unpkg.com/dotpals"><\/script>\n\n<dot-pal${attrs}></dot-pal>\n\n` +
+        `// from your harness:\npal.setState('working', { text: 'Running tests…' });\n// or: connectAgent(pal, new EventSource('/agent/events'));`;
+    };
+    const syncColor = () => ($('color').value = pal.color || characters[pal.character].color);
+    $('character').onchange = (e) => { pal.character = e.target.value; syncColor(); code(); };
+    $('idle').onchange = (e) => { pal.idle = e.target.value; code(); };
+    $('color').oninput = (e) => { pal.color = e.target.value; code(); };
+    $('size').oninput = (e) => { pal.setAttribute('size', e.target.value); code(); };
+    $('reset').onclick = () => { pal.color = null; syncColor(); code(); };
+    syncColor();
+    code();
+
+    // Form companion.
+    const form = $('form');
+    $('buddy').watch(form);
+    form.onsubmit = (e) => e.preventDefault();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dotpals live</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0e;
+      --card: rgb(18 18 23 / .97);
+      --raise: #1c1c22;
+      --sunk: #0f0f13;
+      --line: #2a2a31;
+      --text: #f2f2f5;
+      --muted: #8b8b96;
+      --faint: #5c5c66;
+      --ok: #46a758;
+      --bad: #f2555a;
+      --warn: #f5b94a;
+      --add: #56d364;
+      --del: #f2555a;
+      --k-read: #6cb6ff;
+      --k-edit: #f5b94a;
+      --k-write: #ff9563;
+      --k-run: #56d364;
+      --k-search: #b392f0;
+      --k-web: #39c5cf;
+      --k-agent: #f778ba;
+      --k-mcp: #a3b3c7;
+      --k-skill: #e3b341;
+      --k-other: #8b8b96;
+      --h-claude: #d97757;
+      --h-codex: #9aa4ff;
+      --h-other: #8b8b96;
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 ui-rounded, "Segoe UI Variable Text", system-ui, sans-serif; overflow: hidden; }
+    button, select { font: inherit; color: inherit; background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; cursor: pointer; }
+    button:hover, select:hover { border-color: #3a3a44; }
+    button:focus-visible, select:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--k-read); outline-offset: 1px; }
+
+    .card { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+
+    /* -- top bar -------------------------------------------------------- */
+    .bar { order: -2; display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 44px; }
+    .bar b { font-size: 14px; white-space: nowrap; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
+    .dot.on { background: var(--ok); }
+    .status { color: var(--muted); margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .icon { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border-radius: 7px; background: transparent; border-color: transparent; color: var(--muted); }
+    .icon:hover { background: var(--raise); color: var(--text); }
+    .icon svg { width: 14px; height: 14px; }
+    .float-only { display: none; }
+    #compact .grow, #sound .off { display: none; }
+    #sound[aria-pressed="false"] .on { display: none; }
+    #sound[aria-pressed="false"] .off { display: block; }
+
+    /* -- sessions: one tab per agent session, so harnesses never mix ------ */
+    .sessions { order: -1; display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+    .sessions[hidden] { display: none; }
+    .sessions button { flex: none; display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; max-width: 190px; }
+    .sessions button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sessions button[aria-pressed="true"] { background: var(--raise); color: var(--text); border-color: #3a3a44; }
+    .sessions i { width: 7px; height: 7px; border-radius: 50%; background: var(--h); flex: none; }
+    .sessions i.busy { box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 30%, transparent); }
+    .h-claude { --h: var(--h-claude); } .h-codex { --h: var(--h-codex); } .h-other { --h: var(--h-other); }
+
+    /* -- stage (the pals) ----------------------------------------------- */
+    #stage { flex: none; height: 230px; display: flex; align-items: flex-end; justify-content: center; gap: 12px; padding: 70px 16px 0; overflow: hidden; border-bottom: 1px solid var(--line); }
+    .slot { display: grid; justify-items: center; cursor: default; }
+    .slot[hidden] { display: none; }
+    .slot span { font-size: 11px; color: var(--muted); padding: 4px 8px 8px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #stage.solo .slot span { display: none; }
+    .empty { color: var(--muted); align-self: center; text-align: center; max-width: 300px; margin: 0; }
+
+    /* -- tabs ----------------------------------------------------------- */
+    .tabs { display: flex; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); }
+    .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 8px 8px; color: var(--muted); }
+    .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+    .tabs .count { color: var(--faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+    .tabs .summary { margin-left: auto; align-self: center; color: var(--faint); font-size: 12px; padding-bottom: 6px; }
+
+    /* -- activity + files lists ----------------------------------------- */
+    .panel { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 6px 0 10px; list-style: none; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+    .panel[hidden] { display: none; }
+    .none { color: var(--faint); padding: 18px 16px; }
+
+    .item[hidden] { display: none; }
+    .head { display: grid; grid-template-columns: 52px 1fr auto; gap: 8px; align-items: start; padding: 5px 12px; cursor: pointer; }
+    .head:hover { background: rgb(255 255 255 / .03); }
+    .item.open > .head { background: rgb(255 255 255 / .04); }
+    .tag { font: 600 10px/18px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--k); text-align: center; border-radius: 5px; background: color-mix(in srgb, var(--k) 14%, transparent); }
+    .main { min-width: 0; }
+    .title { display: block; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+    .detail { display: block; color: var(--muted); font: 11px/1.45 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meta { color: var(--faint); font-size: 11px; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; display: flex; gap: 6px; align-items: center; }
+    .meta .ok { color: var(--ok); }
+    .meta .bad { color: var(--bad); }
+    .meta .wait { color: var(--bg); background: var(--warn); border-radius: 5px; padding: 0 6px; font-weight: 600; }
+    .spin { width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--k); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(1turn); } }
+    .item.failed .title { color: var(--bad); }
+
+    .k-read { --k: var(--k-read); }   .k-edit { --k: var(--k-edit); }  .k-write, .k-delete { --k: var(--k-write); }
+    .k-run { --k: var(--k-run); }     .k-search { --k: var(--k-search); } .k-web { --k: var(--k-web); }
+    .k-agent { --k: var(--k-agent); } .k-mcp { --k: var(--k-mcp); }    .k-skill { --k: var(--k-skill); }
+    .k-plan, .k-tool, .k-compact { --k: var(--k-other); }
+    .k-error { --k: var(--bad); }
+
+    /* The details you see when you open a row. */
+    .body { margin: 2px 12px 8px 72px; display: grid; gap: 6px; min-width: 0; }
+    .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 11px; }
+    .facts b { color: var(--text); font-weight: 600; }
+    .links { display: grid; gap: 2px; }
+    .links a, a.open-file { color: var(--k-read); font-size: 12px; text-decoration: none; overflow-wrap: anywhere; }
+    .links a:hover, a.open-file:hover { text-decoration: underline; }
+    .label { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: -3px; }
+    pre.code { margin: 0; padding: 7px 9px; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; font: 11px/1.5 var(--mono); color: #cfcfd6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; scrollbar-width: thin; }
+    pre.code .add { color: var(--add); background: color-mix(in srgb, var(--add) 9%, transparent); display: block; }
+    pre.code .del { color: var(--del); background: color-mix(in srgb, var(--del) 9%, transparent); display: block; }
+    pre.code .hunk { color: var(--k-search); display: block; }
+    .error { color: var(--bad); font-size: 12px; }
+
+    .prompt { margin: 10px 12px 4px; padding: 7px 10px; border-left: 2px solid var(--h, var(--muted)); background: var(--raise); border-radius: 0 8px 8px 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .prompt:first-child { margin-top: 4px; }
+    .prompt small { display: block; color: var(--faint); font-size: 11px; }
+    .end { padding: 4px 12px 8px 72px; color: var(--faint); font-size: 12px; }
+    .end.ok::before { content: "✓ "; color: var(--ok); }
+    .end.bad { color: var(--bad); }
+
+    /* -- summary: one card per request ------------------------------------ */
+    .turn { margin: 8px 10px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--raise); overflow: hidden; }
+    .turn[hidden] { display: none; }
+    .turn .ask { padding: 9px 12px 8px; border-left: 3px solid var(--h, var(--muted)); cursor: pointer; }
+    .turn .ask small { display: block; color: var(--faint); font-size: 11px; margin-bottom: 2px; }
+    .turn .ask p { margin: 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .turn .ask.full p { display: block; }
+    .turn .said { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: #d6d6dd; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .turn .said b { color: var(--h, var(--text)); font-weight: 600; }
+    .turn .said.live { color: var(--muted); }
+    .turn .said .more { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--k-read); font-size: 12px; }
+    .did { list-style: none; margin: 0; padding: 6px 12px 8px; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+    .did li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: start; color: var(--muted); font-size: 12px; }
+    .did li::before { content: ""; width: 8px; height: 8px; margin: 5px 0 0 4px; border-radius: 2px; background: var(--k); }
+    .did b { color: var(--text); font-weight: 600; }
+    .did a { color: var(--muted); text-decoration: none; }
+    .did a:hover { color: var(--k-read); text-decoration: underline; }
+    .did .bad { color: var(--bad); }
+    .turn footer { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; }
+    .turn footer .ok { color: var(--ok); }
+    .turn footer .bad { color: var(--bad); }
+    .turn footer button { margin-left: auto; padding: 2px 8px; font-size: 11px; background: transparent; color: var(--muted); }
+    .today { position: sticky; top: -6px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 0 4px; padding: 8px 12px; background: var(--today-bg, #121217); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .today small { color: var(--text); font-weight: 600; font-size: 12px; }
+    .today .stats { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+    .today b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .today button { margin-left: auto; padding: 2px 8px; font-size: 11px; background: transparent; color: var(--muted); }
+    .turn footer button.copy { margin-left: auto; }
+    .turn footer button.copy + button { margin-left: 0; }
+    .steps { list-style: none; margin: 0; padding: 4px 0 6px; border-top: 1px solid var(--line); background: var(--sunk); }
+    .steps .head { grid-template-columns: 1fr auto; padding: 4px 12px; }
+    .steps .body { margin-left: 12px; }
+    .steps .title { font-size: 12px; color: #d6d6dd; }
+
+    .counts { display: flex; gap: 4px; }
+    .counts b { font: 600 10px/18px var(--mono); padding: 0 5px; border-radius: 5px; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); }
+
+    /* -- floating desktop window ----------------------------------------- */
+    body.float { background: transparent; }
+    body.float .float-only { display: grid; }
+    body.float .browser-only { display: none; }
+    body.float .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    body.float .bar { -webkit-app-region: drag; padding: 6px 6px 6px 12px; min-height: 40px; }
+    body.float .bar :is(button, select) { -webkit-app-region: no-drag; }
+    body.float #stage { height: 150px; padding-top: 50px; -webkit-app-region: drag; }
+    body.float dot-pal { -webkit-app-region: no-drag; cursor: grab; touch-action: none; }
+    body.dragging, body.dragging dot-pal { cursor: grabbing; }
+    body.float #first { max-width: 76px; padding: 2px 4px; font-size: 12px; }
+
+    /* Compact: just the pal, floating on the desktop. Two round buttons fade in
+       while the mouse is over the window (the main process tells us: see main.js). */
+    body.compact .card { background: transparent; border-color: transparent; }
+    body.compact .bar { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 0; min-height: 0; gap: 6px; border: 0; background: none; -webkit-app-region: no-drag; opacity: 0; transform: translateY(-4px); transition: opacity .18s, transform .18s; pointer-events: none; }
+    body.compact.hover .bar, body.compact .bar:focus-within { opacity: 1; transform: none; pointer-events: auto; }
+    body.compact .bar :is(b, .status, select, .dot, #sound) { display: none; }
+    body.compact .icon { width: 30px; height: 30px; border-radius: 50%; color: var(--text); background: rgb(18 18 23 / .88); border: 1px solid var(--line); box-shadow: 0 4px 14px rgb(0 0 0 / .35); }
+    body.compact .icon:hover { background: #26262e; }
+    body.compact .icon svg { width: 13px; height: 13px; }
+    body.compact #compact .shrink { display: none; }
+    body.compact #compact .grow { display: block; }
+    body.compact #stage { height: 100%; border: 0; padding: 60px 0 0; }
+    body.compact :is(.tabs, .panel, .sessions) { display: none; }
+    body.compact .slot span { display: none; }
+
+    @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <main id="stage">
+      <p class="empty" id="empty">Waiting for your agent…<br>Send a prompt in Claude Code or Codex and your pal will appear here.</p>
+    </main>
+
+    <!-- The bars come after the stage on purpose: on Windows, Electron applies drag regions in
+         document order, so the buttons must follow the draggable stage to stay clickable.
+         CSS `order` puts them back on top. -->
+    <nav class="sessions" id="sessions" aria-label="Sessions" hidden></nav>
+    <header class="bar">
+      <span class="dot" id="dot"></span>
+      <b id="title">dotpals</b>
+      <span class="status" id="status">connecting…</span>
+      <select id="first" title="First pal"></select>
+      <button id="sound" class="icon" type="button" title="Sounds on" aria-label="Sounds on" aria-pressed="true">
+        <svg class="on" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10L4.5 10H2zM11 5.5a3.5 3.5 0 0 1 0 5M13 3.5a6 6 0 0 1 0 9"/></svg>
+        <svg class="off" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10L4.5 10H2zM11 6l4 4M15 6l-4 4"/></svg>
+      </button>
+      <button id="pip" class="browser-only" type="button" title="Float the pals above other windows">Pop out ↗</button>
+      <button id="compact" class="icon float-only" type="button" title="Just the pal" aria-label="Just the pal">
+        <svg class="shrink" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 10h4v4M13 6H9V2M9 7l5-5M7 9l-5 5"/></svg>
+        <svg class="grow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 2h4v4M6 14H2v-4M14 2L9 7M2 14l5-5"/></svg>
+      </button>
+      <button id="close" class="icon float-only" type="button" title="Hide (Ctrl+Alt+P brings it back)" aria-label="Hide">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" id="tab-recap" aria-selected="true" aria-controls="recap">Summary<span class="count" id="n-turns"></span></button>
+      <button role="tab" id="tab-feed" aria-selected="false" aria-controls="feed">Tools<span class="count" id="n-tools"></span></button>
+      <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files<span class="count" id="n-files"></span></button>
+      <span class="summary" id="summary"></span>
+    </nav>
+    <ol class="panel" id="recap" role="tabpanel" aria-labelledby="tab-recap" aria-live="polite"><li class="none">Each request you give your agent shows up here, with what it changed in plain words.</li></ol>
+    <ol class="panel" id="feed" role="tabpanel" aria-labelledby="tab-feed" hidden><li class="none">Every tool call shows up here as your agent works. Click one to see exactly what it did.</li></ol>
+    <ul class="panel" id="files" role="tabpanel" aria-labelledby="tab-files" hidden><li class="none">Files your agent reads or changes show up here.</li></ul>
+  </div>
+
+  <script type="module">
+    import { DotPal } from '../src/index.js';
+
+    const $ = (id) => document.getElementById(id);
+    const desktop = window.dotpalsDesktop;
+    const isFloat = !!desktop && new URLSearchParams(location.search).has('float');
+    document.body.classList.toggle('float', isFloat);
+
+    const stage = $('stage');
+    const feed = $('feed');
+    const filesList = $('files');
+    const cast = DotPal.characters;
+
+    const sessions = new Map(); // id → { id, harness, label, lastAt, state }
+    const slots = new Map();    // session → { el, pal, label }
+    const entries = new Map();  // activity id → { entry, el }
+    const openIds = new Set();  // rows you've opened
+    const openFiles = new Set();
+    let picked = null;          // session id, or 'all'
+    let pickedByUser = false;
+
+    const TAG = { read: 'read', edit: 'edit', write: 'write', run: 'run', search: 'find', web: 'web', agent: 'agent', mcp: 'mcp', skill: 'skill', plan: 'plan', tool: 'tool', compact: 'mem' };
+    const HARNESS = { claude: 'Claude', codex: 'Codex' };
+    const harnessName = (h) => HARNESS[h] ?? (h ? h[0].toUpperCase() + h.slice(1) : 'Agent');
+    const harnessClass = (h) => (HARNESS[h] ? `h-${h}` : 'h-other');
+
+    const el = (tag, cls, text) => {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text != null) node.textContent = text;
+      return node;
+    };
+    const secs = (ms) => (ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`);
+    const fileUrl = (path) => `vscode://file/${encodeURI(String(path).replace(/\\/g, '/'))}`;
+    const shown = (session) => picked === 'all' || session === picked;
+
+    // -- sounds ------------------------------------------------------------------
+    // Small synthesized chimes (Web Audio, no files): a blip when you send a
+    // prompt, a tick when a file is saved, a double ping when the agent needs your
+    // OK, a rising chime when it's done and a low bonk on errors.
+    const sound = (() => {
+      let ctx;
+      let on = true;
+      try { on = localStorage.getItem('dotpals.sound') !== 'off'; } catch {}
+
+      function tone(freq, start, dur, { type = 'sine', gain = 0.07, slide } = {}) {
+        ctx ??= new AudioContext();
+        const t = ctx.currentTime + start;
+        const osc = ctx.createOscillator();
+        const env = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t);
+        if (slide) osc.frequency.exponentialRampToValueAtTime(slide, t + dur);
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(gain, t + 0.012);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(env).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + dur + 0.05);
+      }
+
+      const cues = {
+        prompt: () => tone(620, 0, 0.1, { gain: 0.04 }),
+        saved: () => tone(1320, 0, 0.06, { type: 'triangle', gain: 0.03 }),
+        waiting: () => { tone(880, 0, 0.12); tone(880, 0.17, 0.14); },
+        done: () => { tone(784, 0, 0.16); tone(1047, 0.1, 0.32); },
+        error: () => tone(230, 0, 0.35, { type: 'triangle', gain: 0.09, slide: 140 }),
+      };
+
+      // Browsers only allow audio after a click; the desktop pal has no such limit.
+      addEventListener('pointerdown', () => ctx?.resume(), { capture: true });
+
+      return {
+        get on() { return on; },
+        set on(value) {
+          on = value;
+          try { localStorage.setItem('dotpals.sound', on ? 'on' : 'off'); } catch {}
+        },
+        play(cue) {
+          if (!on) return;
+          try { cues[cue]?.(); } catch {}
+        },
+      };
+    })();
+
+    function syncSoundButton() {
+      const button = $('sound');
+      button.setAttribute('aria-pressed', String(sound.on));
+      button.title = sound.on ? 'Sounds on' : 'Sounds off';
+      button.setAttribute('aria-label', button.title);
+    }
+    syncSoundButton();
+    $('sound').onclick = () => {
+      sound.on = !sound.on;
+      syncSoundButton();
+      if (sound.on) sound.play('prompt');
+    };
+
+    // Only react to things happening now, not to history replayed on connect.
+    const fresh = (at) => Date.now() - (at ?? 0) < 4000;
+    const lastState = new Map();
+    const heard = new Set();
+
+    function stateSound(update) {
+      const before = lastState.get(update.session);
+      lastState.set(update.session, update.state);
+      if (before === update.state || !fresh(update.at)) return;
+      notifyState(update);
+      if (update.state === 'done') sound.play('done');
+      else if (update.state === 'waiting') sound.play('waiting');
+      else if (update.state === 'error') sound.play('error');
+    }
+
+    // -- notifications ----------------------------------------------------------------
+    // A desktop notification when you're probably not looking: the pal is hidden, the
+    // request ran for over a minute, or it has been waiting for your OK for 20 seconds.
+    const waitTimers = new Map();
+    function notifyState(update) {
+      if (!desktop?.notify) return;
+      clearTimeout(waitTimers.get(update.session));
+      const who = harnessName(update.harness);
+      const where = update.label ? ` · ${update.label}` : '';
+      const hidden = document.visibilityState === 'hidden';
+      if (update.state === 'waiting') {
+        const ping = () => desktop.notify(`${who} needs your OK${where}`, update.text || 'Waiting for you');
+        if (hidden) ping();
+        else waitTimers.set(update.session, setTimeout(ping, 20000));
+      } else if (update.state === 'done') {
+        const turn = buildTurns().filter((t) => t.session === update.session).at(-1);
+        if (!hidden && !(turn?.prompt && Date.now() - turn.at > 60000)) return;
+        const f = facts(turn?.steps ?? []);
+        const did = [
+          f.changed.length + f.wrote.length ? `Changed ${plural(f.changed.length + f.wrote.length, 'file')}` : '',
+          f.runs ? `ran ${plural(f.runs, 'command')}` : '',
+        ].filter(Boolean).join(', ');
+        desktop.notify(`${who} is done${where}`, `${turn?.prompt ? `“${clipLine(turn.prompt.title, 70)}”` : 'Finished'}${did ? `\n${did}` : ''}`);
+      }
+    }
+    const clipLine = (s, n) => { s = String(s).split('\n')[0]; return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+
+    function activitySound(entry) {
+      if (!fresh(entry.at) || heard.has(entry.id)) return;
+      if (entry.kind === 'prompt') sound.play('prompt');
+      else if ((entry.kind === 'edit' || entry.kind === 'write') && entry.status === 'ok') sound.play('saved');
+      else return;
+      heard.add(entry.id);
+    }
+
+    // -- first character -----------------------------------------------------
+    let first = new URLSearchParams(location.search).get('character');
+    try { first ||= localStorage.getItem('dotpals.first'); } catch {}
+    if (!cast.includes(first)) first = 'blu';
+    for (const name of cast) $('first').add(new Option(name, name));
+    $('first').value = first;
+    $('first').onchange = (e) => {
+      first = e.target.value;
+      try { localStorage.setItem('dotpals.first', first); } catch {}
+      const firstSlot = slots.values().next().value;
+      if (firstSlot) firstSlot.pal.character = first;
+    };
+
+    // -- sessions ----------------------------------------------------------------
+    function touchSession({ session, harness, label, at, state }) {
+      if (!session) return;
+      const s = sessions.get(session) ?? { id: session, lastAt: 0 };
+      s.harness = harness ?? s.harness;
+      s.label = label ?? s.label ?? `session ${session.slice(-6)}`;
+      s.lastAt = Math.max(s.lastAt, at ?? 0);
+      if (state) s.state = state;
+      const isNew = !sessions.has(session);
+      sessions.set(session, s);
+      // Follow the most recently active session until you pick one yourself.
+      if (!pickedByUser && picked !== 'all' && (!picked || (s.lastAt >= (sessions.get(picked)?.lastAt ?? 0) && fresh(s.lastAt)))) {
+        if (picked !== session) pick(session, false);
+      }
+      if (isNew || state) renderSessions();
+    }
+
+    function sessionName(s) {
+      const same = [...sessions.values()].filter((o) => o.harness === s.harness && o.label === s.label);
+      return `${harnessName(s.harness)} · ${s.label}${same.length > 1 ? ` (${s.id.slice(-4)})` : ''}`;
+    }
+
+    function renderSessions() {
+      const nav = $('sessions');
+      // The six most recent sessions (history can hold many), plus the one you picked.
+      const list = [...sessions.values()].sort((a, b) => b.lastAt - a.lastAt).filter((s, i) => i < 6 || s.id === picked);
+      nav.hidden = list.length < 2;
+      const buttons = list.map((s) => {
+        const b = el('button');
+        b.type = 'button';
+        b.className = harnessClass(s.harness);
+        b.setAttribute('aria-pressed', String(picked === s.id));
+        const dot = el('i', ['working', 'thinking', 'speaking', 'waiting'].includes(s.state) ? 'busy' : '');
+        b.append(dot, el('span', '', sessionName(s)));
+        b.title = `${sessionName(s)}: ${s.state ?? 'idle'}`;
+        b.onclick = () => pick(s.id, true);
+        return b;
+      });
+      const all = el('button', '', 'All');
+      all.type = 'button';
+      all.setAttribute('aria-pressed', String(picked === 'all'));
+      all.onclick = () => pick('all', true);
+      nav.replaceChildren(...buttons, all);
+      const s = sessions.get(picked);
+      $('title').textContent = s ? sessionName(s) : picked === 'all' ? 'All sessions' : 'dotpals';
+    }
+
+    function pick(session, byUser) {
+      picked = session;
+      if (byUser) pickedByUser = true;
+      for (const [id, slot] of slots) slot.el.hidden = !shown(id);
+      for (const item of entries.values()) item.el.hidden = !shown(item.entry.session);
+      resizePals();
+      renderSessions();
+      renderFiles();
+      refreshCounts();
+      scheduleRecap();
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    // -- pals ------------------------------------------------------------------
+    // As big as fits: shrink as more pals share the stage.
+    const palSize = () => {
+      const base = document.body.classList.contains('compact') ? 150 : isFloat ? 100 : 160;
+      const n = Math.max([...slots.values()].filter((s) => !s.el.hidden).length, 1);
+      const fit = Math.floor((stage.clientWidth - 24 - 12 * (n - 1)) / n);
+      return Math.max(56, Math.min(base - Math.min(n - 1, 3) * 20, fit || base));
+    };
+
+    function slotFor(update) {
+      let slot = slots.get(update.session);
+      if (slot) return slot;
+      $('empty')?.remove();
+      const i = slots.size;
+      const box = el('div', 'slot');
+      const pal = document.createElement('dot-pal');
+      pal.character = i === 0 ? first : cast[(cast.indexOf(first) + i) % cast.length];
+      pal.setAttribute('idle', 'float'); // drift gently when there's nothing going on
+      const label = el('span');
+      box.append(pal, label);
+      stage.append(box);
+      slot = { el: box, pal, label };
+      slots.set(update.session, slot);
+      box.hidden = !shown(update.session);
+      resizePals();
+      return slot;
+    }
+
+    function resizePals() {
+      const visible = [...slots.values()].filter((s) => !s.el.hidden);
+      stage.classList.toggle('solo', visible.length <= 1);
+      for (const [id, slot] of slots) {
+        slot.pal.setAttribute('size', String(palSize()));
+        const s = sessions.get(id);
+        if (s) slot.label.textContent = sessionName(s);
+      }
+    }
+
+    function applyState(update) {
+      touchSession(update);
+      stateSound(update);
+      scheduleRecap();
+      const slot = slotFor(update);
+      slot.pal.setState(update.state, { text: update.text });
+      if (update.state === 'sleeping') {
+        setTimeout(() => {
+          slot.el.remove();
+          slots.delete(update.session);
+          resizePals();
+        }, 6000);
+      }
+    }
+
+    // Electron on Windows keeps the old drag regions after the window resizes, so
+    // buttons, tabs and links stop taking clicks. Nudging a drag region makes it re-measure.
+    let regionTimer;
+    function refreshDragRegions() {
+      clearTimeout(regionTimer);
+      regionTimer = setTimeout(() => {
+        stage.style.setProperty('-webkit-app-region', 'no-drag');
+        requestAnimationFrame(() => requestAnimationFrame(() => stage.style.removeProperty('-webkit-app-region')));
+      }, 120);
+    }
+    addEventListener('resize', () => {
+      resizePals();
+      if (isFloat) refreshDragRegions();
+    });
+
+    // -- activity feed ---------------------------------------------------------
+    function applyActivity(entry) {
+      touchSession({ session: entry.session, harness: entry.harness, label: entry.label, at: entry.at });
+      activitySound(entry);
+      // Follow new rows, unless you've scrolled up to read.
+      const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+      let item = entries.get(entry.id);
+      if (!item) {
+        feed.querySelector('.none')?.remove();
+        item = { entry, el: el('li', 'item') };
+        entries.set(entry.id, item);
+        insertInOrder(item);
+      }
+      item.entry = entry;
+      renderEntry(item);
+      item.el.hidden = !shown(entry.session);
+      if (entry.files?.length) renderFiles();
+      refreshCounts();
+      scheduleRecap();
+      if (stick) feed.scrollTop = feed.scrollHeight;
+    }
+
+    // History can arrive after live rows (backfill), so keep the feed in time order.
+    function insertInOrder(item) {
+      let next = null;
+      for (let node = feed.lastElementChild; node; node = node.previousElementSibling) {
+        const other = node.__entry;
+        if (!other || other.at <= item.entry.at) break;
+        next = node;
+      }
+      item.el.__entry = item.entry;
+      feed.insertBefore(item.el, next);
+    }
+
+    function renderEntry({ entry: e, el: li }) {
+      li.__entry = e;
+      const when = new Date(e.at).toLocaleTimeString();
+      li.title = when;
+
+      if (e.kind === 'prompt') {
+        li.className = `item prompt ${harnessClass(e.harness)}`;
+        li.replaceChildren(el('small', '', `${picked === 'all' ? `${harnessName(e.harness)} · ${e.label} · ` : ''}${when}`), document.createTextNode(e.title));
+        return;
+      }
+      if (e.kind === 'done' || e.kind === 'error') {
+        li.className = `item end ${e.status === 'ok' ? 'ok' : 'bad'}`;
+        li.textContent = `${e.title} · ${when}${e.ms ? ` · ${secs(e.ms)}` : ''}`;
+        return;
+      }
+
+      li.className = `item k-${e.kind}${e.status === 'failed' ? ' failed' : ''}${openIds.has(e.id) ? ' open' : ''}`;
+      const head = el('div', 'head');
+      head.tabIndex = 0;
+      head.setAttribute('role', 'button');
+      head.setAttribute('aria-expanded', String(openIds.has(e.id)));
+      const tag = el('span', 'tag', TAG[e.kind] ?? e.kind);
+      tag.title = e.tool ?? e.kind;
+      const main = el('span', 'main');
+      main.append(el('span', 'title', e.title || e.tool));
+      const second = e.error || e.detail;
+      if (second) main.append(el('span', 'detail', second));
+      head.append(tag, main, renderMeta(e));
+      const toggle = () => {
+        if (openIds.has(e.id)) openIds.delete(e.id);
+        else openIds.add(e.id);
+        renderEntry({ entry: e, el: li });
+      };
+      head.onclick = toggle;
+      head.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } };
+
+      li.replaceChildren(head, ...(openIds.has(e.id) ? [renderBody(e)] : []));
+    }
+
+    function renderMeta(e) {
+      const meta = el('span', 'meta');
+      if (e.status === 'running') {
+        meta.append(el('span', 'elapsed', e.startedAt ? secs(Math.max(0, Date.now() - e.startedAt)) : ''), el('span', 'spin'));
+      } else if (e.status === 'waiting') {
+        meta.append(el('span', 'wait', 'needs OK'));
+      } else if (e.status === 'failed') {
+        meta.append(el('span', 'bad', '✕'));
+      } else if (e.status === 'ok') {
+        if (e.ms != null) meta.append(el('span', '', secs(e.ms)));
+        meta.append(el('span', 'ok', '✓'));
+      }
+      return meta;
+    }
+
+    const STATUS = { running: 'running', waiting: 'waiting for your OK', ok: 'done', failed: 'failed', stopped: 'stopped', info: '' };
+
+    function renderBody(e) {
+      const body = el('div', 'body');
+      const facts = el('div', 'facts');
+      const fact = (name, value) => { if (!value) return; const f = el('span'); f.append(`${name} `, el('b', '', value)); facts.append(f); };
+      fact('tool', e.tool);
+      fact('at', new Date(e.at).toLocaleTimeString());
+      fact('took', e.ms != null ? secs(e.ms) : '');
+      fact('status', STATUS[e.status]);
+      body.append(facts);
+
+      if (e.files?.length) {
+        const links = el('div', 'links');
+        for (const f of e.files) {
+          const a = el('a', '', `${f.change === 'read' ? '' : `${f.change} · `}${f.path}`);
+          a.href = fileUrl(f.path);
+          a.target = '_blank';
+          a.title = 'Open in VS Code';
+          links.append(a);
+        }
+        body.append(links);
+      }
+      if (e.error) body.append(el('div', 'error', e.error));
+      const b = e.body ?? {};
+      if (b.command) body.append(el('div', 'label', 'command'), code(b.command, '$ '));
+      if (b.patch) body.append(el('div', 'label', 'changes'), patch(b.patch));
+      if (b.args) body.append(el('div', 'label', 'input'), code(b.args));
+      if (b.output) body.append(el('div', 'label', 'output'), code(b.output));
+      if (!b.command && !b.patch && !b.args && !b.output && !e.files?.length && !e.error) body.append(el('div', 'label', 'no details for this call'));
+      return body;
+    }
+
+    const code = (text, prefix = '') => el('pre', 'code', prefix + text);
+
+    function patch(text) {
+      const pre = el('pre', 'code');
+      for (const line of text.split('\n')) {
+        const cls = line.startsWith('+') && !line.startsWith('+++') ? 'add'
+          : line.startsWith('-') && !line.startsWith('---') ? 'del'
+          : /^(@@|\*\*\*)/.test(line) ? 'hunk' : '';
+        pre.append(cls ? el('span', cls, line) : document.createTextNode(`${line}\n`));
+      }
+      return pre;
+    }
+
+    // Tick the elapsed time on running tools.
+    setInterval(() => {
+      for (const item of entries.values()) {
+        if (item.entry.status !== 'running' || !item.entry.startedAt || item.el.hidden) continue;
+        const elapsed = item.el.querySelector('.elapsed');
+        if (elapsed) elapsed.textContent = secs(Math.max(0, Date.now() - item.entry.startedAt));
+      }
+    }, 1000);
+
+    // -- files -----------------------------------------------------------------
+    function fileSummary() {
+      const files = new Map();
+      for (const { entry: e } of entries.values()) {
+        if (!e.files?.length || !shown(e.session) || e.status === 'failed') continue;
+        for (const f of e.files) {
+          if (!f.path) continue;
+          const key = String(f.path).replace(/\\/g, '/').toLowerCase();
+          const sum = files.get(key) ?? { path: f.path, title: e.files.length === 1 ? e.title : String(f.path).split(/[\\/]/).pop(), read: 0, edit: 0, write: 0, delete: 0, last: 0, changes: [] };
+          sum[f.change] = (sum[f.change] ?? 0) + 1;
+          sum.last = Math.max(sum.last, e.at);
+          if (f.change !== 'read' && e.body?.patch) sum.changes.push(e);
+          files.set(key, sum);
+        }
+      }
+      return [...files.values()].sort((a, b) => b.last - a.last);
+    }
+
+    function renderFiles() {
+      const files = fileSummary();
+      if (!files.length) {
+        filesList.replaceChildren(el('li', 'none', 'Files your agent reads or changes show up here.'));
+        return;
+      }
+      filesList.replaceChildren(...files.map((f) => {
+        const changed = f.edit || f.write || f.delete;
+        const key = f.path.toLowerCase();
+        const li = el('li', `item k-${f.delete ? 'delete' : f.write ? 'write' : changed ? 'edit' : 'read'}${openFiles.has(key) ? ' open' : ''}`);
+        const head = el('div', 'head');
+        head.title = `Last touched ${new Date(f.last).toLocaleTimeString()}`;
+        head.tabIndex = 0;
+        head.setAttribute('role', 'button');
+        head.setAttribute('aria-expanded', String(openFiles.has(key)));
+        const tag = el('span', 'tag', f.delete ? 'deleted' : f.write && !f.edit && !f.read ? 'new' : changed ? 'changed' : 'read');
+        const main = el('span', 'main');
+        main.append(el('span', 'title', f.title || f.path));
+        const counts = el('span', 'meta counts');
+        for (const kind of ['read', 'edit', 'write', 'delete']) {
+          if (!f[kind]) continue;
+          const b = el('b', `k-${kind}`, `${kind[0].toUpperCase()}${f[kind] > 1 ? ` ${f[kind]}` : ''}`);
+          b.title = `${{ read: 'Read', edit: 'Edited', write: 'Written', delete: 'Deleted' }[kind]} ${f[kind]}×`;
+          counts.append(b);
+        }
+        head.append(tag, main, counts);
+        const toggle = () => {
+          if (openFiles.has(key)) openFiles.delete(key);
+          else openFiles.add(key);
+          renderFiles();
+        };
+        head.onclick = toggle;
+        head.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } };
+        li.append(head);
+
+        if (openFiles.has(key)) {
+          const body = el('div', 'body');
+          const a = el('a', 'open-file', `Open ${f.path}`);
+          a.href = fileUrl(f.path);
+          a.target = '_blank';
+          body.append(a);
+          for (const e of f.changes.slice(-5)) {
+            body.append(el('div', 'label', `${e.kind} · ${new Date(e.at).toLocaleTimeString()}`), patch(e.body.patch));
+          }
+          if (!f.changes.length) body.append(el('div', 'label', changed ? 'no diff recorded' : 'only read'));
+          li.append(body);
+        }
+        return li;
+      }));
+    }
+
+    // -- summary: what happened, in plain words ------------------------------------
+    // One card per request: what you asked, what the agent said it did, and a
+    // tally of the work (files changed, commands run…). Steps are one click away.
+    const recap = $('recap');
+    const openTurns = new Set();
+    const fullAsk = new Set();
+    const fullSaid = new Set();
+    const latestTurn = new Map(); // session → its newest turn
+    let recapTimer;
+    const scheduleRecap = () => { clearTimeout(recapTimer); recapTimer = setTimeout(renderRecap, 120); };
+    const toggleIn = (set, key) => (set.has(key) ? set.delete(key) : set.add(key));
+    const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+    const baseName = (p) => String(p).split(/[\\/]/).pop();
+    const shortTime = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    /** One step, as a short sentence ("Editing app.js" while it runs, "Edited app.js" after). */
+    function sentence(e) {
+      const t = e.title || e.tool || '';
+      if (e.status === 'running' || e.status === 'waiting') {
+        const doing = { read: 'Reading', edit: 'Editing', write: 'Writing', run: 'Running', search: 'Searching for', web: 'Looking up', agent: 'Asking a helper agent:', mcp: 'Using', skill: 'Using the skill' }[e.kind] ?? 'Using';
+        return `${doing} ${e.kind === 'run' || e.kind === 'search' || e.kind === 'web' ? `“${t}”` : t}`;
+      }
+      switch (e.kind) {
+        case 'read': return `Read ${t}`;
+        case 'edit': return `Edited ${t}`;
+        case 'write': return `Wrote ${t}`;
+        case 'run': return `Ran “${t}”`;
+        case 'search': return `Searched the code for “${t}”`;
+        case 'web': return `Looked up “${t}”`;
+        case 'agent': return `Asked a helper agent: ${t}`;
+        case 'mcp': return `Used ${e.detail ? `${e.detail}: ` : ''}${t}`;
+        case 'skill': return `Used the ${t} skill`;
+        case 'plan': return 'Updated its to-do list';
+        case 'compact': return 'Tidied up its memory of the conversation';
+        default: return `Used ${t}`;
+      }
+    }
+
+    /** Agent replies are Markdown; show them as plain text. */
+    const plain = (md) => String(md ?? '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`([^`\n]+)`/g, '$1')
+      .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, '$1$2')
+      .replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1')
+      .replace(/^#{1,6}\s*/gm, '')
+      .replace(/^\s*[-*]\s+/gm, '• ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    function buildTurns() {
+      const list = [...entries.values()].map((i) => i.entry).filter((e) => shown(e.session)).sort((a, b) => a.at - b.at);
+      const turns = [];
+      const current = new Map();
+      for (const e of list) {
+        let t = current.get(e.session);
+        if (e.kind === 'prompt' || !t) {
+          t = { id: e.id, session: e.session, harness: e.harness, label: e.label, at: e.at, prompt: e.kind === 'prompt' ? e : null, steps: [], end: null };
+          turns.push(t);
+          current.set(e.session, t);
+          if (e.kind === 'prompt') continue;
+        }
+        if (e.kind === 'done' || e.kind === 'error') {
+          if (!t.end || e.summary || !t.end.summary) t.end = e;
+          continue;
+        }
+        if (t.end && e.at > t.end.at) t.end = null; // it kept going
+        t.steps.push(e);
+      }
+      return turns;
+    }
+
+    /** The turn's work as data: which files changed, what ran, what was used. */
+    function facts(steps) {
+      const rank = { read: 0, edit: 1, write: 2, delete: 3 };
+      const files = new Map(); // path → strongest change
+      const f = { runs: 0, runFailed: 0, searches: 0, web: 0, agents: 0, failed: 0, mcp: new Set(), skills: new Set() };
+      for (const s of steps) {
+        if (s.status === 'failed') f.failed++;
+        else for (const file of s.files ?? []) {
+          const key = String(file.path).toLowerCase();
+          if (!files.has(key) || rank[file.change] > rank[files.get(key).change]) files.set(key, file);
+        }
+        if (s.kind === 'run') { f.runs++; if (s.status === 'failed') f.runFailed++; }
+        if (s.kind === 'search') f.searches++;
+        if (s.kind === 'web') f.web++;
+        if (s.kind === 'agent') f.agents++;
+        if (s.kind === 'mcp') f.mcp.add(s.detail || s.title);
+        if (s.kind === 'skill') f.skills.add(s.title);
+      }
+      const by = (change) => [...files.values()].filter((x) => x.change === change);
+      Object.assign(f, { changed: by('edit'), wrote: by('write'), deleted: by('delete'), read: by('read') });
+      f.otherFailed = f.failed - f.runFailed;
+      return f;
+    }
+
+    /** The turn's work, as a few plain lines. */
+    function tally(steps) {
+      const f = facts(steps);
+      const lines = [];
+      const add = (kind, strong, rest, list) => {
+        const li = el('li', `k-${kind}`);
+        const text = el('span');
+        text.append(el('b', '', strong));
+        if (rest) text.append(rest);
+        if (list?.length) {
+          text.append(' ');
+          list.slice(0, 4).forEach((file, i) => {
+            const a = el('a', '', baseName(file.path));
+            a.href = fileUrl(file.path);
+            a.target = '_blank';
+            a.title = `Open ${file.path}`;
+            text.append(i ? ', ' : '', a);
+          });
+          if (list.length > 4) text.append(` and ${list.length - 4} more`);
+        }
+        li.append(text);
+        lines.push(li);
+      };
+      if (f.changed.length) add('edit', `Changed ${plural(f.changed.length, 'file')}`, ':', f.changed);
+      if (f.wrote.length) add('write', `Wrote ${plural(f.wrote.length, 'file')}`, ':', f.wrote);
+      if (f.deleted.length) add('delete', `Deleted ${plural(f.deleted.length, 'file')}`, ':', f.deleted);
+      if (f.runs) add('run', `Ran ${plural(f.runs, 'command')}`, f.runFailed ? el('span', 'bad', `, ${f.runFailed} failed`) : '');
+      if (f.read.length) add('read', `Read ${plural(f.read.length, 'file')}`, ':', f.read);
+      if (f.skills.size) add('skill', `Used ${plural(f.skills.size, 'skill')}: `, [...f.skills].join(', '));
+      if (f.mcp.size) add('mcp', 'Used tools from ', [...f.mcp].join(', '));
+      if (f.agents) add('agent', `Used ${plural(f.agents, 'helper agent')}`);
+      if (f.searches) add('search', `Searched the code ${plural(f.searches, 'time')}`);
+      if (f.web) add('web', `Looked things up online ${plural(f.web, 'time')}`);
+      if (f.otherFailed) add('error', `${plural(f.otherFailed, 'step')} failed`, ' (see Tools for why)');
+      return lines;
+    }
+
+    // -- copy as Markdown (PR descriptions, commit messages, standups) ------------
+    const names = (list) => list.map((x) => '`' + baseName(x.path) + '`').join(', ');
+
+    function turnMarkdown(t) {
+      const f = facts(t.steps);
+      const lines = [];
+      if (t.prompt) lines.push(`### ${t.prompt.title.split('\n')[0]}`, '');
+      if (t.end?.summary) lines.push(plain(t.end.summary), '');
+      if (f.changed.length) lines.push(`- Changed: ${names(f.changed)}`);
+      if (f.wrote.length) lines.push(`- Wrote: ${names(f.wrote)}`);
+      if (f.deleted.length) lines.push(`- Deleted: ${names(f.deleted)}`);
+      if (f.runs) lines.push(`- Ran ${plural(f.runs, 'command')}${f.runFailed ? ` (${f.runFailed} failed)` : ''}`);
+      if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
+      if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
+      const took = t.end ? t.end.ms ?? (t.prompt ? t.end.at - t.at : null) : null;
+      lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}_`);
+      return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    function copyText(text, button) {
+      const done = () => {
+        const label = button.textContent;
+        button.textContent = 'Copied ✓';
+        setTimeout(() => { button.textContent = label; }, 1400);
+      };
+      if (desktop?.copy) { desktop.copy(text); done(); }
+      else navigator.clipboard?.writeText(text).then(done, () => {});
+    }
+
+    // -- today --------------------------------------------------------------------
+    const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+    const turnTime = (t) => (t.end ? t.end.ms ?? (t.prompt ? Math.max(0, t.end.at - t.at) : 0) : 0);
+
+    function todayBar(turns) {
+      const today = turns.filter((t) => t.at >= startOfToday());
+      if (!today.length) return null;
+      const f = facts(today.flatMap((t) => t.steps));
+      const work = today.reduce((sum, t) => sum + turnTime(t), 0);
+      const li = el('li', 'today');
+      const stats = el('span', 'stats');
+      const stat = (value, label) => {
+        if (!value) return;
+        const s = el('span');
+        s.append(el('b', '', String(value)), ` ${label}`);
+        stats.append(s);
+      };
+      stat(today.filter((t) => t.prompt).length, 'requests');
+      stat(f.changed.length + f.wrote.length + f.deleted.length, 'files changed');
+      stat(f.runs, 'commands');
+      if (work > 0) stat(work >= 3600000 ? `${Math.floor(work / 3600000)}h ${Math.round((work % 3600000) / 60000)}m` : secs(work).replace(/ \d+s$/, ''), 'of agent work');
+      const copy = el('button', '', 'Copy today');
+      copy.type = 'button';
+      copy.title = "Copy today's work as Markdown, for a standup or PR";
+      copy.onclick = () => {
+        const who = [...new Set(today.map((t) => harnessName(t.harness)))].join(' & ');
+        copyText([`## Today with ${who}`, ...today.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n'), copy);
+      };
+      li.append(el('small', '', 'Today'), stats, copy);
+      return li;
+    }
+
+    function renderTurn(t) {
+      const li = el('li', `turn ${harnessClass(t.harness)}`);
+      const who = harnessName(t.harness);
+
+      if (t.prompt) {
+        const ask = el('div', `ask${fullAsk.has(t.id) ? ' full' : ''}`);
+        ask.title = 'Click to show all of it';
+        ask.append(el('small', '', `You asked${picked === 'all' ? ` ${who} · ${t.label}` : ''} · ${shortTime(t.at)}`), el('p', '', t.prompt.title));
+        ask.onclick = () => { toggleIn(fullAsk, t.id); renderRecap(); };
+        li.append(ask);
+      }
+
+      const state = sessions.get(t.session)?.state;
+      const live = !t.end && latestTurn.get(t.session) === t && ['thinking', 'working', 'speaking', 'waiting'].includes(state);
+      const said = el('p', 'said');
+      if (t.end?.summary) {
+        const text = plain(t.end.summary);
+        const short = text.split(/\n\s*\n/)[0].slice(0, 280);
+        const full = fullSaid.has(t.id) || short.length >= text.length;
+        said.append(el('b', '', `${who}: `), full ? text : `${short}${short.length < text.length ? '…' : ''}`);
+        if (short.length < text.length) {
+          const more = el('button', 'more', full ? 'less' : 'more');
+          more.type = 'button';
+          more.onclick = () => { toggleIn(fullSaid, t.id); renderRecap(); };
+          said.append(more);
+        }
+      } else if (live) {
+        const last = t.steps.at(-1);
+        said.classList.add('live');
+        said.textContent = state === 'waiting' ? `Waiting for your OK${last ? `: ${sentence(last)}` : ''}` : last && last.status === 'running' ? `${sentence(last)}…` : 'Thinking…';
+      } else if (t.end?.kind === 'error') {
+        said.append(el('b', '', `${who}: `), t.end.title);
+      }
+      if (said.childNodes.length) li.append(said);
+
+      const lines = tally(t.steps);
+      if (!lines.length && t.end && !t.steps.length) lines.push(el('li', 'k-plan', 'Answered without using any tools'));
+      if (lines.length) {
+        const did = el('ul', 'did');
+        did.append(...lines);
+        li.append(did);
+      }
+
+      const footer = el('footer');
+      if (t.end) {
+        const took = t.end.ms ?? (t.prompt ? t.end.at - t.at : null);
+        const ok = t.end.kind === 'done';
+        footer.append(el('span', ok ? 'ok' : 'bad', ok ? '✓ Done' : '✕ Stopped with an error'), took > 0 ? ` in ${secs(took)}` : '');
+      } else if (live) {
+        footer.append(`Working · ${plural(t.steps.length, 'step')} so far`);
+      } else {
+        footer.append(t.steps.length ? 'Stopped' : '');
+      }
+      if (t.end || t.steps.length) {
+        const copy = el('button', 'copy', 'Copy');
+        copy.type = 'button';
+        copy.title = 'Copy this as Markdown (for a PR, commit message or standup)';
+        copy.onclick = () => copyText(turnMarkdown(t), copy);
+        footer.append(copy);
+      }
+      if (t.steps.length) {
+        const button = el('button', '', openTurns.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`);
+        button.type = 'button';
+        button.onclick = () => { toggleIn(openTurns, t.id); renderRecap(); };
+        footer.append(button);
+      }
+      li.append(footer);
+
+      if (openTurns.has(t.id)) {
+        const steps = el('ul', 'steps');
+        for (const s of t.steps) {
+          const item = el('li', `item k-${s.kind}${s.status === 'failed' ? ' failed' : ''}${openIds.has(s.id) ? ' open' : ''}`);
+          const head = el('div', 'head');
+          head.tabIndex = 0;
+          head.setAttribute('role', 'button');
+          head.setAttribute('aria-expanded', String(openIds.has(s.id)));
+          head.append(el('span', 'title', sentence(s)), renderMeta(s));
+          const toggle = () => { toggleIn(openIds, s.id); renderRecap(); };
+          head.onclick = toggle;
+          head.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } };
+          item.append(head);
+          if (openIds.has(s.id)) item.append(renderBody(s));
+          steps.append(item);
+        }
+        li.append(steps);
+      }
+      return li;
+    }
+
+    function renderRecap() {
+      clearTimeout(recapTimer);
+      const stick = recap.scrollHeight - recap.scrollTop - recap.clientHeight < 40;
+      const top = recap.scrollTop;
+      const turns = buildTurns();
+      latestTurn.clear();
+      for (const t of turns) latestTurn.set(t.session, t);
+      $('n-turns').textContent = turns.filter((t) => t.prompt).length || '';
+      if (!turns.length) {
+        recap.replaceChildren(el('li', 'none', 'Each request you give your agent shows up here, with what it changed in plain words.'));
+        return;
+      }
+      recap.replaceChildren(...[todayBar(turns), ...turns.slice(-60).map(renderTurn)].filter(Boolean));
+      recap.scrollTop = stick ? recap.scrollHeight : top;
+    }
+
+    function refreshCounts() {
+      const visible = [...entries.values()].map((i) => i.entry).filter((e) => shown(e.session));
+      const tools = visible.filter((e) => e.tool).length;
+      const files = fileSummary();
+      const changed = files.filter((f) => f.edit || f.write || f.delete).length;
+      $('n-tools').textContent = tools ? String(tools) : '';
+      $('n-files').textContent = files.length ? String(files.length) : '';
+      $('summary').textContent = changed ? `${changed} changed` : '';
+    }
+
+    for (const tab of document.querySelectorAll('[role=tab]')) {
+      tab.onclick = () => {
+        for (const t of document.querySelectorAll('[role=tab]')) {
+          t.setAttribute('aria-selected', String(t === tab));
+          $(t.getAttribute('aria-controls')).hidden = t !== tab;
+        }
+      };
+    }
+
+    // -- connection ---------------------------------------------------------------
+    function setOnline(on) {
+      $('dot').classList.toggle('on', on);
+      $('status').textContent = on ? 'live' : 'bridge offline, retrying…';
+    }
+    const onEvent = ({ type, data }) => (type === 'activity' ? applyActivity(data) : applyState(data));
+
+    if (isFloat) {
+      desktop.connect(onEvent, setOnline);
+      desktop.onHover?.((inside) => document.body.classList.toggle('hover', inside));
+      const setCompact = async (on) => {
+        document.body.classList.toggle('compact', on);
+        $('compact').title = on ? 'Show activity' : 'Just the pal';
+        $('compact').setAttribute('aria-label', $('compact').title);
+        await desktop.setCompact(on);
+        resizePals();
+        refreshDragRegions();
+        feed.scrollTop = feed.scrollHeight;
+      };
+      desktop.isCompact().then((on) => { document.body.classList.toggle('compact', on); resizePals(); });
+      $('compact').onclick = () => setCompact(!document.body.classList.contains('compact'));
+      desktop.onSetCompact?.(setCompact);
+
+      // Drag the window by the pal itself. Moving less than a few pixels is a
+      // click (the pal plays its tap animation); more than that moves the window.
+      let dragged = false;
+      stage.addEventListener('pointerdown', (e) => {
+        const pal = e.target.closest?.('dot-pal');
+        if (!pal || e.button !== 0) return;
+        e.preventDefault(); // no text selection or built-in image drag, which would cancel ours
+        const start = { x: e.screenX, y: e.screenY };
+        let moving = false;
+        pal.setPointerCapture(e.pointerId);
+        desktop.dragStart(e.screenX, e.screenY); // where the press began, so the window doesn't lag the cursor
+        const move = (ev) => {
+          const dx = ev.screenX - start.x;
+          const dy = ev.screenY - start.y;
+          if (!moving && Math.hypot(dx, dy) < 5) return;
+          if (!moving) { moving = true; document.body.classList.add('dragging'); }
+          desktop.dragTo();
+        };
+        const end = () => {
+          pal.removeEventListener('pointermove', move);
+          pal.removeEventListener('pointerup', end);
+          pal.removeEventListener('pointercancel', end);
+          document.body.classList.remove('dragging');
+          if (moving) desktop.dragEnd(); // the app places the window under the cursor one last time
+          dragged = moving;
+        };
+        pal.addEventListener('pointermove', move);
+        pal.addEventListener('pointerup', end);
+        pal.addEventListener('pointercancel', end);
+      });
+      stage.addEventListener('dragstart', (e) => e.preventDefault());
+      // After a drag, swallow the click so the pal doesn't also do its tap animation.
+      stage.addEventListener('click', (e) => {
+        if (dragged) { e.stopPropagation(); dragged = false; }
+      }, true);
+      $('close').onclick = () => desktop.close();
+    } else {
+      const source = new EventSource('/events');
+      source.onopen = () => setOnline(true);
+      source.onerror = () => setOnline(false);
+      source.onmessage = (e) => onEvent({ type: 'message', data: JSON.parse(e.data) });
+      source.addEventListener('activity', (e) => onEvent({ type: 'activity', data: JSON.parse(e.data) }));
+    }
+
+    // Float the pals in an always-on-top window (Chrome/Edge Document Picture-in-Picture).
+    $('pip').onclick = async () => {
+      if (!('documentPictureInPicture' in window)) {
+        alert('Pop-out needs Chrome or Edge 116+. For a real desktop pal, run `npm run float`.');
+        return;
+      }
+      const pip = await documentPictureInPicture.requestWindow({ width: 420, height: 320 });
+      pip.document.head.append(...[...document.querySelectorAll('style')].map((s) => s.cloneNode(true)));
+      pip.document.body.append(stage);
+      pip.addEventListener('pagehide', () => $('sessions').before(stage));
+    };
+  </script>
+</body>
+</html>

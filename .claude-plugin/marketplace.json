@@ -1,0 +1,14 @@
+{
+  "name": "dotpals",
+  "owner": {
+    "name": "dotpals contributors"
+  },
+  "description": "Fluffy animated pals that react live to your Claude Code sessions.",
+  "plugins": [
+    {
+      "name": "dotpals",
+      "source": "./",
+      "description": "A floating pal that shows every tool call, command and file change your agent makes, live."
+    }
+  ]
+}

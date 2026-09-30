@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No `npm ci`: dotpals has no runtime dependencies, and the tests don't
+      # need Electron (a devDependency that would download ~100 MB).
+
+      - name: Check syntax
+        shell: bash
+        run: >-
+          node -e "const fs=require('fs'),path=require('path'),{execFileSync}=require('child_process');
+          const walk=(d)=>fs.existsSync(d)?fs.readdirSync(d,{withFileTypes:true}).flatMap((e)=>e.isDirectory()?walk(path.join(d,e.name)):/\.c?js$/.test(e.name)?[path.join(d,e.name)]:[]):[];
+          const files=['src','bridge','desktop','scripts'].flatMap(walk);
+          for(const f of files)execFileSync(process.execPath,['--check',f],{stdio:'inherit'});
+          console.log('Syntax OK: '+files.length+' files');"
+
+      - name: Test
+        run: npm test

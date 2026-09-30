@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest a new character, action, harness or anything else.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Ideas are welcome! Tell us what you'd like and why.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like?
+      description: Describe the feature and the problem it solves for you.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: A rough idea is fine. For a new harness, a sample event helps a lot.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've tried instead?
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Want to help build it?
+      options:
+        - label: I'd be happy to open a pull request for this.

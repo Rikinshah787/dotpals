@@ -1,0 +1,17 @@
+{
+  "name": "dotpals",
+  "version": "0.4.0",
+  "description": "A floating pal that shows what your coding agent is doing: every tool call, command and file change, live. Works with Claude Code and Codex.",
+  "author": {
+    "name": "dotpals contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "animation",
+    "mascot",
+    "status",
+    "hooks"
+  ],
+  "homepage": "https://github.com/rikinshah787/dotpals",
+  "repository": "https://github.com/rikinshah787/dotpals"
+}

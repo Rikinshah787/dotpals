@@ -1,0 +1,71 @@
+{
+  "name": "dotpals",
+  "version": "0.4.0",
+  "description": "See what your coding agent actually did: a floating pal for Claude Code, Codex and any agent that shows every file changed, command run and step taken, in plain words. Also a zero-dependency animated Web Component for agent UIs.",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "coding-agent",
+    "ai-agent",
+    "developer-tools",
+    "activity-log",
+    "ai",
+    "agent",
+    "llm",
+    "mascot-ui",
+    "web-components",
+    "custom-elements",
+    "animation",
+    "characters",
+    "mascot",
+    "svg",
+    "cute"
+  ],
+  "homepage": "https://github.com/rikinshah787/dotpals#readme",
+  "bugs": {
+    "url": "https://github.com/rikinshah787/dotpals/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rikinshah787/dotpals.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./element": "./src/element.js",
+    "./characters": "./src/characters.js",
+    "./actions": "./src/actions.js",
+    "./agent": "./src/agent.js"
+  },
+  "unpkg": "./src/index.js",
+  "jsdelivr": "./src/index.js",
+  "files": [
+    "src",
+    "bridge",
+    "desktop"
+  ],
+  "bin": {
+    "dotpals-bridge": "bridge/server.js",
+    "dotpals-float": "desktop/launch.js"
+  },
+  "sideEffects": [
+    "./src/index.js"
+  ],
+  "scripts": {
+    "dev": "node scripts/serve.js",
+    "example:agent": "node examples/sse-harness/server.js",
+    "bridge": "node bridge/server.js",
+    "float": "node desktop/launch.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1"
+  }
+}

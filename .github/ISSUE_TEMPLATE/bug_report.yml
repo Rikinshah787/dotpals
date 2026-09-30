@@ -1,0 +1,50 @@
+name: Bug report
+description: Something isn't working the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report this! A few details help us fix it faster.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `npm run float`
+        2. Start a Claude Code session
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      multiple: true
+      options:
+        - Desktop pal (Electron)
+        - Web component in a browser
+        - Bridge (Claude Code)
+        - Bridge (Codex)
+        - Bridge (generic /event)
+        - Something else
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: dotpals version, Node version and operating system.
+      placeholder: dotpals 0.3.0, Node 22, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Bridge output, browser console errors or a screenshot. Please remove anything private first.
+      render: text
