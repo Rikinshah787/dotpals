@@ -3,7 +3,8 @@
 // feed, in the floating desktop pal (`npm run float`) or a browser tab.
 //
 // Adapters (bridge/adapters/):
-//   claude   Claude Code hooks → POST /hook, plus the session transcript for history
+//   claude   Claude Code hooks → POST /hook, plus every session's transcript (history,
+//            and sessions that have no hooks)
 //   codex    follows ~/.codex/sessions logs (no setup on the Codex side)
 //   generic  any harness can POST /event (see README → "Plug in any agent")
 //
@@ -28,7 +29,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, createActivityLog, folderName } from './activity.js';
-import { applyHook, backfillTranscript, lastReply } from './adapters/claude.js';
+import { applyHook, backfillTranscript, lastReply, watchClaude } from './adapters/claude.js';
 import { watchCodex } from './adapters/codex.js';
 import { configPath, home, loadConfig, saveConfig } from './config.js';
 
@@ -93,6 +94,7 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const activity = createActivityLog({ limit: 1500 });
   const backfilled = new Set();
+  const hooked = new Set();    // Claude sessions that send hook events
   const lastSeen = {};        // harness → time of its last event
   let config = loadConfig();
   const history = createHistory(activity, () => config);
@@ -127,6 +129,7 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
   async function claudeEvent(event) {
     const session = String(event.session_id);
     const label = folderName(event.cwd);
+    hooked.add(session);
     // First time we hear from a session: load its history from the transcript.
     if (event.transcript_path && !backfilled.has(session)) {
       backfilled.add(session);
@@ -150,6 +153,13 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
       if (summary) return publish([activity.upsert({ id: done.id, summary })]);
     }
   }
+
+  // -- Claude Code (transcripts): sessions without hooks -------------------------
+  const stopClaude = process.env.DOTPALS_CLAUDE_LOGS === '0' ? () => {} : watchClaude(activity, {
+    emit: publish,
+    state: (session, label, next, at) => setState(session, 'claude', label, next, at),
+    skip: (session) => hooked.has(session),
+  });
 
   // -- Generic: any harness ------------------------------------------------------
   //   { session, harness?, label?, state?, text?, activity?: {...} | [...] }
@@ -290,10 +300,10 @@ export function startBridge({ port = Number(process.env.PORT) || 5175, log: prin
       res.writeHead(404).end();
     }
   });
-  server.on('close', () => stopCodex());
+  server.on('close', () => { stopCodex(); stopClaude(); });
 
   return new Promise((ok, fail) => {
-    server.once('error', (err) => { stopCodex(); fail(err); });
+    server.once('error', (err) => { stopCodex(); stopClaude(); fail(err); });
     server.listen(port, '127.0.0.1', () => {
       print(`dotpals bridge → http://localhost:${port}`);
       print(`dashboard      → http://localhost:${port}/dashboard`);

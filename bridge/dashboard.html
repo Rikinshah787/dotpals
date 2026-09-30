@@ -176,6 +176,25 @@
     .switch:checked::after { transform: translateX(16px); }
     .switch:disabled { opacity: .5; cursor: not-allowed; }
     .preview { display: flex; align-items: flex-end; justify-content: center; height: 150px; padding-top: 40px; overflow: hidden; background: var(--sunk); border-radius: 12px; border: 1px solid var(--line); }
+    /* Make your own pal */
+    .maker { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; margin-top: 12px; }
+    .maker .opts { display: grid; gap: 14px; align-content: start; }
+    .maker label.name { display: grid; gap: 6px; }
+    .maker input[type="text"] { font: inherit; color: var(--text); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; max-width: 260px; }
+    .opt-title { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chips button { padding: 5px 12px; border-radius: 999px; font-size: 13px; background: var(--sunk); }
+    .chips button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+    .swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .swatches button { width: 26px; height: 26px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid transparent; outline-offset: 2px; }
+    .swatches button[aria-pressed="true"] { outline: 2px solid var(--text); }
+    .swatches input[type="color"] { width: 34px; height: 28px; padding: 0 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); cursor: pointer; }
+    .stagebox { display: grid; gap: 10px; align-content: start; }
+    .stagebox .preview { height: 230px; padding-top: 70px; }
+    .stagebox .moods { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+    .stagebox .moods button { padding: 3px 10px; font-size: 12px; background: transparent; }
+    .maker .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    button.primary { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
     .agents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
     .agents .card { display: grid; gap: 8px; align-content: start; }
     .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--raise); color: var(--muted); width: fit-content; }
@@ -186,7 +205,7 @@
 
     @media (max-width: 1000px) {
       .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .grid2, .split, .agents { grid-template-columns: 1fr; }
+      .grid2, .split, .agents, .maker { grid-template-columns: 1fr; }
       .list { max-height: 320px; }
     }
     @media (max-width: 720px) {
@@ -273,6 +292,34 @@
           </div>
 
           <div class="card">
+            <h2>Make your own pal</h2>
+            <p class="muted" style="margin:4px 0 0">Pick a body, eyes and something on top. It shows up in the floating pal and here.</p>
+            <div class="maker">
+              <div class="opts">
+                <label class="name"><span class="opt-title">Name</span><input type="text" id="m-name" maxlength="24" autocomplete="off"></label>
+                <div><div class="opt-title">Body</div><div class="chips" id="m-shape" role="group" aria-label="Body"></div></div>
+                <div><div class="opt-title">Eyes</div><div class="chips" id="m-eyes" role="group" aria-label="Eyes"></div></div>
+                <div><div class="opt-title">On top</div><div class="chips" id="m-top" role="group" aria-label="On top"></div></div>
+                <div><div class="opt-title">Color</div><div class="swatches" id="m-color" role="group" aria-label="Color"></div></div>
+                <div class="row" style="padding:0;border:0;max-width:320px"><div class="text">Fluffy<small>Fur, or smooth like vinyl.</small></div><input type="checkbox" class="switch" id="m-fur" aria-label="Fluffy"></div>
+                <div class="actions">
+                  <button type="button" class="primary" id="m-use">Use this pal</button>
+                  <button type="button" id="m-random">Surprise me</button>
+                </div>
+              </div>
+              <div class="stagebox">
+                <div class="preview" id="m-preview"></div>
+                <div class="moods" role="group" aria-label="Try a mood">
+                  <button type="button" data-state="thinking">Thinking</button>
+                  <button type="button" data-state="working" data-text="Editing app.js">Working</button>
+                  <button type="button" data-state="waiting">Needs you</button>
+                  <button type="button" data-state="done" data-text="Done!">Done</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
             <h2>History</h2>
             <div class="row"><div class="text">Keep history<small id="history-where">Saved on this computer only.</small></div><input type="checkbox" class="switch" id="s-history" aria-label="Keep history"></div>
             <div class="row"><div class="text">Keep for<small>Older activity is dropped.</small></div>
@@ -298,7 +345,7 @@
   <div class="toast" id="toast" role="status" hidden></div>
 
   <script type="module">
-    import { DotPal } from '/src/index.js';
+    import { DotPal, registerCustom, CUSTOM_OPTIONS, DEFAULT_CUSTOM, cleanCustom } from '/src/index.js';
     import {
       buildTurns, facts, sentence, plain, turnMarkdown, recapMarkdown, summarizeSessions, turnTime,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
@@ -705,6 +752,75 @@
       } catch { toast('Couldn’t save. Is the bridge running?'); }
     }
     $('s-character').onchange = (e) => { save({ character: e.target.value }); preview.character = e.target.value; preview.play('jump'); };
+
+    // -- make your own pal ------------------------------------------------------------
+    // Edits go to a draft pal ("draft"); "Use this pal" saves it as "custom", which the
+    // floating pal picks up from the settings.
+    let draft = null;
+    const maker = document.createElement('dot-pal');
+    maker.setAttribute('size', '160');
+    maker.setAttribute('idle', 'float');
+    const COLORS = ['#1e88ff', '#8be22e', '#ffc21a', '#ff2fc4', '#9d6bff', '#ff7a2f', '#16c6ae', '#ef4444', '#4c5566', '#f2efe9'];
+
+    function customOption(spec) {
+      registerCustom(spec);
+      DotPal.refresh('custom');
+      let option = [...$('s-character').options].find((o) => o.value === 'custom');
+      if (!option) $('s-character').add((option = new Option('', 'custom')), 0);
+      option.textContent = `${spec.name} (yours)`;
+    }
+
+    function renderMaker(bump) {
+      registerCustom(draft, 'draft');
+      if (!maker.isConnected) { maker.character = 'draft'; $('m-preview').append(maker); }
+      DotPal.refresh('draft');
+      if (bump) maker.play('squish');
+      $('m-name').value = draft.name;
+      $('m-fur').checked = draft.fur;
+      for (const key of ['shape', 'eyes', 'top']) {
+        for (const b of $(`m-${key}`).children) b.setAttribute('aria-pressed', String(b.dataset.value === draft[key]));
+      }
+      for (const b of $('m-color').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.value === draft.color));
+      $('m-color').querySelector('input').value = draft.color;
+    }
+
+    for (const key of ['shape', 'eyes', 'top']) {
+      $(`m-${key}`).append(...Object.entries(CUSTOM_OPTIONS[key]).map(([value, label]) => {
+        const b = el('button', '', label);
+        b.type = 'button';
+        b.dataset.value = value;
+        b.onclick = () => { draft[key] = value; renderMaker(true); };
+        return b;
+      }));
+    }
+    $('m-color').append(...COLORS.map((c) => {
+      const b = el('button');
+      b.type = 'button';
+      b.dataset.value = c;
+      b.style.setProperty('--c', c);
+      b.setAttribute('aria-label', c);
+      b.onclick = () => { draft.color = c; renderMaker(true); };
+      return b;
+    }), Object.assign(el('input'), { type: 'color', title: 'Any color', oninput: (e) => { draft.color = e.target.value; renderMaker(); } }));
+    $('m-name').oninput = (e) => { draft.name = e.target.value || DEFAULT_CUSTOM.name; registerCustom(draft, 'draft'); };
+    $('m-fur').onchange = (e) => { draft.fur = e.target.checked; renderMaker(true); };
+    $('m-random').onclick = () => {
+      const any = (o) => { const keys = Object.keys(o); return keys[Math.floor(Math.random() * keys.length)]; };
+      Object.assign(draft, { shape: any(CUSTOM_OPTIONS.shape), eyes: any(CUSTOM_OPTIONS.eyes), top: any(CUSTOM_OPTIONS.top), color: COLORS[Math.floor(Math.random() * COLORS.length)], fur: Math.random() > 0.25 });
+      renderMaker();
+      maker.play('jump');
+    };
+    $('m-use').onclick = async () => {
+      draft = cleanCustom(draft);
+      customOption(draft);
+      await save({ custom: draft, character: 'custom' });
+      preview.character = 'custom';
+      maker.play('jump');
+      toast(`${draft.name} is your pal now`);
+    };
+    for (const b of document.querySelectorAll('.moods button')) {
+      b.onclick = () => maker.setState(b.dataset.state, { text: b.dataset.text });
+    }
     $('s-sounds').onchange = (e) => save({ sounds: e.target.checked });
     $('s-notifications').onchange = (e) => save({ notifications: e.target.checked });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
@@ -716,6 +832,8 @@
 
     function renderSettings() {
       if (!config.character) return;
+      if (config.custom) customOption(config.custom);
+      if (!draft) { draft = { ...(config.custom ?? DEFAULT_CUSTOM) }; renderMaker(); }
       $('s-character').value = config.character;
       if (preview.character !== config.character) preview.character = config.character;
       $('s-sounds').checked = config.sounds;

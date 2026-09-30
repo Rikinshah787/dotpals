@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   dragStart: (x, y) => ipcRenderer.send('window:drag-start', x, y),
   dragTo: () => ipcRenderer.send('window:drag-to'),
   dragEnd: () => ipcRenderer.send('window:drag-end'),
+  /** Let clicks through the transparent parts of the window (small mode). */
+  setIgnoreMouse: (on) => ipcRenderer.send('window:ignore-mouse', !!on),
   setCompact: (compact) => ipcRenderer.invoke('window:compact', compact),
   isCompact: () => ipcRenderer.invoke('window:is-compact'),
   close: () => ipcRenderer.send('window:close'),

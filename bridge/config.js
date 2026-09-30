@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { cleanCustom } from '../src/custom.js';
 
 export const home = () => process.env.DOTPALS_HOME || join(homedir(), '.dotpals');
 const file = () => join(home(), 'config.json');
@@ -15,15 +16,18 @@ export const DEFAULTS = {
   history: true,        // keep activity in ~/.dotpals/history.json
   historyDays: 7,
   codex: true,          // follow Codex's session logs
+  custom: null,         // your own pal: { name, shape, eyes, top, color, fur }
 };
 
-const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte'];
+const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte', 'custom'];
 
 /** Keep only known settings with sensible values. */
 function clean(input = {}) {
   const out = {};
   for (const key of ['sounds', 'notifications', 'history', 'codex']) if (typeof input[key] === 'boolean') out[key] = input[key];
   if (CHARACTERS.includes(input.character)) out.character = input.character;
+  // Your own pal, built on the dashboard (see src/custom.js).
+  if (input.custom) out.custom = cleanCustom(input.custom);
   const days = Number(input.historyDays);
   if (Number.isInteger(days) && days >= 1 && days <= 90) out.historyDays = days;
   return out;

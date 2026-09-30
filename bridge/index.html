@@ -185,7 +185,10 @@
     body.compact .card { background: transparent; border-color: transparent; }
     /* Small mode: a round pill above the pal with each session's icon, expand and close.
        Always visible (no hover tricks), and you can drag the window by it. */
-    body.compact .bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2; padding: 3px; min-height: 0; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgb(18 18 23 / .92); box-shadow: 0 4px 14px rgb(0 0 0 / .35); }
+    body.compact .bar { position: absolute; top: var(--pill-top, 8px); left: 50%; transform: translateX(-50%); z-index: 2; padding: 3px; min-height: 0; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgb(18 18 23 / .92); box-shadow: 0 4px 14px rgb(0 0 0 / .35); transition: top .25s ease; -webkit-app-region: no-drag; }
+    /* Small mode moves by dragging the pal, and clicks on the empty space around it go
+       through to whatever is underneath (see "click-through" in the script). */
+    body.compact #stage { -webkit-app-region: no-drag; }
     body.compact .bar :is(b, .status, select, .dot, #sound, #dash) { display: none; }
     body.compact .icon { width: 26px; height: 26px; border-radius: 50%; color: var(--text); }
     body.compact .icon:hover { background: #26262e; }
@@ -193,9 +196,11 @@
     .mini { display: none; }
     body.compact .mini { display: flex; gap: 3px; }
     body.compact .mini:empty { display: none; }
-    .mini button { width: 26px; height: 26px; padding: 0; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 var(--mono); text-transform: uppercase; color: var(--text); background: color-mix(in srgb, var(--h) 24%, transparent); border: 2px solid transparent; -webkit-app-region: no-drag; }
-    .mini button[aria-pressed="true"] { border-color: var(--h); }
-    .mini button.busy { animation: pulse 1.6s ease-in-out infinite; }
+    .mini button { height: 26px; padding: 0 9px 0 8px; border-radius: 999px; display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--text); background: color-mix(in srgb, var(--h) 16%, transparent); border: 1px solid transparent; -webkit-app-region: no-drag; }
+    .mini button:hover { border-color: color-mix(in srgb, var(--h) 60%, transparent); }
+    .mini button i { width: 7px; height: 7px; border-radius: 50%; background: var(--h); flex: none; }
+    .mini button.busy i { animation: pulse 1.6s ease-in-out infinite; }
+    .mini .more { color: var(--muted); background: #26262e; padding: 0 8px; }
     @keyframes pulse { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 35%, transparent); } }
     body.compact #compact .shrink { display: none; }
     body.compact #compact .grow { display: block; }
@@ -251,7 +256,7 @@
   </div>
 
   <script type="module">
-    import { DotPal } from '../src/index.js';
+    import { DotPal, registerCustom } from '../src/index.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -261,7 +266,7 @@
     const stage = $('stage');
     const feed = $('feed');
     const filesList = $('files');
-    const cast = DotPal.characters;
+    let cast = DotPal.characters;
 
     const sessions = new Map(); // id → { id, harness, label, lastAt, state }
     const slots = new Map();    // session → { el, pal, label }
@@ -457,16 +462,29 @@
       all.onclick = () => pick('all', true);
       nav.replaceChildren(...buttons, all);
 
-      // Small mode: one round icon per recent session (the project's first letter, in the agent's color).
-      $('mini').replaceChildren(...list.slice(0, 4).map((s) => {
-        const b = el('button', `${harnessClass(s.harness)}${['working', 'thinking', 'speaking', 'waiting'].includes(s.state) ? ' busy' : ''}`, (s.label || '?').trim()[0]);
+      // Small mode: one chip per agent on the stage, in the same order as the pals:
+      // the agent's name ("Claude", "Codex"), or the project when one agent runs twice.
+      // Clicking one opens the full view on that session.
+      const live = [...slots.keys()].map((id) => sessions.get(id)).filter(Boolean);
+      const chips = live.length ? live : list.slice(0, 1);
+      const twice = (s) => chips.filter((o) => o.harness === s.harness).length > 1;
+      const MAX = 3;
+      const used = new Map();
+      $('mini').replaceChildren(...chips.slice(0, MAX).map((s) => {
+        const b = el('button', `${harnessClass(s.harness)}${['working', 'thinking', 'speaking', 'waiting'].includes(s.state) ? ' busy' : ''}`);
+        let name = twice(s) ? s.label || harnessName(s.harness) : harnessName(s.harness);
+        // Two sessions in the same project: "Dot" and "Dot 2".
+        const n = (used.get(name) ?? 0) + 1;
+        used.set(name, n);
+        if (n > 1) name = `${name.slice(0, 8)} ${n}`;
+        b.append(el('i'), name.length > 10 ? `${name.slice(0, 9)}…` : name);
         b.type = 'button';
-        b.title = `${sessionName(s)}: ${s.state ?? 'idle'}`;
+        b.title = `${sessionName(s)}: ${s.state ?? 'idle'}. Click to see what it did`;
         b.setAttribute('aria-label', b.title);
-        b.setAttribute('aria-pressed', String(picked === s.id));
-        b.onclick = () => pick(s.id, true);
+        b.onclick = () => { pick(s.id, true); openFull?.(); };
         return b;
-      }));
+      }), ...(chips.length > MAX ? [Object.assign(el('button', 'more', `+${chips.length - MAX}`), { type: 'button', title: 'More sessions', onclick: () => openFull?.() })] : []));
+      placePill();
       const s = sessions.get(picked);
       $('title').textContent = s ? sessionName(s) : picked === 'all' ? 'All sessions' : 'dotpals';
     }
@@ -474,7 +492,7 @@
     function pick(session, byUser) {
       picked = session;
       if (byUser) pickedByUser = true;
-      for (const [id, slot] of slots) slot.el.hidden = !shown(id);
+      syncSlots();
       for (const item of entries.values()) item.el.hidden = !shown(item.entry.session);
       resizePals();
       renderSessions();
@@ -507,10 +525,40 @@
       stage.append(box);
       slot = { el: box, pal, label };
       slots.set(update.session, slot);
-      box.hidden = !shown(update.session);
+      box.hidden = !slotShown(update.session);
       resizePals();
+      renderSessions();
       return slot;
     }
+
+    // Small mode shows every agent's pal side by side; the full view, the picked session's.
+    const slotShown = (id) => document.body.classList.contains('compact') || shown(id);
+    function syncSlots() {
+      for (const [id, slot] of slots) slot.el.hidden = !slotShown(id);
+      resizePals();
+    }
+
+    // Small mode: the round bar sits just above the pal (or its speech bubble), not
+    // pinned to the top of the window with a big gap underneath.
+    let openFull = null;
+    function placePill() {
+      if (!document.body.classList.contains('compact')) return;
+      const bar = document.querySelector('.bar');
+      let top = Infinity;
+      for (const slot of slots.values()) {
+        if (slot.el.hidden) continue;
+        const pal = slot.pal;
+        const r = pal.getBoundingClientRect();
+        let head = r.top + r.height * 0.3;
+        try { head = r.top + pal.shadowRoot.querySelector('svg').getBBox().y * (r.height / 200); } catch {}
+        top = Math.min(top, head);
+        const bubble = pal.shadowRoot?.querySelector('.dp-bubble.dp-show');
+        if (bubble) top = Math.min(top, r.top + r.height * 0.12 - bubble.offsetHeight - 8);
+      }
+      if (!Number.isFinite(top)) top = innerHeight - 190;
+      document.body.style.setProperty('--pill-top', `${Math.max(6, Math.round(top - bar.offsetHeight - 8))}px`);
+    }
+    setInterval(placePill, 300);
 
     function resizePals() {
       const visible = [...slots.values()].filter((s) => !s.el.hidden);
@@ -533,6 +581,7 @@
           slot.el.remove();
           slots.delete(update.session);
           resizePals();
+          renderSessions();
         }, 6000);
       }
     }
@@ -1091,6 +1140,15 @@
     const saveConfig = (patch) => sameOrigin && fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
     function applyConfig(config) {
       if (typeof config.sounds === 'boolean' && config.sounds !== sound.on) { sound.on = config.sounds; syncSoundButton(); }
+      // Your own pal, made on the dashboard.
+      if (config.custom) {
+        registerCustom(config.custom);
+        DotPal.refresh('custom');
+        cast = DotPal.characters;
+        let option = [...$('first').options].find((o) => o.value === 'custom');
+        if (!option) $('first').add((option = new Option('', 'custom')), 0);
+        option.textContent = config.custom.name;
+      }
       if (cast.includes(config.character) && config.character !== first && !new URLSearchParams(location.search).get('character')) {
         first = config.character;
         $('first').value = first;
@@ -1118,6 +1176,9 @@
       desktop.onHover?.((inside) => document.body.classList.toggle('hover', inside));
       const setCompact = async (on) => {
         document.body.classList.toggle('compact', on);
+        syncSlots();
+        renderSessions();
+        if (!on) passThrough(false);
         $('compact').title = on ? 'Show activity' : 'Just the pal';
         $('compact').setAttribute('aria-label', $('compact').title);
         await desktop.setCompact(on);
@@ -1125,7 +1186,25 @@
         refreshDragRegions();
         feed.scrollTop = feed.scrollHeight;
       };
-      desktop.isCompact().then((on) => { document.body.classList.toggle('compact', on); resizePals(); });
+      desktop.isCompact().then((on) => { document.body.classList.toggle('compact', on); syncSlots(); renderSessions(); });
+      openFull = () => setCompact(false);
+
+      // Click-through: in small mode the window is mostly transparent, and those pixels
+      // shouldn't block your editor. Over empty space the window lets the mouse through
+      // (while still telling us where it is); over the pal or the bar it doesn't.
+      let through = false;
+      const passThrough = (on) => { if (on !== through) { through = on; desktop.setIgnoreMouse?.(on); } };
+      const solid = (e) => {
+        const path = e.composedPath();
+        if (path.some((n) => n.classList?.contains('bar') || n.classList?.contains('dp-bubble'))) return true;
+        // Inside a pal, its drawn shapes count; the transparent box around them doesn't.
+        const hit = path[0];
+        return path.some((n) => n.tagName === 'DOT-PAL') && hit instanceof SVGElement && hit.tagName !== 'svg';
+      };
+      addEventListener('mousemove', (e) => {
+        if (!document.body.classList.contains('compact') || document.body.classList.contains('dragging')) return passThrough(false);
+        passThrough(!solid(e));
+      });
       $('compact').onclick = () => setCompact(!document.body.classList.contains('compact'));
       desktop.onSetCompact?.(setCompact);
 

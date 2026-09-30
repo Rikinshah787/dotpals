@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 // Keep the bridge away from the real home folder: no Codex watcher, no history file.
 process.env.DOTPALS_CODEX = '0';
+process.env.DOTPALS_CLAUDE_LOGS = '0';
 process.env.DOTPALS_HISTORY = '0';
 const home = await mkdtemp(join(tmpdir(), 'dotpals-home-'));
 process.env.DOTPALS_HOME = home;

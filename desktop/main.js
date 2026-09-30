@@ -15,12 +15,14 @@ import { loadConfig, saveConfig } from '../bridge/config.js';
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
 const page = fileURLToPath(new URL('../bridge/index.html', import.meta.url));
-const SIZE = { compact: { width: 240, height: 290 }, full: { width: 380, height: 600 } };
+const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height: 600 } };
 const MARGIN = 16;
 const SHORTCUT = 'CommandOrControl+Alt+P';
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
 app.setName('dotpals');
+// Linux needs this for a see-through window (Windows and macOS don't).
+if (process.platform === 'linux') app.commandLine.appendSwitch('enable-transparent-visuals');
 app.setAppUserModelId?.('dev.dotpals.desktop'); // Windows shows notifications only for apps with an id
 
 // A bug in a handler shouldn't pop up an error dialog over your editor; log it instead.
@@ -67,6 +69,7 @@ if (!app.requestSingleInstanceLock()) {
     } catch (err) {
       if (err.code !== 'EADDRINUSE') console.error('[dotpals] bridge failed to start:', err.message);
     }
+    app.dock?.hide(); // macOS: a floating widget with a menu-bar icon, not a Dock app
     createWindow();
     createTray();
     handleArgs(process.argv);
@@ -103,7 +106,7 @@ if (!app.requestSingleInstanceLock()) {
 
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
-    tray.setToolTip('dotpals: Ctrl+Alt+P to show or hide');
+    tray.setToolTip(`dotpals: ${process.platform === 'darwin' ? 'Cmd+Option+P' : 'Ctrl+Alt+P'} to show or hide`);
     tray.on('click', toggle);
     const menu = () => Menu.buildFromTemplate([
       { label: 'Show / hide', accelerator: SHORTCUT, click: toggle },
@@ -223,6 +226,7 @@ if (!app.requestSingleInstanceLock()) {
     const [w, h] = win.getSize();
     const next = compact ? SIZE.compact : { ...SIZE.full, height: prefs.height ?? SIZE.full.height };
     prefs.compact = !!compact;
+    if (!compact) win.setIgnoreMouseEvents(false);
     win.setResizable(true);
     win.setBounds({ x: x + w - next.width, y: y + h - next.height, ...next });
     win.setResizable(!compact);
@@ -231,6 +235,13 @@ if (!app.requestSingleInstanceLock()) {
     savePrefs();
   });
   ipcMain.handle('window:is-compact', () => !!prefs.compact);
+  // Click-through for the transparent parts of the small window. Windows and macOS keep
+  // sending mouse moves while it's on, so the page can turn it off over the pal again;
+  // Linux can't, so there the window just stays solid.
+  ipcMain.on('window:ignore-mouse', (_, on) => {
+    if (!win || process.platform === 'linux') return;
+    win.setIgnoreMouseEvents(!!on && !!prefs.compact, { forward: true });
+  });
   ipcMain.on('window:show', show);
   ipcMain.on('clipboard:write', (_, text) => { if (typeof text === 'string') clipboard.writeText(text); });
 

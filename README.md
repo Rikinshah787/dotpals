@@ -8,6 +8,12 @@
 
 A small floating pal that watches Claude Code, Codex or any agent and tells you, in plain words, what happened: which files changed, which commands ran, what failed, and what the agent says it did.
 
+```bash
+npx --allow-git=all github:rikinshah787/dotpals setup
+```
+
+<sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer.</sub>
+
 [![CI](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml/badge.svg)](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20any%20agent-d97757)
@@ -15,6 +21,8 @@ A small floating pal that watches Claude Code, Codex or any agent and tells you,
 <img src="docs/demo.gif" width="760" alt="dotpals in action: the pal thinks, edits app.js, asks to run a command, and then shows a Summary: changed 3 files, ran 5 commands, 1 failed">
 
 <sub><a href="docs/dotpals-demo.mp4">Watch in full quality (MP4, 27s)</a></sub>
+
+**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[⭐ Star on GitHub](https://github.com/Rikinshah787/dotpals)** if your agent ever surprised you
 
 </div>
 
@@ -41,7 +49,9 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 - **Settings**: choose your pal, turn sounds and notifications on or off, and decide how long to keep history (or clear it). Settings are shared by the pal and the dashboard.
 - **History**: survives restarts, kept on your computer in `~/.dotpals/history.json` (7 days by default).
 - **Notifications and sounds**: a ping when the agent needs your OK, a chime when it's done, and a desktop notification if you've looked away.
-- **A pal with personality**: eight characters that think, work, talk, wait, celebrate and sulk. Drag it anywhere; it stays on top. In small mode, a round bar above the pal shows each session as an icon.
+- **Every session, every agent**: all your Claude Code sessions show up, even ones started before dotpals was installed, next to Codex and anything else you plug in. In small mode each agent gets its own pal, with a round bar above them naming each one.
+- **Make your own pal**: pick a body, eyes, something on top, a color and a name. See [below](#make-your-own-pal).
+- **A pal with personality**: eight ready-made characters that think, work, talk, wait, celebrate and sulk. Drag it anywhere; it stays on top, and clicks on the empty space around it go through to your editor.
 
 <p align="center">
   <img src="docs/tools.png" width="300" alt="The Tools tab with an Edit opened, showing its diff">
@@ -52,6 +62,22 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 <p align="center">
   <img src="docs/sessions.png" width="820" alt="The dashboard's Sessions page: a session list, and one session's requests with the agent's summary, changed files, commands and skills">
 </p>
+
+## Make your own pal
+
+<p align="center"><img src="docs/custom-pals.png" width="760" alt="Eighteen home-made pals: round, boxy, fluffy, pointy, heart and frog bodies in different colors, with googly eyes, visors, pixel eyes and shades, and sprouts, crowns, horns, bows, antennas and berets on top"></p>
+
+Open the dashboard (**▦** on the pal, or `dotpals dashboard`), go to **Settings → Make your own pal**, and mix:
+
+- **Body**: round, boxy, fluffy, pointy, heart or frog
+- **Eyes**: dots, button, googly, pixel, visor or shades
+- **On top**: cat ears, horns, antenna, sprout, sparkle, bow, crown or beret
+- **Color**: any color, fluffy or smooth
+- **Name**: yours to pick
+
+Try it thinking, working and celebrating right there, then **Use this pal**. The floating pal switches straight away. **Surprise me** rolls a random one. There are thousands of combinations.
+
+In your own app it's one call: `registerCustom({ name: 'Pip', shape: 'bean', eyes: 'googly', top: 'crown', color: '#16c6ae' })`, then `<dot-pal character="custom">`.
 
 ## Install
 
@@ -114,12 +140,18 @@ Everything stays on your machine. The bridge listens only on `127.0.0.1`. It rea
 ## How it works
 
 ```
-Claude Code ── hooks + transcript ─┐
+Claude Code ── hooks + transcripts ┐
 Codex ──────── session logs ───────┼──▶  bridge (127.0.0.1:5175)  ──▶  floating pal  (Summary · Tools · Files)
 your agent ─── POST /event ────────┘         one activity model          or any browser tab
 ```
 
+1. **Your agents report what they do.** Claude Code sends hook events as it works, and dotpals also reads each session's transcript in `~/.claude/projects`, so every session shows up, including ones that started before dotpals was installed. Codex writes session logs to `~/.codex/sessions`, which dotpals follows. Nothing to set up on the Codex side. Any other agent can POST JSON.
+2. **A small local server (the bridge) turns that into one activity feed.** It runs on `127.0.0.1:5175`, only answers your own computer, and keeps history in `~/.dotpals`. Nothing is sent anywhere.
+3. **The pal shows it.** The desktop app (Electron, always on top) and the dashboard read the feed live: the pal's mood, the Summary, Tools and Files tabs, stats and history.
+
 Each agent connects through an adapter in [`bridge/adapters/`](bridge/adapters), and every adapter produces the same activity entries ([`bridge/activity.js`](bridge/activity.js)). The pal itself is a dependency-free Web Component that you can also drop into your own app (see [below](#use-the-pal-in-your-own-app)).
+
+**Platforms:** Windows, macOS and Linux (Node 20+). On macOS the pal lives in the menu bar instead of the Dock. On Linux the small window can't pass clicks through its empty space, because Linux doesn't support it.
 
 ## Plug in any agent
 

@@ -60,6 +60,8 @@ export declare class DotPal extends HTMLElement {
   static: boolean;
   static readonly actions: string[];
   static readonly characters: string[];
+  /** Re-draw every pal using `name` (after registerCharacter() changed it). */
+  static refresh(name: string): void;
   static readonly moods: Mood[];
   static readonly states: AgentState[];
   play(action: BuiltInAction | (string & {})): Promise<void>;
@@ -78,6 +80,22 @@ export declare class DotPal extends HTMLElement {
 export declare const characters: Record<string, CharacterDefinition>;
 export declare const actions: Record<string, ActionDefinition>;
 export declare function registerCharacter(name: string, definition: CharacterDefinition): void;
+
+/** Your own pal: a body, eyes, something on top, a color and a name. */
+export interface CustomPal {
+  name?: string;
+  shape?: 'round' | 'square' | 'blob' | 'tall' | 'heart' | 'bean';
+  eyes?: 'dots' | 'round' | 'googly' | 'pixel' | 'visor' | 'shades';
+  top?: 'none' | 'ears' | 'horns' | 'antenna' | 'sprout' | 'sparkle' | 'bow' | 'crown' | 'beret';
+  color?: string;
+  fur?: boolean;
+}
+export declare const CUSTOM_OPTIONS: { shape: Record<string, string>; eyes: Record<string, string>; top: Record<string, string> };
+export declare const DEFAULT_CUSTOM: Required<CustomPal>;
+export declare function cleanCustom(spec: unknown): Required<CustomPal> | null;
+export declare function buildCharacter(spec: CustomPal): CharacterDefinition;
+/** Register your pal (as `character="custom"` unless you pass a name). */
+export declare function registerCustom(spec: CustomPal, name?: string): string;
 export declare function registerAction(name: string, definition: ActionDefinition): void;
 export declare function define(tag?: string): void;
 export declare const MOODS: Mood[];

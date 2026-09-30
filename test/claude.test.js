@@ -189,3 +189,39 @@ test('backfillTranscript on a missing file returns nothing', async () => {
   const log = createActivityLog();
   assert.deepEqual(await backfillTranscript(join(tmpdir(), 'dotpals-does-not-exist.jsonl'), log, { session: newSession() }), []);
 });
+
+test('watchClaude follows sessions that have no hooks, and skips ones that do', async (t) => {
+  const { mkdir } = await import('node:fs/promises');
+  const { watchClaude } = await import('../bridge/adapters/claude.js');
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-claude-'));
+  let stop = () => {};
+  t.after(async () => {
+    stop();
+    await new Promise((r) => setTimeout(r, 150));
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  await mkdir(join(dir, 'C--work-proj'));
+  const ts = (s) => new Date(Date.now() - 10_000 + s * 1000).toISOString();
+  const cwd = '/work/proj';
+  const lines = [
+    { type: 'user', uuid: 'u1', timestamp: ts(0), cwd, message: { role: 'user', content: 'rename the helper' } },
+    { type: 'assistant', uuid: 'a1', timestamp: ts(1), cwd, message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Edit', input: { file_path: `${cwd}/src/a.js`, old_string: 'a', new_string: 'b' } }] } },
+    { type: 'user', uuid: 'u2', timestamp: ts(2), cwd, message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] } },
+  ];
+  const text = lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
+  await writeFile(join(dir, 'C--work-proj', 'free.jsonl'), text);
+  await writeFile(join(dir, 'C--work-proj', 'hooked.jsonl'), text);
+
+  const log = createActivityLog();
+  const states = [];
+  stop = watchClaude(log, { dir, interval: 50, emit: () => {}, state: (s, label, next) => states.push({ s, label, ...next }), skip: (s) => s === 'hooked' });
+  await new Promise((r) => setTimeout(r, 300));
+
+  const free = log.all().filter((e) => e.session === 'free');
+  assert.deepEqual(free.map((e) => e.kind), ['prompt', 'edit']);
+  assert.equal(free[1].status, 'ok');
+  assert.equal(free[1].label, 'proj');
+  assert.equal(log.all().filter((e) => e.session === 'hooked').length, 0);
+  assert.equal(states.at(-1).s, 'free');
+  assert.equal(states.at(-1).state, 'thinking');
+});

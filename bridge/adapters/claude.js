@@ -4,7 +4,11 @@
 //   History:  the session transcript (`transcript_path` in every hook event), so
 //             the feed has every tool call and file since the session began,
 //             even if the pal was opened halfway through.
-import { open, readFile } from 'node:fs/promises';
+//   No hooks: watchClaude() follows every session's transcript, so sessions that
+//             started before the plugin was installed show up too.
+import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
 import { clip, clipText, folderName, relative, toPatch } from '../activity.js';
 
 const HARNESS = 'claude';
@@ -160,29 +164,31 @@ export function applyHook(e, log, { session, label }) {
 }
 
 /**
- * Rebuild a session's history from its transcript (JSONL). Entries use the same
- * ids as the hooks (`session:tool_use_id`), so nothing is shown twice.
+ * Read transcript lines (JSONL) into the log. Entries use the same ids as the
+ * hooks (`session:tool_use_id`), so nothing is shown twice. `reader.state` is
+ * what the pal would show after the last line (for sessions without hooks).
  */
-export async function backfillTranscript(path, log, { session, label }) {
-  let text;
-  try { text = await readFile(path, 'utf8'); } catch { return []; }
-  const changed = [];
+export function transcriptReader(log, { session, label }) {
   const starts = new Map(); // tool_use_id → { at, name }
-
-  for (const line of text.split('\n')) {
-    if (!line) continue;
+  const reader = { state: null, at: 0, label };
+  reader.line = (line) => {
+    const changed = [];
     let o;
-    try { o = JSON.parse(line); } catch { continue; }
+    try { o = JSON.parse(line); } catch { return changed; }
+    if (o.isSidechain) return changed;
     const at = Date.parse(o.timestamp) || Date.now();
-    const base = { session, label: label ?? folderName(o.cwd), harness: HARNESS, at };
+    if (o.cwd) reader.label = label ?? folderName(o.cwd);
+    const base = { session, label: reader.label, harness: HARNESS, at };
     const content = o.message?.content;
+    const set = (state, text) => { reader.state = { state, ...(text ? { text } : {}) }; reader.at = at; };
 
-    if (o.type === 'user' && !o.isMeta && !o.isSidechain) {
+    if (o.type === 'user' && !o.isMeta) {
       const raw = typeof content === 'string' ? content : Array.isArray(content) ? content.find((b) => b.type === 'text')?.text : null;
       const prompt = promptText(raw);
       if (prompt && !(Array.isArray(content) && content.some((b) => b.type === 'tool_result'))) {
         const title = clip(prompt, 300);
         if (!seenPrompt(log, session, title, at)) changed.push(log.upsert({ ...base, id: `${session}:u:${o.uuid}`, kind: 'prompt', title, status: 'info' }));
+        set('thinking');
       }
       for (const block of Array.isArray(content) ? content : []) {
         if (block.type !== 'tool_result') continue;
@@ -196,23 +202,113 @@ export async function backfillTranscript(path, log, { session, label }) {
           ...(output ? { body: { output } } : {}),
           ...(block.is_error ? { error: clip(typeof block.content === 'string' ? block.content : block.content?.[0]?.text, 300) } : {}),
         }));
+        set('thinking');
       }
     }
 
-    if (o.type === 'assistant' && Array.isArray(content) && !o.isSidechain) {
+    if (o.type === 'assistant' && Array.isArray(content)) {
       for (const block of content) {
         if (block.type === 'tool_use') {
           starts.set(block.id, { at, name: block.name });
-          changed.push(log.upsert({ ...base, id: `${session}:${block.id}`, tool: block.name, ...describeTool(block.name, block.input, rootOf(session, o.cwd)), status: 'running', startedAt: at }));
+          const described = describeTool(block.name, block.input, rootOf(session, o.cwd));
+          changed.push(log.upsert({ ...base, id: `${session}:${block.id}`, tool: block.name, ...described, status: 'running', startedAt: at }));
+          set('working', clip(described.title, 60));
         }
         // The reply that ends a turn: what Claude says it did.
         if (block.type === 'text' && o.message.stop_reason === 'end_turn') {
           changed.push(log.upsert({ ...base, id: `${session}:d:${o.uuid}`, kind: 'done', title: 'Finished', status: 'ok', summary: clipText(block.text, 2000) }));
+          set('done', 'Done!');
         }
       }
     }
+    return changed.filter(Boolean);
+  };
+  return reader;
+}
+
+/** Rebuild a session's history from its whole transcript. */
+export async function backfillTranscript(path, log, ctx) {
+  let text;
+  try { text = await readFile(path, 'utf8'); } catch { return []; }
+  const reader = transcriptReader(log, ctx);
+  return text.split('\n').flatMap((line) => (line ? reader.line(line) : []));
+}
+
+const RECENT = 3 * 60 * 60_000; // pick up sessions active in the last 3 hours
+const LIVE = 30_000;             // written to in the last 30s: show it on the pal
+const IDLE = 15 * 60_000;        // quiet for 15 minutes: the pal goes to sleep
+
+/**
+ * Follow every Claude Code session on this computer through its transcript
+ * (~/.claude/projects/<project>/<session>.jsonl). Hooks give the richest live
+ * view, but sessions that started before the plugin was installed (or with it
+ * turned off) have none; this way they show up too.
+ *
+ * `skip(session)` is true for sessions the hooks already cover.
+ */
+export function watchClaude(log, { emit, state, skip = () => false, dir = join(homedir(), '.claude', 'projects'), interval = 1500 } = {}) {
+  const files = new Map(); // path → { offset, partial, reader, idle }
+  let stopped = false;
+
+  async function recentFiles() {
+    const found = [];
+    const now = Date.now();
+    let projects = [];
+    try { projects = await readdir(dir, { withFileTypes: true }); } catch { return found; }
+    for (const p of projects) {
+      if (!p.isDirectory()) continue;
+      let names = [];
+      try { names = await readdir(join(dir, p.name)); } catch { continue; }
+      for (const name of names) {
+        if (!name.endsWith('.jsonl')) continue;
+        const path = join(dir, p.name, name);
+        try {
+          const s = await stat(path);
+          if (now - s.mtimeMs < RECENT || files.has(path)) found.push({ path, size: s.size, mtime: s.mtimeMs });
+        } catch {}
+      }
+    }
+    return found;
   }
-  return changed.filter(Boolean);
+
+  async function poll() {
+    const now = Date.now();
+    for (const { path, size, mtime } of await recentFiles()) {
+      const session = basename(path, '.jsonl');
+      let file = files.get(path);
+      if (!file) files.set(path, (file = { offset: 0, partial: '', reader: transcriptReader(log, { session }) }));
+      const live = now - mtime < LIVE;
+      if (size > file.offset) {
+        let fh;
+        try {
+          fh = await open(path, 'r');
+          const { buffer, bytesRead } = await fh.read(Buffer.alloc(size - file.offset), 0, size - file.offset, file.offset);
+          file.offset += bytesRead;
+          const lines = (file.partial + buffer.subarray(0, bytesRead).toString('utf8')).split('\n');
+          file.partial = lines.pop();
+          if (skip(session)) continue; // the hooks have it
+          const out = lines.flatMap((line) => (line.trim() ? file.reader.line(line) : []));
+          if (out.length) emit(out);
+          if (live && file.reader.state) state(session, file.reader.label, file.reader.state, file.reader.at);
+          file.idle = false;
+        } catch {} finally {
+          await fh?.close();
+        }
+      } else if (!file.idle && !live && now - mtime > IDLE) {
+        // Quiet for a while: the session has probably ended, so let its pal go.
+        file.idle = true;
+        if (!skip(session)) state(session, file.reader.label, { state: 'sleeping' }, now);
+      }
+    }
+  }
+
+  (async () => {
+    while (!stopped) {
+      try { await poll(); } catch {}
+      await new Promise((r) => setTimeout(r, interval));
+    }
+  })();
+  return () => { stopped = true; };
 }
 
 /**

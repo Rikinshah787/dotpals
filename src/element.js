@@ -413,6 +413,11 @@ export class DotPal extends Base {
   /** Names of every registered action. */
   static get actions() { return Object.keys(actions); }
 
+  /** Re-draw every pal using `name` (after registerCharacter() changed it). */
+  static refresh(name) {
+    for (const pal of pals) if (pal.character === name) pal.#render();
+  }
+
   /** Names of every registered character. */
   static get characters() { return Object.keys(characters); }
 
@@ -755,7 +760,7 @@ export class DotPal extends Base {
         </filter>
         ${parts.defs || ''}
       </defs>
-      <g class="dp-body" filter="url(#${id('fur')})">${parts.body}</g>
+      <g class="dp-body"${def.fur === false ? '' : ` filter="url(#${id('fur')})"`}>${parts.body}</g>
       ${parts.accessories || ''}
       <g class="dp-face">${parts.face || ''}</g>
       <g class="dp-expr" transform="translate(${mx} ${my})">

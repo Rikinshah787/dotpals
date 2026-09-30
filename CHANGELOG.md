@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-30
+
+### Added
+
+- **Make your own pal**: in the dashboard's Settings, pick a body (6), eyes (6), something on top (9), any color, fluffy or smooth, and a name. The floating pal switches as soon as you save. **Surprise me** rolls a random one. In code: `registerCustom(spec)` from `dotpals` or `dotpals/custom`.
+- **Every Claude Code session shows up**: dotpals now also follows the transcripts in `~/.claude/projects`, so sessions that started before the plugin was installed (or without it) appear too. `DOTPALS_CLAUDE_LOGS=0` turns this off.
+- In small mode, every agent gets its own pal, side by side, and the round bar names each one ("Claude", "Codex", or the project when one agent runs twice). Click a name to open that session.
+
+### Changed
+
+- The round bar sits just above the pal or its speech bubble, instead of at the top of the window with a gap.
+- In small mode, clicks on the empty space around the pal go through to the window underneath (Windows and macOS).
+- macOS: the pal lives in the menu bar instead of the Dock. Linux: turned on transparent windows.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added
@@ -55,6 +69,7 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/rikinshah787/dotpals/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rikinshah787/dotpals/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rikinshah787/dotpals/releases/tag/v0.4.0

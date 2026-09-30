@@ -1,6 +1,6 @@
 {
   "name": "dotpals",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "See what your coding agent actually did: a floating pal for Claude Code, Codex and any agent that shows every file changed, command run and step taken, in plain words. Also a zero-dependency animated Web Component for agent UIs.",
   "keywords": [
     "claude-code",
@@ -41,6 +41,7 @@
     },
     "./element": "./src/element.js",
     "./characters": "./src/characters.js",
+    "./custom": "./src/custom.js",
     "./actions": "./src/actions.js",
     "./agent": "./src/agent.js"
   },
