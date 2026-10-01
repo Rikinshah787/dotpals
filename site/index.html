@@ -76,7 +76,7 @@
     <!-- ================= HERO ================= -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · out now</p>
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New: double-checks your tests →</a></p>
         <h1 id="hero-title">See what your coding agent <em>actually</em> did.</h1>
         <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and tells you in plain words what happened: the files it changed, the commands it ran, what failed, and what the agent says it did.</p>
 
@@ -106,6 +106,39 @@
             <dot-pal character="muse" size="150" label="Your agent's pal"></dot-pal>
             <figcaption><i style="--c: var(--mine)"></i>my-agent <span>· docs</span></figcaption>
           </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= NEW ================= -->
+    <section class="section new-sec" id="new" aria-labelledby="new-title">
+      <div class="wrap two">
+        <div class="copy">
+          <p class="kicker"><span>New</span> Was it really tested?</p>
+          <h2 id="new-title">“All tests pass.” <em>Did they?</em></h2>
+          <p>Agents say “done” in one fluent line. dotpals reads what the tests actually printed, and when the output and the exit code disagree, it can ask a second opinion.</p>
+          <ul class="ticks">
+            <li><b>Reads the real result.</b> “48 passed” or “1 failed”, straight from the output of Jest, Vitest, pytest, Go, Cargo and more, not just the exit code. “0 tests ran” is never a pass.</li>
+            <li><b>Knows when tests are stale.</b> “Changed app.tsx after the tests passed: not tested since.”</li>
+            <li><b>Double-check, your choice.</b> Only runs the rules can’t call go to <b>Jev</b> by TypeSafe (cloud, about 0.2 s, your API key, secrets removed first) or <b>Laya</b> (free, on your computer, one-click setup). Off by default.</li>
+            <li><b>Simple view.</b> One plain sentence per request, with Detailed a click away.</li>
+          </ul>
+          <p class="credit">The test-output rules build on <a href="https://github.com/ismaildasci/claude-referee">claude-referee</a> by Ismail Daşcı (MIT). <a href="https://huggingface.co/convaiinnovations/laya">Laya</a> is by Convai Innovations; <a href="https://typesafe.ai">Jev</a> is by TypeSafe.</p>
+        </div>
+
+        <div class="new-mock" role="img" aria-label="A request card in Simple view: Changed loader.ts, but the tests are failing. Below it, the double-check: the exit code said passed, but the output shows an error, and Jev says failed, 92% sure, in 163 milliseconds.">
+          <div class="nm-top"><span class="nm-seg"><b>Simple</b><span>Detailed</span></span></div>
+          <div class="nm-ask"><small>You asked · 4:07 PM</small>Fix the config loading, then run the tests</div>
+          <p class="nm-line"><span class="x" aria-hidden="true">✕</span> Changed loader.ts, but the tests are failing.</p>
+          <div class="nm-check">
+            <p class="nm-label">Double-checked by Jev</p>
+            <p class="nm-why">The exit code said <b>passed</b>, but the output shows an error.</p>
+            <pre>&gt; node run-tests.js
+Error: Cannot find module './config'
+Done.
+exit code: 0</pre>
+            <p class="nm-verdict"><span class="badge">Jev ✕ 92%</span> failed · 163 ms · secrets removed before sending</p>
+          </div>
         </div>
       </div>
     </section>
@@ -363,11 +396,12 @@
         <div class="copy">
           <p class="kicker"><span>06</span> Local and private</p>
           <h2 id="private-title">Nothing leaves <em>your computer.</em></h2>
-          <p>A small local server, the bridge, turns what your agents report into one activity feed. It listens only on <code>127.0.0.1</code>, only answers your own computer, and sends nothing anywhere.</p>
+          <p>A small local server, the bridge, turns what your agents report into one activity feed. It listens only on <code>127.0.0.1</code>, only answers your own computer, and sends nothing anywhere unless you turn on the cloud test check.</p>
           <ul class="ticks">
             <li>History is a plain JSON file in <code>~/.dotpals</code>, kept 7 days by default.</li>
             <li><code>DOTPALS_HISTORY=0</code> turns history off. Clear it any time in Settings.</li>
             <li>No account, no sign-up. MIT licensed, so you can read every line.</li>
+            <li>The test double-check is off by default. Local (Laya) stays on your computer; Cloud (Jev) sends only an unclear run’s output, with passwords, keys and emails removed.</li>
           </ul>
           <ul class="os" aria-label="Platforms">
             <li>Windows</li><li>macOS</li><li>Linux</li>
