@@ -142,12 +142,21 @@ test('a session that goes quiet is put to sleep by the bridge; an active one is 
   await post(port, '/event', { session: 'quiet', harness: 'x', state: 'done' });
   await post(port, '/event', { session: 'asking', harness: 'x', state: 'waiting' });
   await post(port, '/event', { session: 'busy', harness: 'x', state: 'working' });
-  const keepBusy = setInterval(() => post(port, '/event', { session: 'busy', activity: { kind: 'read', title: 'a.js' } }), 100);
+  // Keep "busy" busy. Each request is tracked, so none is still in flight when the bridge
+  // closes (one that was got its connection reset, an unhandled error: flaky in CI).
+  const inflight = new Set();
+  const keepBusy = setInterval(() => {
+    const p = post(port, '/event', { session: 'busy', activity: { kind: 'read', title: 'a.js' } }).catch(() => {});
+    inflight.add(p);
+    p.finally(() => inflight.delete(p));
+  }, 100);
   await new Promise((r) => setTimeout(r, 1100));
   clearInterval(keepBusy);
+  await Promise.all(inflight);
   const slept = updates.filter((u) => u.state === 'sleeping').map((u) => u.session);
   stream.destroy();
-  server.close();
+  server.closeAllConnections?.();
+  await new Promise((r) => server.close(r));
   assert.deepEqual(slept, ['quiet']);
 });
 
