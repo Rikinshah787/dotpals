@@ -53,7 +53,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 - **Tools**: every tool call as it happens. Click one to see the exact command and output, or the lines an edit changed.
 - **Files**: every file read, changed, created or deleted, with diffs. Click to open it in VS Code.
 - **Today**: requests, files changed, commands run and time the agent spent working. **Copy today** gives you a ready-made standup note.
-- **Copy recap**: copy any request as Markdown for a PR description or commit message.
+- **Copy recap**: copy any request as Markdown for a PR description or commit message. It keeps **✅ ran successfully**, **❌ failed**, **❔ unclear** and **⚪ not run** apart, and every claim carries its evidence: the command, the result it was read from ("48 passed", or the exit code) and the step's ID, which the dashboard's search opens. Quick look-ups like `grep` aren't counted as failures.
 - **One tab per session**: Claude Code and Codex sessions never mix, and the window follows whichever is active.
 - **Dashboard**: every session with its requests, files and full log, with search and export to Markdown or JSON. It also shows requests per day, time by project and a live view of which agents are connected.
 - **Settings**: choose your pal, turn sounds and notifications on or off, and decide how long to keep history (or clear it). Settings are shared by the pal and the dashboard.

@@ -387,3 +387,22 @@ test('simple: a request that stopped before finishing says so, not "working on i
   assert.equal(s.text, 'Stopped before finishing: changed 2 files, and the tests are failing.');
   assert.match(simple({ steps: [edit('src/a.js')], end: null }, { live: true }).text, /^Working on it: /);
 });
+
+test('the copied recap keeps ran, failed, unclear and not run apart, each with its evidence', async () => {
+  const { turnMarkdown } = await import('../bridge/ui/story.js');
+  const withOut = (command, status, output) => ({ ...run(command, status), body: { command, output } });
+  const md = turnMarkdown({
+    prompt: { title: 'Fix the VAT rounding' }, harness: 'claude', label: 'shop',
+    steps: [edit('src/billing.ts'), withOut('npm test', 'failed', 'Tests: 1 failed, 47 passed'), edit('src/billing.ts'), withOut('npm test', 'ok', 'Tests: 48 passed'),
+      withOut('grep -rn TODO src', 'failed', ''), run('git commit -m x && git push'), edit('src/app.tsx')],
+    end: { kind: 'done' },
+  });
+  assert.match(md, /\*\*✅ Ran successfully\*\*\n- Tests: `npm test` → 48 passed · step `s\d+`/);
+  assert.match(md, /- Shipped: `git commit -m x && git push`/);
+  assert.match(md, /\*\*❌ Failed\*\*\n- Tests: `npm test` → 1 failed, 47 passed · step `s\d+` \(fixed on try 2\)/);
+  assert.match(md, /\*\*⚪ Not run\*\*\n- Tests after the last change to `app\.tsx`/);
+  assert.doesNotMatch(md, /grep/); // a look-up that found nothing isn't a failure
+  // An unclear run gets its own group, with why it's unclear.
+  const unclear = turnMarkdown({ steps: [edit('src/a.js'), withOut('npm test', 'ok', 'Error: Cannot find module ./config')], end: { kind: 'done' }, harness: 'claude' });
+  assert.match(unclear, /\*\*❔ Unclear\*\*\n- Tests: `npm test` → the exit code says passed, but the output shows errors/);
+});

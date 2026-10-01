@@ -5,7 +5,7 @@
 //
 // Plain rules, no AI: instant, free and the same every time. Shared by the pal
 // (bridge/index.html) and the dashboard (bridge/dashboard.html); runs in Node too.
-import { baseName, plural } from './recap.js';
+import { baseName, facts, harnessName, plural, secs, turnTime } from './recap.js';
 import { parseTestOutput } from './testout.js';
 
 // -- what a command is for ---------------------------------------------------------
@@ -904,6 +904,85 @@ export function simple(turn, { live = !turn.end } = {}) {
   const warnings = live ? [] : story(turn).flags.filter((f) => f.level === 'warn' && !(/^Not tested:/.test(f.text) && parts.includes('but it didn’t run the tests'))).slice(0, 2).map((f) => f.text);
   return { text, status, warnings };
 }
+
+// -- the recap you copy (a PR description, a commit message, a standup) ------------------
+
+/** A step's ID as the dashboard's search finds it: the agent's own tool-call ID, shortened. */
+const stepId = (e) => String(e.id ?? '').split(':').pop().slice(0, 18);
+const code = (text) => `\`${String(text).split('\n')[0].trim().slice(0, 70).replace(/`/g, "'")}\``;
+const firstError = (e) => String(e.error || '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 90) || 'failed';
+const fileList = (paths) => paths.map((p) => code(baseName(p))).join(', ');
+
+/**
+ * A request as Markdown, for a PR description, a commit message or a standup. What ran
+ * is kept apart from what failed, what's unclear and what didn't run at all, and every
+ * claim carries its evidence: the command, the result it's read from (the test output's
+ * summary, or the exit code), and the step's ID, which the dashboard's search opens.
+ * Quick look-ups (ls, grep, git status) aren't listed: a grep that finds nothing isn't
+ * a failure.
+ */
+export function turnMarkdown(t) {
+  const f = facts(t.steps);
+  const lines = [];
+  if (t.prompt) lines.push(`### ${t.prompt.title.split('\n')[0]}`, '');
+  if (t.end?.summary) lines.push(String(t.end.summary).trim(), ''); // already Markdown: kept as the agent wrote it
+
+  const ok = [];
+  const failed = [];
+  const unclear = [];
+  const notRun = [];
+  const { chains } = retries(t.steps);
+  const tries = (e) => {
+    const c = chains.get(e.id);
+    if (!c || c.attempts.length < 2) return '';
+    return c.outcome === 'fixed' ? ` (fixed on try ${c.attempts.length})` : c.outcome === 'failing' ? ` (still failing after ${c.attempts.length} tries)` : ' (trying again)';
+  };
+  const ref = (e) => (stepId(e) ? ` · step ${code(stepId(e))}` : '');
+  let other = 0;
+  for (const e of t.steps) {
+    if (running(e)) continue;
+    if (['edit', 'write', 'delete'].includes(e.kind) && e.status === 'failed') {
+      failed.push(`- Edit to ${code(baseName(e.files?.[0]?.path ?? e.title ?? 'a file'))} didn’t apply${ref(e)}${tries(e)}`);
+      continue;
+    }
+    if (e.kind !== 'run') continue;
+    const type = stepType(e);
+    if (type === 'explore') continue;
+    if (type === 'test') {
+      const v = testVerdict(e);
+      const line = `- Tests: ${code(commandOf(e))} → ${testEvidence(v)}${ref(e)}`;
+      if (v.state === 'passed') ok.push(line);
+      else if (v.state === 'failed') failed.push(line + tries(e));
+      else unclear.push(line);
+      continue;
+    }
+    const label = { build: 'Build and checks', ship: 'Shipped', install: 'Installed' }[type];
+    if (e.status === 'failed') failed.push(`- ${label ?? 'Command'}: ${code(commandOf(e))} → ${firstError(e)}${ref(e)}${tries(e)}`);
+    else if (label) ok.push(`- ${label}: ${code(commandOf(e))}${ref(e)}`);
+    else other++;
+  }
+  if (other) ok.push(`- ${plural(other, 'other command')}`);
+  const tested = testState(t.steps);
+  if (tested?.state === 'untested') notRun.push(`- Tests: none ran after changing ${fileList(tested.since)}`);
+  if (tested?.state === 'stale') notRun.push(`- Tests after the last change to ${fileList(tested.since)}`);
+  if (tested?.commit && !tested.commit.tested) notRun.push('- A passing test run between the last change and the commit');
+
+  for (const [title, list] of [['✅ Ran successfully', ok], ['❌ Failed', failed], ['❔ Unclear', unclear], ['⚪ Not run', notRun]]) {
+    if (list.length) lines.push(`**${title}**`, ...list, '');
+  }
+  for (const [label, list] of [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]]) {
+    if (list.length) lines.push(`- ${label}: ${fileList(list.map((x) => x.path))}`);
+  }
+  if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
+  if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
+  const took = turnTime(t);
+  lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}_`);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** Several requests as one Markdown document ("Copy today", a session's export). */
+export const recapMarkdown = (title, turns) =>
+  [`## ${title}`, ...turns.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n');
 
 /** A turn's story: chapters, flags for the whole turn, and the plan. */
 export function story(turn, sessionSteps = turn.steps) {

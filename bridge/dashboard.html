@@ -585,10 +585,10 @@
   <script type="module">
     import { DotPal, registerCustom, CUSTOM_OPTIONS, DEFAULT_CUSTOM, cleanCustom } from '/src/index.js';
     import {
-      buildTurns, facts, sentence, plain, turnMarkdown, recapMarkdown, summarizeSessions, turnTime,
+      buildTurns, facts, sentence, plain, summarizeSessions, turnTime,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
-    import { checkOf, minorChapter, overlaps, retries, simple, stepType, story, testVerdict, testWords } from '/bridge/ui/story.js';
+    import { checkOf, minorChapter, overlaps, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown } from '/bridge/ui/story.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
