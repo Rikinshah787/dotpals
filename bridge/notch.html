@@ -302,6 +302,9 @@
     .turn .asked small { color: var(--faint); margin-right: 4px; }
     .turn .said { margin: 0; color: var(--muted); font-size: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; user-select: text; }
     .turn .said b { color: var(--soft); }
+    .turn .review { display: grid; gap: 2px; font-size: 10.5px; }
+    .turn .review .ready.ok { color: var(--ok); } .turn .review .ready.no { color: var(--warn); }
+    .turn .review .why { color: var(--muted); }
     .turn .simple { margin: 0; font-size: 12px; color: var(--text); display: flex; gap: 6px; align-items: baseline; }
     .turn .simple .mark { flex: none; font-weight: 700; }
     .turn .simple.ok .mark { color: var(--ok); } .turn .simple.failed .mark { color: var(--bad); }
@@ -356,7 +359,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from './ui/recap.js';
-    import { compactNote, headline, minorChapter, overlaps, planOf, simple, stepType, story, testLine, toolkit, turnMarkdown } from './ui/story.js';
+    import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, simple, stepType, story, testLine, toolkit, turnMarkdown, whyStopped } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
 
@@ -1449,6 +1452,20 @@
     let defaultView = 'simple'; // from the settings (chosen at setup), until you pick one here
     const storyView = () => { let v = null; try { v = localStorage.getItem('dotpals.view'); } catch {} return (v ?? defaultView) === 'detailed' ? 'detailed' : 'simple'; };
     const setStoryView = (v) => { try { localStorage.setItem('dotpals.view', v); } catch {} render(); };
+    /** Ready to merge? (finished requests that changed code) and why it stopped (left out when it simply finished). */
+    function reviewBlock(t, opts) {
+      const ready = readiness(t);
+      const why = whyStopped(t, opts);
+      if (!ready && (!why || why.kind === 'done')) return null;
+      const box = el('div', 'review');
+      if (ready) {
+        const line = el('div', `ready ${ready.ready ? 'ok' : 'no'}`, readinessLine(ready));
+        line.title = ready.checks.map((c) => `${c.ok ? '✓' : '✕'} ${c.text}`).join('\n');
+        box.append(line);
+      }
+      if (why && why.kind !== 'done') box.append(el('div', 'why', `Why it stopped: ${why.text}`));
+      return box;
+    }
     function turnBlock(s, t, live) {
       const box = el('div', `turn ${harnessClass(s.harness)}`);
       if (t.prompt) {
@@ -1489,6 +1506,8 @@
         for (const x of flags.slice(0, 4)) { const d = el('div', `flag ${x.level}`, x.text); d.title = sentence(x.step); f.append(d); }
         box.append(f);
       }
+      const review = reviewBlock(t, { live, waiting: s.state === 'waiting' });
+      if (review) box.append(review);
       const foot = el('footer');
       if (t.end) {
         const took = turnTime(t);

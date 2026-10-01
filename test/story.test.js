@@ -406,3 +406,41 @@ test('the copied recap keeps ran, failed, unclear and not run apart, each with i
   const unclear = turnMarkdown({ steps: [edit('src/a.js'), withOut('npm test', 'ok', 'Error: Cannot find module ./config')], end: { kind: 'done' }, harness: 'claude' });
   assert.match(unclear, /\*\*❔ Unclear\*\*\n- Tests: `npm test` → the exit code says passed, but the output shows errors/);
 });
+
+test('failing test names show next to the counts, shortened to the test’s own name', async () => {
+  const { testEvidence, testVerdict, simple } = await import('../bridge/ui/story.js');
+  const out = 'FAILED tests/test_locks.py::test_locked_failure_does_not_block_requested_work - AssertionError\n=== 1 failed, 47 passed in 0.42s ===';
+  const failing = { ...run('pytest -q', 'failed'), body: { command: 'pytest -q', output: out } };
+  assert.equal(testEvidence(testVerdict(failing)), '1 failed, 47 passed: test_locked_failure_does_not_block_requested_work');
+  assert.match(simple({ steps: [edit('src/locks.py'), failing], end: { kind: 'done' } }).text, /the tests are failing \(test_locked_failure_does_not_block_requested_work\)\.$/);
+});
+
+test('whyStopped: why a request ended, in plain words', async () => {
+  const { whyStopped } = await import('../bridge/ui/story.js');
+  const failing = (n) => Array.from({ length: n }, () => ({ ...run('npm test', 'failed'), body: { command: 'npm test', output: 'Tests: 1 failed, 3 passed' } }));
+  assert.equal(whyStopped({ steps: [edit('src/a.js')], end: null }, { live: true }), null);
+  assert.equal(whyStopped({ steps: [], end: null }, { live: true, waiting: true }).kind, 'waiting');
+  assert.equal(whyStopped({ steps: [edit('src/a.js')], end: null }, { live: false }).kind, 'cut');
+  assert.match(whyStopped({ steps: [], end: { kind: 'error', title: 'API error: overloaded' } }).text, /^Stopped with an error: API error: overloaded$/);
+  assert.equal(whyStopped({ steps: failing(3), end: { kind: 'done' } }).text, 'Stopped trying: `npm test` still failed after 3 tries');
+  assert.equal(whyStopped({ steps: failing(1), end: { kind: 'done' } }).kind, 'failing');
+  assert.equal(whyStopped({ steps: [], end: { kind: 'done', summary: 'Should I also update the docs?' } }).kind, 'question');
+  assert.equal(whyStopped({ steps: [edit('src/a.js')], end: { kind: 'done', summary: 'Done.' } }).kind, 'done');
+});
+
+test('readiness: ready to merge only when tests ran after the last change, passed, and nothing is risky', async () => {
+  const { readiness } = await import('../bridge/ui/story.js');
+  const ok = (cmd = 'npm test') => ({ ...run(cmd), body: { command: cmd, output: 'Tests: 48 passed' } });
+  const done = { kind: 'done' };
+  assert.equal(readiness({ steps: [read('src/a.js')], end: done }), null); // nothing changed
+  assert.equal(readiness({ steps: [edit('src/a.js')], end: null }), null); // still working
+  assert.equal(readiness({ steps: [edit('src/a.js'), ok(), run('git commit -m x')], end: done }).ready, true);
+  const untested = readiness({ steps: [edit('src/a.js')], end: done });
+  assert.deepEqual([untested.ready, untested.problems], [false, ['No tests ran']]);
+  const stale = readiness({ steps: [edit('src/a.js'), ok(), edit('src/b.js')], end: done });
+  assert.match(stale.problems.join(' | '), /Changed `b\.js` after the last test run/);
+  const risky = readiness({ steps: [edit('src/a.js'), edit('.env'), ok()], end: done });
+  assert.match(risky.problems.join(' | '), /\.env/);
+  const commit = readiness({ steps: [edit('src/a.js'), ok(), edit('src/a.js'), run('git commit -m x')], end: done });
+  assert.ok(commit.problems.includes('Committed without a passing test run after the last change'));
+});

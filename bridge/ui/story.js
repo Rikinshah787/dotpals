@@ -138,7 +138,18 @@ export function testEvidence(v) {
     const extra = !c ? '' : c.error ? ` · couldn’t check with ${by}` : typeof c.p === 'number' ? ` · ${by} wasn’t sure (${Math.round(c.p * 100)}% that they passed)` : '';
     return `${v.note}${extra}`;
   }
-  return v.source === 'output' ? v.summary : 'exit code only';
+  return v.source === 'output' ? `${v.summary}${v.state === 'failed' ? failingNames(v) : ''}` : 'exit code only';
+}
+
+/**
+ * Which tests failed, when the output names them: ": test_locked_failure +1 more". The
+ * test's own name, not its path ("tests/test_x.py::test_name" → "test_name").
+ */
+function failingNames(v) {
+  const names = (v?.facts?.failing ?? []).map((n) => String(n).split('::').pop().split(' › ').pop().trim()).filter(Boolean);
+  if (!names.length) return '';
+  const shown = names.slice(0, 2).map((n) => (n.length > 60 ? `${n.slice(0, 59)}…` : n));
+  return `: ${shown.join(', ')}${names.length > 2 ? ` +${names.length - 2} more` : ''}`;
 }
 
 /** "Tests passed · 48 passed", "Tests passed (exit code only)", "Tests unclear: no tests actually ran". */
@@ -879,7 +890,11 @@ export function simple(turn, { live = !turn.end } = {}) {
     const last = testVerdict(tests.at(-1));
     const fails = tests.slice(0, -1).filter((e) => testVerdict(e).state === 'failed').length;
     if (last.state === 'passed') parts.push(fails ? `the tests passed after ${fails === 1 ? 'one retry' : `${fails} retries`}` : 'the tests passed');
-    else if (last.state === 'failed') { parts.push('the tests are failing'); if (status === 'ok') status = 'failed'; }
+    else if (last.state === 'failed') {
+      const first = failingNames({ facts: { failing: last.facts?.failing?.slice(0, 1) ?? [] } }).slice(2);
+      parts.push(`the tests are failing${first ? ` (${first})` : ''}`);
+      if (status === 'ok') status = 'failed';
+    }
     else { parts.push('the test result is unclear'); if (status === 'ok') status = 'unclear'; }
   } else if (change && !live && testState(turn.steps)?.state === 'untested') parts.push('but it didn’t run the tests');
   const build = by('build');
@@ -931,7 +946,9 @@ export function turnMarkdown(t) {
   const failed = [];
   const unclear = [];
   const notRun = [];
-  const { chains } = retries(t.steps);
+  const { chains, retryOf } = retries(t.steps);
+  // A failed retry is part of the first failure's line ("still failing after 3 tries"), not a line of its own.
+  const repeat = (e) => e.status === 'failed' && retryOf.has(e.id);
   const tries = (e) => {
     const c = chains.get(e.id);
     if (!c || c.attempts.length < 2) return '';
@@ -942,6 +959,7 @@ export function turnMarkdown(t) {
   for (const e of t.steps) {
     if (running(e)) continue;
     if (['edit', 'write', 'delete'].includes(e.kind) && e.status === 'failed') {
+      if (repeat(e)) continue;
       failed.push(`- Edit to ${code(baseName(e.files?.[0]?.path ?? e.title ?? 'a file'))} didn’t apply${ref(e)}${tries(e)}`);
       continue;
     }
@@ -952,12 +970,12 @@ export function turnMarkdown(t) {
       const v = testVerdict(e);
       const line = `- Tests: ${code(commandOf(e))} → ${testEvidence(v)}${ref(e)}`;
       if (v.state === 'passed') ok.push(line);
-      else if (v.state === 'failed') failed.push(line + tries(e));
+      else if (v.state === 'failed') { if (!repeat(e)) failed.push(line + tries(e)); }
       else unclear.push(line);
       continue;
     }
     const label = { build: 'Build and checks', ship: 'Shipped', install: 'Installed' }[type];
-    if (e.status === 'failed') failed.push(`- ${label ?? 'Command'}: ${code(commandOf(e))} → ${firstError(e)}${ref(e)}${tries(e)}`);
+    if (e.status === 'failed') { if (!repeat(e)) failed.push(`- ${label ?? 'Command'}: ${code(commandOf(e))} → ${firstError(e)}${ref(e)}${tries(e)}`); }
     else if (label) ok.push(`- ${label}: ${code(commandOf(e))}${ref(e)}`);
     else other++;
   }
@@ -970,6 +988,11 @@ export function turnMarkdown(t) {
   for (const [title, list] of [['✅ Ran successfully', ok], ['❌ Failed', failed], ['❔ Unclear', unclear], ['⚪ Not run', notRun]]) {
     if (list.length) lines.push(`**${title}**`, ...list, '');
   }
+  // The reviewer's two questions: ready to merge? and why did it stop?
+  const r = readiness(t);
+  if (r) lines.push(r.ready ? '**Ready to merge?** Yes: tests ran after the last change and passed, nothing risky.' : `**Ready to merge?** Not yet: ${r.problems.join('; ')}.`, '');
+  const why = whyStopped(t, { live: false });
+  if (why) lines.push(`_Why it stopped: ${why.text}._`, '');
   for (const [label, list] of [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]]) {
     if (list.length) lines.push(`- ${label}: ${fileList(list.map((x) => x.path))}`);
   }
@@ -983,6 +1006,73 @@ export function turnMarkdown(t) {
 /** Several requests as one Markdown document ("Copy today", a session's export). */
 export const recapMarkdown = (title, turns) =>
   [`## ${title}`, ...turns.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n');
+
+// -- reviewing a request: why it stopped, and is it ready to merge? ------------------------
+
+/** What a step was trying to do, in a few words: a command, or the file an edit was for. */
+const whatOf = (e) => (e.kind === 'run' ? code(commandOf(e)) : code(baseName(e.files?.[0]?.path ?? e.title ?? 'a file')));
+const lastTestVerdict = (steps) => {
+  const runs = steps.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e));
+  return runs.length ? testVerdict(runs.at(-1)) : null;
+};
+/** Failures the agent tried again and never fixed. */
+const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) => c.outcome === 'failing' && c.attempts.length > 1);
+/** Whether a request changed code (not docs, images or lockfiles, not scratch files outside the project). */
+const changedCode = (steps) => steps.some((e) => stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
+  && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path))));
+
+/**
+ * Why a request ended, in plain words: { kind, text }, or null while the agent is still
+ * working on it. Agents don't say why they stopped, so this reads it from what happened:
+ * an error, a failure it kept retrying, failing tests, a question at the end, or a clean
+ * finish. `waiting`: the agent is waiting for you right now.
+ */
+export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
+  if (live) return waiting ? { kind: 'waiting', text: 'Waiting for you' } : null;
+  if (!turn.end) return { kind: 'cut', text: 'Cut off before it finished (interrupted, or a new message came in)' };
+  if (turn.end.kind === 'error') {
+    const why = String(turn.end.error || turn.end.title || '').split('\n')[0].trim().slice(0, 90);
+    return { kind: 'error', text: `Stopped with an error${why ? `: ${why}` : ''}` };
+  }
+  const gaveUp = leftFailing(turn.steps).at(-1);
+  if (gaveUp) return { kind: 'gave-up', text: `Stopped trying: ${whatOf(gaveUp.attempts[0])} still failed after ${gaveUp.attempts.length} tries` };
+  if (lastTestVerdict(turn.steps)?.state === 'failed') return { kind: 'failing', text: 'Said it was done, but the tests are failing' };
+  const said = String(turn.end.summary ?? '').trim().split('\n').filter(Boolean).at(-1) ?? '';
+  if (/\?\s*\**\s*$/.test(said)) return { kind: 'question', text: 'Finished with a question for you' };
+  return { kind: 'done', text: 'Finished: the agent said it was done' };
+}
+
+/**
+ * Is a finished request that changed code ready to merge? The checks a reviewer would make:
+ *   { ready, checks: [{ ok, text }], problems: [text] }, or null (still working, or no code changed).
+ * Only tests the agent ran count: dotpals can't see the ones you run yourself, or CI.
+ */
+export function readiness(turn) {
+  if (!turn.end || turn.end.kind !== 'done' || !changedCode(turn.steps)) return null;
+  const tested = testState(turn.steps);
+  const last = lastTestVerdict(turn.steps);
+  const ran = !!last && tested?.state !== 'untested';
+  const checks = [
+    { ok: ran, text: ran ? 'Tests ran' : 'No tests ran' },
+  ];
+  if (ran) {
+    checks.push({ ok: tested.state !== 'stale', text: tested.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
+    checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
+  }
+  const stuck = leftFailing(turn.steps);
+  checks.push({ ok: !stuck.length, text: stuck.length ? `${whatOf(stuck.at(-1).attempts[0])} still fails after ${stuck.at(-1).attempts.length} tries` : 'No failures left behind' });
+  const risky = flags(turn.steps).filter((f) => f.level === 'warn');
+  checks.push({ ok: !risky.length, text: risky.length ? risky[0].text : 'Nothing risky' });
+  if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
+  const problems = checks.filter((c) => !c.ok).map((c) => c.text);
+  return { ready: !problems.length, checks, problems };
+}
+
+/** "✅ Ready to merge" or "⚠ Not ready to merge: Tests are failing · Changed .env…", for a card. */
+export function readinessLine(r) {
+  if (!r) return '';
+  return r.ready ? '✅ Ready to merge: tests ran after the last change and passed, nothing risky' : `⚠ Not ready to merge: ${r.problems.join(' · ')}`;
+}
 
 /** A turn's story: chapters, flags for the whole turn, and the plan. */
 export function story(turn, sessionSteps = turn.steps) {

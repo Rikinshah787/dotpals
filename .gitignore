@@ -7,3 +7,6 @@ _site/
 
 # Reference videos saved locally (not ours to publish)
 igexport-*.mp4
+
+# Worktrees that helper agents work in
+.claude/worktrees/

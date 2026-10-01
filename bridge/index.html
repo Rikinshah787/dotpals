@@ -164,6 +164,11 @@
     .did a { color: var(--muted); text-decoration: none; }
     .did a:hover { color: var(--k-read); text-decoration: underline; }
     .did .bad { color: var(--bad); }
+    /* Is it ready to merge? Why did it stop? (readiness() and whyStopped() in story.js) */
+    .turn .review { padding: 6px 12px; border-top: 1px solid var(--line); display: grid; gap: 3px; font-size: 11.5px; }
+    .turn .review .ready.ok { color: var(--ok); }
+    .turn .review .ready.no { color: var(--warn); }
+    .turn .review .why { color: var(--muted); }
     .turn footer { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; }
     .turn footer .ok { color: var(--ok); }
     .turn footer .bad { color: var(--bad); }
@@ -420,7 +425,7 @@
 
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
-    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown } from '../bridge/ui/story.js';
+    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown, readiness, readinessLine, whyStopped } from '../bridge/ui/story.js';
     import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from '../bridge/ui/recap.js';
 
     const $ = (id) => document.getElementById(id);
@@ -1346,6 +1351,24 @@
       return li;
     }
 
+    /**
+     * The reviewer's two questions, under a request: ready to merge? (finished requests that
+     * changed code) and why did it stop? (left out when it simply finished).
+     */
+    function reviewBlock(t, opts) {
+      const ready = readiness(t);
+      const why = whyStopped(t, opts);
+      if (!ready && (!why || why.kind === 'done')) return null;
+      const box = el('div', 'review');
+      if (ready) {
+        const line = el('div', `ready ${ready.ready ? 'ok' : 'no'}`, readinessLine(ready));
+        line.title = ready.checks.map((c) => `${c.ok ? '✓' : '✕'} ${c.text}`).join('\n');
+        box.append(line);
+      }
+      if (why && why.kind !== 'done') box.append(el('div', 'why', `Why it stopped: ${why.text}`));
+      return box;
+    }
+
     function renderTurn(t) {
       const li = el('li', `turn ${harnessClass(t.harness)}`);
       const who = harnessName(t.harness);
@@ -1419,6 +1442,8 @@
         box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = sentence(f.step); return d; }));
         li.append(box);
       }
+      const review = reviewBlock(t, { live, waiting: state === 'waiting' });
+      if (review) li.append(review);
 
       const footer = el('footer');
       if (t.end) {
