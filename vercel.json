@@ -4,5 +4,8 @@
   "installCommand": "echo \"No install needed: the site is plain files\"",
   "buildCommand": "node site/build.mjs",
   "outputDirectory": "_site",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/count/:op(get|hit)/dotpals-site/visitors", "destination": "https://abacus.jasoncameron.dev/:op/dotpals-site/visitors" }
+  ]
 }

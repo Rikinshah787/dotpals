@@ -494,9 +494,22 @@ onView($('.crew'), () => crew.forEach((p, i) => i % 3 === 1 && setTimeout(() => 
 // in localStorage), and only reads it after that, so it counts people, not page
 // loads. No cookies; nothing about you is sent. Not counted when you open the
 // page from your own computer. If the counter is down, the line just stays hidden.
+// It asks through the site itself first (/count/…, a rewrite in vercel.json), since
+// blockers often stop requests to counter services; then the counter directly.
 
-const COUNTER = 'https://abacus.jasoncameron.dev';
+const COUNTERS = ['./count', 'https://abacus.jasoncameron.dev'];
 const KEY = 'dotpals-site/visitors';
+async function counter(op) {
+  for (const base of COUNTERS) {
+    try {
+      const res = await fetch(`${base}/${op}/${KEY}`, { cache: 'no-store' });
+      if (!res.ok || !/json/.test(res.headers.get('content-type') ?? '')) continue;
+      const { value } = await res.json();
+      if (Number.isFinite(value)) return value;
+    } catch {}
+  }
+  return null;
+}
 (async () => {
   const box = $('#visitors');
   if (!box) return;
@@ -505,10 +518,8 @@ const KEY = 'dotpals-site/visitors';
   try { seen = localStorage.getItem('dotpals.counted') === '1'; } catch {}
   const add = !seen && !local;
   try {
-    const res = await fetch(`${COUNTER}/${add ? 'hit' : 'get'}/${KEY}`, { cache: 'no-store' });
-    if (!res.ok) return;
-    const { value } = await res.json();
-    if (!Number.isFinite(value) || value < 1) return;
+    const value = await counter(add ? 'hit' : 'get');
+    if (value == null || value < 1) return;
     if (add) { try { localStorage.setItem('dotpals.counted', '1'); } catch {} }
     $('#visitors-n').textContent = value.toLocaleString('en-US');
     $('#visitors-label').textContent = value === 1 ? 'visitor so far' : 'visitors so far';
