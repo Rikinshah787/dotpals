@@ -359,6 +359,7 @@
     import { compactNote, headline, minorChapter, overlaps, planOf, simple, stepType, story, testLine, toolkit, turnMarkdown } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
+    import { continueMenu } from './ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -1400,6 +1401,7 @@
           }
           return seg;
         } },
+        { key: `handoff|${s.id}`, make: () => continueMenu(s.id, { copy: (text) => (desktop?.copy ? desktop.copy(text) : navigator.clipboard?.writeText(text)), inline: true }) },
         todayItem(s, turns, rev),
         tests && { key: `tests|${tests.level}|${tests.text}`, make: () => { const n = el('div', `note ${tests.level}`, tests.text); n.title = 'Only tests the agent ran count: dotpals can’t see tests you run yourself, or CI.'; return n; } },
         plan && { key: `plan|${plan.done}/${plan.total}|${plan.items.map((p) => p.status[0] + p.text).join('|')}`, make: () => planBlock(s, plan) },

@@ -597,6 +597,7 @@
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
     import { checkOf, minorChapter, overlaps, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown } from '/bridge/ui/story.js';
+    import { continueMenu } from '/bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -1095,7 +1096,7 @@
         download(`${name}.json`, JSON.stringify(s.entries, null, 2), 'application/json');
         toast('Downloaded Markdown and JSON');
       };
-      head.append(title, md, exp);
+      head.append(title, md, exp, handoffMenu(s.id));
 
       // Searching for a step's ID opens the Log on that step.
       const idq = idQuery();
@@ -1121,6 +1122,13 @@
       }
       const body = detailTab === 'requests' ? renderTurns(s) : detailTab === 'files' ? renderFilesTable(s) : renderLog(s);
       box.replaceChildren(head, tabs, body);
+    }
+
+    /** "Continue in ▾" another agent (bridge/ui/handoff-menu.js), one per session, kept across redraws. */
+    const handoffMenus = new Map();
+    function handoffMenu(id) {
+      if (!handoffMenus.has(id)) handoffMenus.set(id, continueMenu(id, { copy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied the hand-off note')) }));
+      return handoffMenus.get(id);
     }
 
     /** Simple or Detailed: the same choice as the pal and the notch (same page origin). */

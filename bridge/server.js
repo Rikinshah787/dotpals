@@ -42,6 +42,9 @@
 //   POST /api/checker/laya/start|stop|uninstall
 //   POST /hook?guard=1   Claude Code's PreToolUse for a file change (bridge/guard-hook.js): another
 //                        session changed that file a moment ago? → "ask" or "deny", else {}
+//   GET  /api/handoff/agents       → { agents: [{ id, name }] } the agents a session can be handed to
+//   POST /api/handoff { session, agent }   write the hand-off note and open that agent in a new
+//                        terminal, in the session's own folder; agent "copy": just the note
 //   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
@@ -63,6 +66,8 @@ import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
 import { checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
 import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, guardReply, pathKey, who } from './guard.js';
+import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
+import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -129,7 +134,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {} } = {}) {
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
@@ -139,7 +144,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const lastSeen = {};        // harness → time of its last event
   let config = loadConfig();
   // Each session's project folder (where it started) and, for a helper with a session of its
-  // own, the session that started it: for the conflict guard.
+  // own, the session that started it: for the hand-off's terminal and the conflict guard.
   // Only ever from the agents' own events and logs, never from an API request. Kept in history.
   const sessionMeta = new Map(); // session → { cwd?, parent? }
   function noteSession(session, cwd, parent) {
@@ -693,6 +698,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }
     if (req.method === 'GET' && path === '/api/approvals') return json(res, 200, { approvals: [...approvals.values()].map(approvalView) });
     if (req.method === 'GET' && path === '/api/usage') return json(res, 200, await usage());
+    if (req.method === 'GET' && path === '/api/handoff/agents') return json(res, 200, { agents: installedAgents({ has: handoffOptions.has ?? onPath }) });
 
     // Changes need a custom header: browsers won't send it cross-site without
     // asking first (and we never say yes), so other websites can't change settings.
@@ -777,6 +783,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       send('config', withLaya());
       return json(res, 200, { ok: true, laya: removed });
     }
+    if (path === '/api/handoff') return handoff(req, res);
     const answer = /^\/api\/approvals\/([\w-]{8,64})$/.exec(path);
     if (answer) {
       const item = approvals.get(answer[1]);
@@ -796,6 +803,35 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { ok: true });
     }
     return json(res, 404, { error: 'not found' });
+  }
+
+  // -- Hand-off: continue a session in another agent (bridge/handoff.js) -------------------
+  // { session, agent: 'codex' | 'claude' | 'gemini' } writes the note and opens that agent in
+  // a new terminal, in the folder the session itself worked in (never one from the request).
+  // { agent: 'copy' } only returns the note. Failures still return the note, to copy instead.
+  async function handoff(req, res) {
+    // Starts a program: only this bridge's own pages (or no page at all) may ask.
+    const origin = req.headers.origin;
+    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+    const agent = body?.agent;
+    if (agent !== 'copy' && !Object.hasOwn(HANDOFF_AGENTS, agent)) return json(res, 400, { error: `agent must be one of: ${Object.keys(HANDOFF_AGENTS).join(', ')}, copy` });
+    const session = typeof body?.session === 'string' ? body.session : '';
+    if (!session || !activity.has(session)) return json(res, 404, { error: 'dotpals has no record of that session' });
+    const cwd = sessionMeta.get(session)?.cwd;
+    const note = handoffNote(activity.all(), { session, cwd });
+    if (agent === 'copy') return json(res, 200, { ok: true, note });
+    const has = handoffOptions.has ?? onPath;
+    const name = HANDOFF_AGENTS[agent].name;
+    if (!has(HANDOFF_AGENTS[agent].command)) return json(res, 400, { error: `${name} isn’t installed here (not found on PATH). Use Copy instead.`, note });
+    if (!(handoffOptions.isFolder ?? isFolder)(cwd)) return json(res, 409, { error: 'dotpals doesn’t know this session’s project folder (or it’s gone). Use Copy instead.', note });
+    let file;
+    try { file = await saveNote(note); } catch (err) { return json(res, 500, { error: `Couldn’t save the note: ${err.message}`, note }); }
+    const command = launchCommand({ platform: handoffOptions.platform ?? process.platform, agent, dir: cwd, prompt: handoffPrompt(file), has });
+    if (command.error) return json(res, 409, { error: command.error, note, file });
+    try { await (handoffOptions.launch ?? launch)(command); } catch (err) { return json(res, 500, { error: `Couldn’t open a terminal: ${err.message}. Use Copy instead.`, note, file }); }
+    return json(res, 200, { ok: true, agent, name, dir: cwd, file, note });
   }
 
   // Only answer to our own name: stops "DNS rebinding" pages from reading your activity.

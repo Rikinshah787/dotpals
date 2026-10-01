@@ -385,6 +385,7 @@
       <b id="title">dotpals</b>
       <span class="status" id="status">connecting…</span>
       <span class="mini" id="mini" role="group" aria-label="Sessions"></span>
+      <span id="handoff"></span>
       <select id="first" title="First pal"></select>
       <button id="sound" class="icon" type="button" title="Sounds on" aria-label="Sounds on" aria-pressed="true">
         <svg class="on" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10L4.5 10H2zM11 5.5a3.5 3.5 0 0 1 0 5M13 3.5a6 6 0 0 1 0 9"/></svg>
@@ -422,6 +423,7 @@
     import { DotPal, registerCustom } from '../src/index.js';
     import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown } from '../bridge/ui/story.js';
     import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from '../bridge/ui/recap.js';
+    import { continueMenu } from '../bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -676,6 +678,16 @@
       placePill();
       const s = sessions.get(picked);
       $('title').textContent = s ? sessionName(s) : picked === 'all' ? 'All sessions' : 'dotpals';
+      renderHandoff();
+    }
+
+    // -- hand-off: "Continue in ▾" another agent, for the session on show ----------------
+    let handoffFor = null;
+    function renderHandoff() {
+      const id = sameOrigin && picked && picked !== 'all' && sessions.has(picked) ? picked : null;
+      if (id === handoffFor) return;
+      handoffFor = id;
+      $('handoff').replaceChildren(...(id ? [continueMenu(id, { copy: (text) => (desktop?.copy ? desktop.copy(text) : navigator.clipboard?.writeText(text)) })] : []));
     }
 
     // -- two agents, one file (bridge/guard.js) ----------------------------------------
