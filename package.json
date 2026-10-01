@@ -70,7 +70,7 @@
     "example:agent": "node examples/sse-harness/server.js",
     "bridge": "node bridge/server.js",
     "float": "node desktop/launch.js",
-    "test": "node --test",
+    "test": "node --test --test-timeout=60000",
     "setup": "node bin/dotpals.js setup",
     "dashboard": "node bin/dotpals.js dashboard"
   },
