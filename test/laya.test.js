@@ -304,6 +304,8 @@ test('a server left running by an earlier bridge is found again (and can be stop
   await sys.laya.setup();
   // A new manager, same folder, same fake computer: as if the bridge restarted.
   const again = createLaya({
+    // The same pretend OS as the first manager (fakeSystem's default), whatever this machine runs.
+    platform: 'win32',
     dir: () => sys.dir, getUrl: () => 'http://127.0.0.1:8000', spawn: () => assert.fail('nothing to spawn'),
     fetch: async () => ({ ok: true, json: async () => ({ status: 'ok' }) }),
     alive: () => true, kill: async (x) => sys.killed.push(x), portFree: async () => false, hookExit: false, pollMs: 5,
