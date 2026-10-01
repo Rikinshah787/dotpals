@@ -225,6 +225,9 @@ test('share with your agents: the context hook tells a Claude session what the o
   const { spawn } = await import('node:child_process');
   const { fileURLToPath } = await import('node:url');
   const { port, server } = await start();
+  // The hook runs as a child process, which can take seconds on a busy CI machine; keep
+  // idle connections open meanwhile, so the test's own fetches don't hit a closed socket.
+  server.keepAliveTimeout = 60_000;
   t.after(() => server.close());
   const base = `http://127.0.0.1:${port}`;
   const runHook = (event) => new Promise((ok) => {
