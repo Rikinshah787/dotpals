@@ -21,8 +21,9 @@ const { startBridge } = await import('../bridge/server.js');
 
 /** A port no bridge in this file has used yet: fetch keeps connections alive, and reusing an old port could hand a test a dead one ("fetch failed"). */
 const usedPorts = new Set();
-// fetch refuses some ports outright ("bad port": 6000 X11, 6566, 6665-6669 IRC, 6679, 6697), like browsers do.
-const BLOCKED = new Set([6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
+// fetch refuses some ports outright ("bad port": 6000 X11, 6566, 6665-6669 IRC, 6679, 6697), like browsers do;
+// 5985 and 5986 (WinRM) are reserved on Windows CI machines. A port Windows reserves gives EACCES: try another.
+const BLOCKED = new Set([5985, 5986, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
 const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port) || BLOCKED.has(port)); usedPorts.add(port); return port; };
 
 async function start() {
@@ -31,7 +32,7 @@ async function start() {
     try {
       return { port, server: await startBridge({ port, log: () => {} }) };
     } catch (err) {
-      if (err.code !== 'EADDRINUSE' || tries > 10) throw err;
+      if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err;
     }
   }
 }
