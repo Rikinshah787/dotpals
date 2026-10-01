@@ -6,7 +6,7 @@
 //   SITE_URL=https://example.com/ node site/build.mjs   (links for share cards)
 //
 // On Vercel the production URL is picked up by itself.
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,15 +28,5 @@ const url = process.env.SITE_URL || (vercel ? `https://${vercel}/` : DEFAULT_URL
 if (url !== DEFAULT_URL) {
   const page = join(out, 'index.html');
   writeFileSync(page, readFileSync(page, 'utf8').split(DEFAULT_URL).join(url.endsWith('/') ? url : `${url}/`));
-}
-// Visitor counts on Vercel: its Web Analytics (no cookies, nothing personal kept; see
-// Analytics in the Vercel project). Only there: the script is served by Vercel itself.
-if (process.env.VERCEL) {
-  const tag = '<script defer src="/_vercel/insights/script.js"></script>';
-  const pages = ['index.html', ...readdirSync(join(out, 'guide')).filter((f) => f.endsWith('.html')).map((f) => join('guide', f))];
-  for (const name of pages) {
-    const page = join(out, name);
-    writeFileSync(page, readFileSync(page, 'utf8').replace('</head>', `  ${tag}\n</head>`));
-  }
 }
 console.log(`Built _site/ for ${url}`);

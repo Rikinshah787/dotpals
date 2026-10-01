@@ -487,3 +487,31 @@ tabs.forEach((t, i) => {
 const crew = $$('.crew dot-pal');
 crew.forEach((p, i) => { if (i % 3 === 1) p.setState('sleeping'); });
 onView($('.crew'), () => crew.forEach((p, i) => i % 3 === 1 && setTimeout(() => p.setState('idle'), 1200 + i * 150)));
+
+// ---------------------------------------------------------------------------
+// Visitors so far, under the install line. A public counter (abacus.jasoncameron.dev)
+// keeps the number: each browser adds one, the first time it visits (remembered
+// in localStorage), and only reads it after that, so it counts people, not page
+// loads. No cookies; nothing about you is sent. Not counted when you open the
+// page from your own computer. If the counter is down, the line just stays hidden.
+
+const COUNTER = 'https://abacus.jasoncameron.dev';
+const KEY = 'dotpals-site/visitors';
+(async () => {
+  const box = $('#visitors');
+  if (!box) return;
+  const local = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  let seen = false;
+  try { seen = localStorage.getItem('dotpals.counted') === '1'; } catch {}
+  const add = !seen && !local;
+  try {
+    const res = await fetch(`${COUNTER}/${add ? 'hit' : 'get'}/${KEY}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const { value } = await res.json();
+    if (!Number.isFinite(value) || value < 1) return;
+    if (add) { try { localStorage.setItem('dotpals.counted', '1'); } catch {} }
+    $('#visitors-n').textContent = value.toLocaleString('en-US');
+    $('#visitors-label').textContent = value === 1 ? 'visitor so far' : 'visitors so far';
+    box.hidden = false;
+  } catch {}
+})();
