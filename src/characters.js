@@ -12,6 +12,10 @@
 //   look       – how far (in viewBox units) the `.dp-look` parts can move
 //   mouth      – [x, y] where mood mouths are drawn
 //   cheek      – horizontal distance of the blush from the mouth
+//   eyes       – optional { at: [[x, y], [x, y]], r, ink?, glow?, own? }: where the two
+//                eyes are and how big, so the pal can swap in expression eyes
+//                (happy arcs, hearts…). Without it the normal eyes just squint.
+//                `own` lists expressions its own eyes already do (e.g. 'wide').
 //   render(p)  – returns { defs, body, accessories, face } SVG strings
 //
 // `render` receives:
@@ -22,6 +26,8 @@
 // Class hooks used by the element:
 //   .dp-blink  – scaled vertically when the pal blinks
 //   .dp-look   – translated toward the pointer
+//   .dp-eyes   – (optional) the parts hidden while expression eyes show;
+//                without it, the .dp-blink parts are hidden
 
 const eyeShine = (cx, cy, r = 2.6) =>
   `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff" opacity=".9"/>`;
@@ -34,6 +40,7 @@ export const characters = {
     look: 6,
     mouth: [102, 186],
     cheek: 34,
+    eyes: { at: [[86, 160], [118, 160]], r: 10 },
     render: ({ id, body, fur }) => ({
       defs: `
         <radialGradient id="${id('beret')}" gradientUnits="userSpaceOnUse" cx="70" cy="50" r="110">
@@ -69,6 +76,7 @@ export const characters = {
     look: 8,
     mouth: [100, 142],
     cheek: 52,
+    eyes: { at: [[64, 96], [136, 96]], r: 17, own: ['wide'] },
     render: ({ id, body }) => ({
       defs: `
         <radialGradient id="${id('eyeball')}" cx=".4" cy=".35" r=".7">
@@ -105,6 +113,7 @@ export const characters = {
     look: 4,
     mouth: [100, 176],
     cheek: 36,
+    eyes: { at: [[74, 137], [126, 137]], r: 12 },
     render: ({ body }) => ({
       defs: '',
       body: `
@@ -112,7 +121,7 @@ export const characters = {
       accessories: '',
       face: `
         <g class="dp-look" fill="none" stroke="#0b0b12" stroke-linecap="round">
-          <path stroke-width="4.5" d="M63 138 Q74 148 85 138 M115 138 Q126 148 137 138"/>
+          <path class="dp-eyes" stroke-width="4.5" d="M63 138 Q74 148 85 138 M115 138 Q126 148 137 138"/>
           <circle cx="74" cy="136" r="23" stroke-width="6" fill="#fff" fill-opacity=".08"/>
           <circle cx="126" cy="136" r="23" stroke-width="6" fill="#fff" fill-opacity=".08"/>
           <path stroke-width="5" d="M97 132 Q100 126 103 132 M51 132 L26 127 M149 132 L174 127"/>
@@ -127,6 +136,7 @@ export const characters = {
     look: 5,
     mouth: [100, 170],
     cheek: 38,
+    eyes: { at: [[76, 134], [124, 134]], r: 11, ink: '#fff' },
     render: ({ id, body }) => ({
       defs: `
         <radialGradient id="${id('lens')}" cx=".35" cy=".3" r=".8">
@@ -145,7 +155,7 @@ export const characters = {
           </g>
           <circle cx="76" cy="134" r="20" fill="url(#${id('lens')})"/>
           <circle cx="124" cy="134" r="20" fill="url(#${id('lens')})"/>
-          ${eyeShine(69, 127, 3)}${eyeShine(117, 127, 3)}
+          <g class="dp-eyes">${eyeShine(69, 127, 3)}${eyeShine(117, 127, 3)}</g>
         </g>`,
     }),
   },
@@ -159,6 +169,7 @@ export const characters = {
     look: 6,
     mouth: [100, 178],
     cheek: 36,
+    eyes: { at: [[80, 144], [120, 144]], r: 11 },
     render: ({ body }) => ({
       defs: '',
       body: `
@@ -190,6 +201,7 @@ export const characters = {
     look: 10,
     mouth: [100, 182],
     cheek: 46,
+    eyes: { at: [[76.5, 127], [123.5, 127]], r: 12, ink: '#dff4ff', glow: true },
     render: ({ id, body }) => ({
       defs: `
         <filter id="${id('glow')}" x="-80%" y="-80%" width="260%" height="260%">
@@ -216,6 +228,7 @@ export const characters = {
     look: 7,
     mouth: [100, 172],
     cheek: 40,
+    eyes: { at: [[78, 142], [122, 142]], r: 11 },
     render: ({ id, body }) => ({
       defs: `
         <radialGradient id="${id('bulb')}" cx=".4" cy=".35" r=".7">
@@ -243,6 +256,7 @@ export const characters = {
     look: 7,
     mouth: [100, 174],
     cheek: 42,
+    eyes: { at: [[75, 137], [125, 137]], r: 11 },
     render: ({ body }) => ({
       defs: '',
       body: `

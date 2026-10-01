@@ -204,8 +204,12 @@
     .plan li.completed::before { content: "✓"; color: var(--ok); text-decoration: none; }
     .plan li.in_progress { color: var(--text); font-weight: 600; }
     .plan li.in_progress::before { content: "▸"; color: var(--warn); animation: pulse-text 1.4s ease-in-out infinite; }
-    .plan.crew li { text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .plan.crew li b { color: var(--text); font-weight: 600; }
+    /* One line per helper: marker, name, then its step, cut short with an ellipsis. */
+    .plan.crew li { display: flex; align-items: baseline; min-width: 0; text-decoration: none; white-space: nowrap; }
+    .plan.crew li::before { flex: none; width: 14px; }
+    .plan.crew li b { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-weight: 600; }
+    .plan.crew li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 400; }
+    .plan.crew li.completed span { color: var(--faint); }
     @keyframes pulse-text { 50% { opacity: .35; } }
 
     /* What the session is using: skills, plugins, MCP tools, helper agents. */
@@ -787,6 +791,7 @@
       box.hidden = !slotShown(update.session);
       resizePals();
       renderSessions();
+      pal.greet(); // pops up from below the ledge and says hi
       return slot;
     }
 
@@ -1327,7 +1332,9 @@
       const list = el('ol');
       for (const x of crew.slice(0, 6)) {
         const item = el('li', x.status === 'running' ? 'in_progress' : x.status === 'done' ? 'completed' : '');
-        item.append(el('b', '', x.name), ` ${x.status === 'running' ? (x.doing || x.task || 'working') : x.task || ''}`);
+        const step = x.status === 'running' ? (x.doing || x.task || 'working') : x.task || '';
+        item.append(el('b', '', x.name), el('span', '', step));
+        item.title = step ? `${x.name}: ${step}` : x.name;
         list.append(item);
       }
       box.append(head, list);
@@ -1554,6 +1561,10 @@
       : applyState(data);
 
     $('dash').onclick = () => (desktop?.openDashboard ? desktop.openDashboard() : window.open('/dashboard', '_blank'));
+
+    // On the desktop the app reports the cursor everywhere on screen (relative to this
+    // window), so the pals keep watching it outside the window too.
+    desktop?.onCursor?.((p) => DotPal.pointAt(p.x, p.y));
 
     if (isFloat) {
       desktop.connect(onEvent, setOnline);

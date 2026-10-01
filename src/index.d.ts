@@ -1,5 +1,11 @@
 export type BuiltInCharacter = 'blu' | 'hop' | 'sunny' | 'lovi' | 'muse' | 'grok' | 'nova' | 'byte';
-export type BuiltInAction = 'jump' | 'squish' | 'wiggle' | 'shake' | 'nod' | 'spin' | 'love';
+export type BuiltInAction =
+  | 'jump' | 'squish' | 'wiggle' | 'shake' | 'nod' | 'spin' | 'love'
+  | 'hop' | 'jitter' | 'hello' | 'dizzy';
+/** Faces for `pal.emote()`. */
+export type Emote = 'happy' | 'love' | 'star' | 'wide' | 'closed' | 'dizzy' | 'oops' | 'hey' | 'sweat';
+/** Built-in particle shapes (inline SVG, the same on every OS). */
+export type ParticleKind = 'heart' | 'sparkle' | 'star' | 'sweat' | 'z';
 export type Mood =
   | 'neutral' | 'happy' | 'sad' | 'surprised' | 'thinking' | 'sleepy' | 'shy'
   | 'listening' | 'working' | 'speaking' | 'waiting';
@@ -30,6 +36,12 @@ export interface CharacterDefinition {
   /** Horizontal distance of the blush from the mouth. */
   cheek?: number;
   /**
+   * Where the two eyes are, so the pal can swap in expression eyes (happy arcs,
+   * hearts, spirals…) for moods and emotes. Without it, the normal eyes squint.
+   * The parts marked `.dp-eyes` (or else `.dp-blink`) hide while they show.
+   */
+  eyes?: CharacterEyes;
+  /**
    * Returns SVG markup for a 200×200 viewBox. `body` is wrapped in the fur
    * filter. Use `.dp-blink` and `.dp-look` classes to opt into blinking and
    * pointer following.
@@ -42,12 +54,25 @@ export interface CharacterDefinition {
   };
 }
 
+export interface CharacterEyes {
+  /** Centres of the left and right eye, in viewBox units. */
+  at: [[number, number], [number, number]];
+  /** Rough eye radius, in viewBox units. */
+  r: number;
+  /** Colour of the expression eyes (default: near-black ink). */
+  ink?: string;
+  /** Glow around them: `true` for a light-blue glow, or any CSS colour. */
+  glow?: boolean | string;
+  /** Expressions the character's own eyes already show well (e.g. `['wide']` for big eyes): no swap for those. */
+  own?: string[];
+}
+
 export interface ActionDefinition {
   keyframes: Keyframe[];
   duration?: number;
   easing?: string;
-  /** Text/emoji glyph that bursts out of the pal while the action plays. */
-  particles?: string;
+  /** Particles that burst out while the action plays: a built-in shape, or any text/emoji glyph. */
+  particles?: ParticleKind | (string & {});
 }
 
 export declare class DotPal extends HTMLElement {
@@ -58,12 +83,22 @@ export declare class DotPal extends HTMLElement {
   state: AgentState;
   look: 'cursor' | 'none';
   static: boolean;
+  // The pal leans slightly toward the pointer; the attribute lean="none" turns that off.
+  /** True while the pal is drawn smaller than 48 px (reflected as the `tiny` attribute): no fur, bigger eyes. */
+  readonly tiny: boolean;
   static readonly actions: string[];
   static readonly characters: string[];
   /** Re-draw every pal using `name` (after registerCharacter() changed it). */
   static refresh(name: string): void;
   static readonly moods: Mood[];
   static readonly states: AgentState[];
+  /** Names of every emote. */
+  static readonly emotes: Emote[];
+  /**
+   * Tell every pal where the cursor is, in viewport CSS px. Use it when the cursor is
+   * tracked outside the page, e.g. by a desktop app watching the whole screen.
+   */
+  static pointAt(x: number, y: number): void;
   play(action: BuiltInAction | (string & {})): Promise<void>;
   setState(state: AgentState, options?: { text?: string }): void;
   say(text: string, options?: { duration?: number }): void;
@@ -73,6 +108,12 @@ export declare class DotPal extends HTMLElement {
     options?: { success?: Mood; error?: Mood; revert?: number; successText?: string; errorText?: string; thinkingText?: string }
   ): Promise<T>;
   watch(target: Element | string): () => void;
+  /** Show a face for `ms` milliseconds (default 1600). Resolves when it ends. */
+  emote(name: Emote, ms?: number): Promise<void>;
+  /** Rise up from below the ledge, squint happily, hop and blink twice. */
+  greet(): Promise<void>;
+  /** Throw a few particles (default: 6 sparkles). */
+  burst(kind?: ParticleKind | (string & {}), count?: number): void;
   blink(): void;
   lookAt(x?: number, y?: number): void;
 }
@@ -112,6 +153,8 @@ export declare function agentHandler(
 ): (event: unknown) => AgentUpdate | null;
 
 export interface DotPalActionEvent extends CustomEvent<{ action: string }> {}
+/** Fired on every click; `count` is how many quick clicks in a row (3 makes the pal dizzy). */
+export interface DotPalPokeEvent extends CustomEvent<{ count: number }> {}
 
 declare global {
   interface HTMLElementTagNameMap {
@@ -121,5 +164,6 @@ declare global {
     'dotpal-action': DotPalActionEvent;
     'dotpal-mood': CustomEvent<{ mood: Mood }>;
     'dotpal-state': CustomEvent<{ state: AgentState; text?: string }>;
+    'dotpal-poke': DotPalPokeEvent;
   }
 }

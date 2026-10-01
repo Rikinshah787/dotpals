@@ -37,6 +37,34 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   notify: (title, body) => ipcRenderer.send('notify', { title, body }),
   /** Plan usage limits: { agents: [{ harness, window, weekly, … }] } (see bridge/usage.js). */
   usage: () => ipcRenderer.invoke('usage'),
-  /** The notch asks for its window to fit the island. */
-  notchSize: (width, height) => ipcRenderer.send('notch:size', width, height),
+  /**
+   * onCursor({ x, y }): where the mouse is, relative to this window's content in CSS px
+   * (anywhere on screen, so it can be outside the window), ~30 times a second while it
+   * moves (or the window moves under it). Also `width` and `height`: the content size
+   * x and y are measured against. Returns a function that stops listening.
+   */
+  onCursor(callback) {
+    const listener = (_, p) => callback(p);
+    ipcRenderer.on('window:cursor', listener);
+    return () => ipcRenderer.removeListener('window:cursor', listener);
+  },
+  /** The operating system, for showing shortcuts ("Ctrl+Alt+Y" or "⌘⌥Y"). */
+  platform: process.platform,
+  /**
+   * The notch asks for its window to fit: the window's size, and the island's
+   * { w, h } (hanging from the top centre), the only part that takes clicks.
+   */
+  notchSize: (width, height, island) => ipcRenderer.send('notch:size', width, height, island ?? null),
+  /** The notch's shortcuts: { escape, approval } → which ones got registered { escape, allow, deny }. */
+  notchKeys: (want) => ipcRenderer.invoke('notch:keys', want),
+  /** onNotchKey('escape' | 'allow' | 'deny'): one of those shortcuts was pressed. */
+  onNotchKey(callback) {
+    ipcRenderer.removeAllListeners('notch:key');
+    ipcRenderer.on('notch:key', (_, key) => callback(key));
+  },
+  /** onIdle(seconds): how long since the last keyboard or mouse input (every 2 s). */
+  onIdle(callback) {
+    ipcRenderer.removeAllListeners('notch:idle');
+    ipcRenderer.on('notch:idle', (_, seconds) => callback(seconds));
+  },
 });

@@ -5,7 +5,7 @@
 //
 // Closing hides it to the tray; Ctrl+Alt+P (Cmd+Option+P on macOS) shows or
 // hides it from anywhere. Quit from the tray menu.
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,6 +80,7 @@ if (!app.requestSingleInstanceLock()) {
     syncNotch();
     handleArgs(process.argv);
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
+    watchCursor();
   });
 
   // Hidden to the tray isn't "all closed"; only Quit ends the app.
@@ -224,17 +225,25 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   // -- the notch: a small island at the top of the screen ------------------------
-  // What every agent is doing, its plan and your usage limits. It opens on hover.
-  // The window is always exactly the island's size (the page tells us), so it
-  // never blocks clicks around it, on any platform.
+  // What every agent is doing, its plan and your usage limits (see bridge/notch.html
+  // and its state machine, bridge/ui/notch-state.js). The window is sized to the
+  // island (the page tells us), and on top of that it lets clicks through wherever
+  // the island isn't, so it never blocks clicks around it. It never takes focus:
+  // hover comes from the cursor feed below, keys from shortcuts held only while needed.
   let notch;
+  let notchSize = { w: 220, h: 6 }; // the size we last gave it (never read back: scaling drifts)
+  let notchIsland = null;           // { w, h } of the island, hanging from the top centre; null: nothing to click
+  let notchSolid = null;            // whether it takes clicks right now
+  const notchArea = () => screen.getPrimaryDisplay().workArea;
   function createNotch() {
     if (notch && !notch.isDestroyed()) { if (!notch.isVisible()) notch.showInactive(); return; }
-    const area = screen.getPrimaryDisplay().workArea;
-    const size = { width: 230, height: 58 };
+    const area = notchArea();
+    notchSize = { w: 220, h: 6 }; // the hidden strip, until the page says otherwise
+    notchIsland = null;
+    notchSolid = null;
     notch = new BrowserWindow({
-      ...size,
-      x: Math.round(area.x + (area.width - size.width) / 2),
+      width: notchSize.w, height: notchSize.h,
+      x: Math.round(area.x + (area.width - notchSize.w) / 2),
       y: area.y,
       frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
       alwaysOnTop: true, resizable: false, movable: false, maximizable: false, fullscreenable: false,
@@ -244,8 +253,14 @@ if (!app.requestSingleInstanceLock()) {
     });
     notch.setAlwaysOnTop(true, 'screen-saver');
     notch.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    notch.once('ready-to-show', () => notch.showInactive());
-    notch.on('closed', () => { notch = null; });
+    syncNotchMouse(screen.getCursorScreenPoint());
+    notch.once('ready-to-show', () => notch?.showInactive());
+    // Its shortcuts only while it's on screen; a reloaded page asks again.
+    notch.on('show', applyNotchKeys);
+    notch.on('hide', applyNotchKeys);
+    notch.webContents.on('did-start-loading', () => { notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
+    notch.webContents.on('render-process-gone', () => { notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
+    notch.on('closed', () => { notch = null; notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
     notch.loadURL(`${bridge}/bridge/notch.html`).catch(() => notch?.loadFile(notchPage));
   }
   // When it shows: 'auto' (whenever the pal is hidden, the default), 'always' or 'off'.
@@ -262,19 +277,108 @@ if (!app.requestSingleInstanceLock()) {
     savePrefs();
     syncNotch();
   }
-  // Keep the island centred at the top as it grows and shrinks.
+  // Keep the island centred at the top as it grows and shrinks. The page sends the
+  // window size it needs (the island plus room for its shadow and springy overshoot)
+  // and the island's own size, which is the only part that takes clicks.
   let shrink;
-  ipcMain.on('notch:size', (event, width, height) => {
+  const clamp = (n, lo, hi) => Math.min(Math.max(Number(n) || 0, lo), hi);
+  ipcMain.on('notch:size', (event, width, height, island) => {
     if (!notch || notch.isDestroyed() || event.sender !== notch.webContents) return;
-    const area = screen.getPrimaryDisplay().workArea;
-    const w = Math.round(Math.min(Math.max(width, 120), 520));
-    const h = Math.round(Math.min(Math.max(height, 40), 480));
-    const apply = () => { try { notch?.setBounds({ x: Math.round(area.x + (area.width - w) / 2), y: area.y, width: w, height: h }); } catch {} };
+    const area = notchArea();
+    const w = Math.round(clamp(width, 40, Math.min(860, area.width)));
+    const h = Math.round(clamp(height, 2, Math.min(640, area.height)));
+    notchIsland = island && Number.isFinite(island.w) && Number.isFinite(island.h) && island.w > 0 && island.h > 0
+      ? { w: clamp(island.w, 1, w), h: clamp(island.h, 1, h) } : null;
+    syncNotchMouse(screen.getCursorScreenPoint());
+    const apply = (size) => {
+      if (!notch || notch.isDestroyed()) return;
+      notchSize = size;
+      const a = notchArea();
+      try { notch.setBounds({ x: Math.round(a.x + (a.width - size.w) / 2), y: a.y, width: size.w, height: size.h }); } catch {}
+    };
     clearTimeout(shrink);
-    // Grow at once; shrink after the island's closing animation.
-    const [cw, ch] = notch.getSize();
-    if (w < cw || h < ch) shrink = setTimeout(apply, 420); else apply();
+    // Grow at once; shrink after the island's closing animation (both ways at once
+    // when one side grows and the other shrinks).
+    const grown = { w: Math.max(w, notchSize.w), h: Math.max(h, notchSize.h) };
+    if (grown.w !== notchSize.w || grown.h !== notchSize.h) apply(grown);
+    if (grown.w !== w || grown.h !== h) shrink = setTimeout(() => apply({ w, h }), 380);
   });
+
+  /** Clicks go through the notch window except over the island itself. */
+  function syncNotchMouse(p) {
+    if (!notch || notch.isDestroyed()) return;
+    const a = notchArea();
+    const cx = a.x + a.width / 2;
+    const solid = !!notchIsland && notch.isVisible()
+      && p.x >= cx - notchIsland.w / 2 - 1 && p.x <= cx + notchIsland.w / 2 + 1
+      && p.y >= a.y - 1 && p.y <= a.y + notchIsland.h + 1;
+    if (solid === notchSolid) return;
+    notchSolid = solid;
+    try { notch.setIgnoreMouseEvents(!solid); } catch {}
+  }
+
+  // Keys for the notch, as global shortcuts because it never takes focus: Esc (only
+  // while it's open with the mouse over it, so it can't steal Esc from your editor)
+  // and Ctrl+Alt+Y / Ctrl+Alt+N (only while an approval card is on show). Each is
+  // registered when the page asks and released the moment it doesn't.
+  const NOTCH_KEYS = { escape: 'Escape', allow: 'CommandOrControl+Alt+Y', deny: 'CommandOrControl+Alt+N' };
+  const notchKeysOn = new Set();
+  let notchKeysWanted = { escape: false, approval: false };
+  function applyNotchKeys() {
+    const on = !!notch && !notch.isDestroyed() && notch.isVisible();
+    const want = new Set();
+    if (on && notchKeysWanted.escape) want.add('escape');
+    if (on && notchKeysWanted.approval) { want.add('allow'); want.add('deny'); }
+    for (const key of [...notchKeysOn]) {
+      if (want.has(key)) continue;
+      try { globalShortcut.unregister(NOTCH_KEYS[key]); } catch {}
+      notchKeysOn.delete(key);
+    }
+    for (const key of want) {
+      if (notchKeysOn.has(key)) continue;
+      let ok = false;
+      try { ok = globalShortcut.register(NOTCH_KEYS[key], () => { if (notch && !notch.isDestroyed()) notch.webContents.send('notch:key', key); }); } catch {}
+      if (ok) notchKeysOn.add(key);
+    }
+    return { escape: notchKeysOn.has('escape'), allow: notchKeysOn.has('allow'), deny: notchKeysOn.has('deny') };
+  }
+  ipcMain.handle('notch:keys', (event, want) => {
+    if (!notch || notch.isDestroyed() || event.sender !== notch.webContents) return {};
+    notchKeysWanted = { escape: !!want?.escape, approval: !!want?.approval };
+    return applyNotchKeys();
+  });
+
+  // The cursor, for the pals' eyes (they watch it anywhere on screen) and the notch's
+  // hover: its position relative to each window's content, in CSS px, ~30 times a
+  // second while it moves (nothing is sent while it's still). Also how long you've
+  // been away (no keyboard or mouse), so the notch can hide while you're gone.
+  function watchCursor() {
+    const last = new Map(); // webContents id → last position sent
+    const feed = (w, p) => {
+      if (!w || w.isDestroyed()) return;
+      if (!w.isVisible()) { last.delete(w.webContents.id); return; }
+      const b = w.getContentBounds();
+      const zoom = w.webContents.getZoomFactor() || 1;
+      const x = Math.round(((p.x - b.x) / zoom) * 10) / 10;
+      const y = Math.round(((p.y - b.y) / zoom) * 10) / 10;
+      // Also the content size these are relative to: a page mid-resize can tell.
+      const width = Math.round(b.width / zoom);
+      const height = Math.round(b.height / zoom);
+      const key = `${x},${y},${width},${height}`;
+      if (last.get(w.webContents.id) === key) return;
+      last.set(w.webContents.id, key);
+      w.webContents.send('window:cursor', { x, y, width, height });
+    };
+    setInterval(() => {
+      const p = screen.getCursorScreenPoint();
+      feed(win, p);
+      feed(notch, p);
+      syncNotchMouse(p);
+    }, 33);
+    setInterval(() => {
+      if (notch && !notch.isDestroyed() && notch.isVisible()) notch.webContents.send('notch:idle', powerMonitor.getSystemIdleTime());
+    }, 2000);
+  }
   ipcMain.handle('usage', () => readUsage().catch(() => ({ agents: [] })));
 
   // Keep a saved position if it's still on a connected screen, nudged fully onto it.

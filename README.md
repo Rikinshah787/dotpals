@@ -18,9 +18,9 @@ npx --allow-git=all github:rikinshah787/dotpals setup
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20any%20agent-d97757)
 
-<img src="docs/demo.gif" width="760" alt="dotpals in action: the pal thinks, edits app.js, asks to run a command, and then shows a Summary: changed 3 files, ran 5 commands, 1 failed">
+<img src="docs/demo.gif" width="760" alt="The dotpals notch: a live diff types in, an agent asks to run git push --force with a warning, Allow is clicked, and the pal celebrates">
 
-<sub><a href="docs/dotpals-demo.mp4">Watch in full quality (MP4, 27s)</a></sub>
+<sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
 **[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[⭐ Star on GitHub](https://github.com/Rikinshah787/dotpals)** if your agent ever surprised you
 
@@ -40,7 +40,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, or two agents editing the same file.
-- **The notch**: an island at the top of your screen with every agent, its live plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. Hide the pal and the notch takes over.
+- **The notch**: an island at the top of your screen with every agent, a live diff of the file it's editing, its plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. It opens by itself when an agent needs you, and you can allow or deny from the keyboard. Hide the pal and the notch takes over.
 - **Context and limits**: the pal gets worried as a session's context window fills up and cheers after it compacts. Usage bars show your 5-hour and weekly limits with reset times (for Claude, run `dotpals statusline` once).
 - **Summary**: one card per request, with what you asked, what the agent said it did, and a tally such as *Changed 3 files · Ran 5 commands, 1 failed · Used 1 skill*. **Show steps** lists every step as a short sentence.
 - **Tools**: every tool call as it happens. Click one to see the exact command and output, or the lines an edit changed.
@@ -68,9 +68,17 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 ## The notch
 
-<p align="center"><img src="docs/notch.png" width="460" alt="The notch, open: Codex needs your OK to run npm install, Claude is on step 2 of 4 of its plan, another Claude session is done, and usage bars show Claude at 42% of its 5-hour limit and Codex at 91%"></p>
+<p align="center"><img src="docs/notch.png" width="460" alt="The notch, open on the Now tab: Claude's pal on the left, a live diff of Settings.tsx typing in, its plan at step 2 of 4, its context window, three helpers, and usage bars for Claude and Codex"></p>
 
-A small island that hangs from the top of your screen. Closed, it shows a dot per agent, what the newest one is doing, and a ring for your 5-hour usage. Hover over it and it opens: every agent with its plan, its context window and your usage limits, plus buttons to bring back the pal or open the dashboard.
+A small island that hangs from the top of your screen. It has four sizes:
+
+- **Hidden** when nothing is running, or you've been away for 3 minutes: just a thin, invisible strip at the top edge. Hover it and a small island **peeks** out; rest there a moment and it opens.
+- **Bar** while agents work: a mini pal for each agent, the current step, the plan step ("2/4") and a ring for your highest usage limit. Hover it for about 200 ms, or click, to open.
+- **Open** (640 px): the agent in focus as a big pal on the left, one card on the right, a column of mini pals for the other agents, and two tabs:
+  - **Now**: a live diff of the file it's editing (or a checklist of its steps), its plan, context window, helpers and your usage limits. When it needs your OK, an approval card with **Deny** and **Allow**, or **Ctrl+Alt+N** and **Ctrl+Alt+Y** (**⌘⌥N** and **⌘⌥Y** on macOS), which work only while the card is showing. When it's done or fails, a short card says what happened.
+  - **Story**: today's totals with **Copy today**, the plan, helpers, the context window with **Copy /compact**, what it's been using, a note when two agents changed the same file, and the last few requests as chapters you can expand.
+
+Alerts open it by themselves, one at a time. One that needs you shows even if you've been away, and stays until you answer. Done and error cards close after about 5 and 8 seconds. When you open it yourself, it closes 8 seconds after the pointer leaves (a shrinking line shows the last seconds), or after a quiet minute with the pointer resting on it. **Esc** closes it while the pointer is over it. Its window lets clicks through everywhere except the island, and the peek never takes a click, so it doesn't get in the way of your browser tabs.
 
 By default it appears when you hide the pal. You can keep it on always or never show it, from the tray or with `dotpals notch --auto | --off`.
 
@@ -291,12 +299,14 @@ import 'dotpals';
 | `idle`      | breathes, blinks and follows the cursor |
 | `listening` | leans in with wide eyes, for while the user is typing |
 | `thinking`  | looks up, shows a bubble with bouncing dots |
-| `working`   | busy bob, eyes down, shows a progress bar or your `text` (e.g. the tool name) |
+| `working`   | busy bob, eyes down, shows a progress bar or your `text` (e.g. the tool name); after 90 seconds, a sweat drop now and then |
 | `speaking`  | mouth moves, for while tokens stream in |
-| `waiting`   | wobbles, shows a `?` bubble or your `text` (e.g. "Allow edit?") |
-| `done`      | jumps and smiles, then settles back to calm |
-| `error`     | shakes, then looks sad and desaturated |
+| `waiting`   | hops, then keeps bouncing with wide eyes, shows a `?` bubble or your `text` (e.g. "Allow edit?") |
+| `done`      | jumps with a burst of sparkles and happy eyes, then settles back to calm |
+| `error`     | jitters, then looks sad and desaturated, with × eyes |
 | `sleeping`  | eyes closed, floating *z*s |
+
+A soft glow behind the pal follows the state (amber while waiting, red on errors, green when done), and moods and moves blend into each other instead of snapping.
 
 You can set a state three ways:
 
@@ -403,9 +413,25 @@ pal.say('Hi! Ask me anything.');
 // Show a mood for a moment
 pal.flash('surprised', 1500);
 
-// One-shot actions: jump · squish · wiggle · shake · nod · spin · love
+// One-shot actions: jump · squish · wiggle · shake · nod · spin · love · hop · jitter · hello · dizzy
 await pal.play('love');
+
+// Say hello: rise up from below, squint happily, hop and blink twice
+await pal.greet();
+
+// A face for a moment: happy · love · star · wide · closed · dizzy · oops · hey · sweat
+await pal.emote('love', 1600);
+
+// Throw particles: heart · sparkle · star · sweat · z, or any text or emoji
+pal.burst('sparkle', 8);
 ```
+
+### Faces and reactions
+
+- **Expression eyes**: pals swap in happy arcs, closed lids, wide eyes, × ("oops"), spinning spirals, hearts and sparkle-stars to match their mood (happy, sleepy, surprised or waiting, and the error state) or an `emote()`.
+- **Reactions**: hover and it blinks; rest the mouse on it for 2 seconds and it gets heart eyes; click and it plays its tap action with a "hey" face; click 3 times quickly and it gets dizzy. Each click fires `dotpal-poke` with `{ count }`. `static` turns these off.
+- **Tiny pals**: under 48 px a pal becomes an avatar (the `tiny` attribute and the read-only `pal.tiny` property): no fur, bigger eyes, no glow and no particles.
+- **Pointing from outside the page**: `DotPal.pointAt(x, y)` tells every pal where the cursor is (viewport CSS px), for apps that track it themselves. `DotPal.emotes` lists every emote.
 
 ### Attributes
 
@@ -418,8 +444,10 @@ await pal.play('love');
 | `color`     | any CSS color | the character's color |
 | `idle`      | `breathe` · `bounce` · `float` · `wobble` · `sway` · `none` | `breathe` |
 | `look`      | `cursor` · `none` | `cursor` |
+| `lean`      | `none`: the body doesn't lean toward the cursor | leans a little |
 | `static`    | boolean: turns off the hover and click reactions | – |
 | `label`     | accessible name | the character's name |
+| `tiny`      | set by the pal itself while it's smaller than 48 px | – |
 
 A `state` is the agent lifecycle; each state sets a `mood`. Use `mood` directly if you aren't driving an agent.
 
@@ -429,14 +457,16 @@ A `state` is the agent lifecycle; each state sets a `mood`. Use `mood` directly 
 pal.addEventListener('dotpal-state',  (e) => e.detail); // { state, text }
 pal.addEventListener('dotpal-mood',   (e) => e.detail); // { mood }
 pal.addEventListener('dotpal-action', (e) => e.detail); // { action }
+pal.addEventListener('dotpal-poke',   (e) => e.detail); // { count }: quick clicks in a row
 ```
 
 ### Styling
 
 ```css
 dot-pal {
-  --dp-size: 200px;     /* same as the size attribute */
-  --dp-color: hotpink;  /* same as the color attribute */
+  --dp-size: 200px;       /* same as the size attribute */
+  --dp-color: hotpink;    /* same as the color attribute */
+  --dp-glow: transparent; /* turn off the glow behind the pal */
 }
 
 dot-pal::part(bubble) { background: #111; color: #fff; }
@@ -469,6 +499,7 @@ registerCharacter('ghost', {
   look: 6,          // how far the eyes follow the cursor
   mouth: [100, 170], // where mood mouths are drawn
   cheek: 34,         // blush distance from the mouth
+  eyes: { at: [[80, 130], [120, 130]], r: 9 }, // where expression eyes go
   render: ({ body }) => ({
     body: `<rect fill="${body}" x="30" y="50" width="140" height="220" rx="70"/>`,
     face: `
@@ -483,14 +514,15 @@ registerCharacter('ghost', {
 - The body is automatically covered in fur and shaded.
 - Put `class="dp-blink"` on each eye so it blinks and reacts to moods.
 - Put `class="dp-look"` on anything that should follow the cursor.
+- `eyes` (optional) says where the eyes are, so the pal can swap in expression eyes: `at` (the two centres), `r` (their size), and optionally `ink` (their color), `glow` (`true` or a color) and `own` (expressions your eyes already do well, e.g. `['wide']`). While they show, the parts marked `class="dp-eyes"` hide (or the `.dp-blink` parts). Without `eyes`, the eyes just squint for moods.
 - Let bodies run below `y=200`, so jumping reveals more body instead of a flat edge.
 
-You can add actions too, with `registerAction('pop', { keyframes, duration, particles })`.
+You can add actions too, with `registerAction('pop', { keyframes, duration, particles })`. `particles` is a shape (`heart`, `sparkle`, `star`, `sweat` or `z`, drawn as SVG) or any text or emoji.
 
 ### Accessibility
 
 - Each pal has `role="img"` and an `aria-label` that includes its current mood, for example "Grok (working)".
-- With `prefers-reduced-motion: reduce`, idle loops, eye wandering and the floating *z*s are turned off, but state changes are still shown.
+- With `prefers-reduced-motion: reduce`, the pal keeps its faces, blinks and state changes, but skips the big moves: idle loops, eye wandering, leaning, particles, the floating *z*s, state entry moves and the hover, click and dizzy moves.
 - Speech bubbles are decorative. Keep your own visible status text for screen-reader users.
 
 ## Documentation

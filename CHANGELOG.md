@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-30
+
+### Added
+
+- **Notch 2.0**: the notch is rebuilt around a small state machine (`bridge/ui/notch-state.js`, pure and tested) and comes in four sizes:
+  - **hidden**: a thin, invisible strip at the top edge, when nothing is running or you've been away for 3 minutes,
+  - **peek**: hover that strip and a small island peeks out; rest on it a moment to open it,
+  - **bar**: mini pals for each agent, the current step and a usage ring; hover for about 200 ms, or click, to open,
+  - **open**: 640 px wide, with a big pal on the left, one card on the right, a column of mini pals for the other agents, and **Now** and **Story** tabs.
+- **Now** tab: a live diff of the file the agent is editing, with a language chip and the newest line typing in (`bridge/ui/notch-diff.js`), or a checklist of its steps; then its plan, context, helpers and your usage. An approval card with **Deny** (Ctrl+Alt+N) and **Allow** (Ctrl+Alt+Y), ⌘⌥N and ⌘⌥Y on macOS. These shortcuts are held only while the card is showing. A done card (about 5 s) and an error card (about 8 s).
+- **Story** tab: today's totals with Copy today, the plan, helpers, the context window with Copy /compact, the "Using" row, the two-agents-one-file note, and the last few requests as chapters you can expand.
+- **The pal's faces**: expression eyes (happy, closed, wide, ×, spinning spirals, hearts and sparkle-stars) that swap in with the mood, behind a blink. New `pal.emote(name, ms?)`, `pal.greet()`, `pal.burst(kind?, count?)`, the read-only `pal.tiny`, and static `DotPal.pointAt(x, y)` and `DotPal.emotes`.
+- New actions: `hop`, `jitter`, `hello` and `dizzy`.
+- `CharacterDefinition.eyes` (`at`, `r`, `ink`, `glow`, `own`) and the `.dp-eyes` class hook, so your own characters get expression eyes. Every built-in character and custom pal has them.
+- Particles are drawn as SVG, so they look the same everywhere. An action's `particles` takes a shape name: `heart`, `sparkle`, `star`, `sweat` or `z` (any other text still works).
+- The `lean="none"` attribute, the `--dp-glow` CSS variable (a soft light behind the pal in its state's color; set it to `transparent` to turn it off), and the `tiny` attribute, set by itself under 48 px (no fur, bigger eyes).
+- The `dotpal-poke` event, `{ count }`, on every click.
+- Reactions: the pal blinks when you hover it, gets heart eyes when you rest the mouse on it for 2 s, makes a "hey" face when you click, and gets dizzy after 3 quick clicks.
+- **A new launch video** with sound (47 s, filmed from the real app), attached to the release, and a new README GIF.
+
+### Changed
+
+- **The notch opens and closes by itself, sensibly.** Alerts open it, one at a time. One that needs you shows even when you're away and stays until you answer. Opened by you, it closes 8 s after the pointer leaves (it covers tabs and title bars), or after a quiet minute with the pointer resting on it, with a shrinking line for the last seconds. Esc closes it, but only while the pointer is over it, so it never takes Esc from your editor.
+- **The notch's window lets clicks through everywhere except the island**, and the peek never takes a click. The window gets the cursor position and your idle time from the app, since it never takes focus.
+- The notch opens with a spring and closes cleanly, its content fades between views, and it respects `prefers-reduced-motion`. The when-to-show modes (auto, always, off) are unchanged.
+- The notch dismisses a session from the open view ("× Dismiss" under the agent's pal, on hover), as well as from the × on the session's tab in the pal.
+- State entry moves: `waiting` hops, then bounces (it used to wobble); `error` jitters; `done` jumps with sparkles; and after 90 s of work the pal breaks a sweat now and then.
+- `during()` plays `jitter` on failure instead of `shake`.
+- Moods, idle loops and actions blend into each other instead of snapping.
+- With reduced motion, the pal keeps its faces and blinks but skips the big moves.
+
 ## [0.8.1] - 2026-09-30
 
 ### Fixed
@@ -152,7 +183,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/rikinshah787/dotpals/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/rikinshah787/dotpals/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/rikinshah787/dotpals/compare/v0.6.0...v0.7.0

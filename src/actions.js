@@ -1,5 +1,8 @@
 // One-shot actions, played with the Web Animations API on the `.dp-actor`
 // wrapper. They compose with the looping idle animation on the parent.
+//
+// `particles` is one of the built-in particle shapes ('heart', 'sparkle',
+// 'star', 'sweat', 'z'), or any other text/emoji glyph.
 
 const squashStretch = (y, sx, sy) => `translateY(${y}%) scale(${sx}, ${sy})`;
 
@@ -64,13 +67,68 @@ export const actions = {
   },
   love: {
     duration: 600,
-    particles: '♥',
+    particles: 'heart',
     keyframes: [
       { transform: 'scale(1)' },
       { transform: 'scale(1.1)', offset: 0.2 },
       { transform: 'scale(.97)', offset: 0.45 },
       { transform: 'scale(1.05)', offset: 0.65 },
       { transform: 'scale(1)' },
+    ],
+  },
+  // A quick rise that lands a little low and springs back ("hey, over here").
+  hop: {
+    duration: 560,
+    easing: 'linear',
+    keyframes: [
+      { transform: squashStretch(0, 1, 1), easing: 'cubic-bezier(.3,.6,.5,1)' },
+      { transform: squashStretch(0, 1.08, 0.92), offset: 0.14, easing: 'cubic-bezier(.2,.8,.3,1)' },
+      { transform: squashStretch(-13, 0.95, 1.06), offset: 0.42, easing: 'cubic-bezier(.6,0,.9,.5)' },
+      { transform: squashStretch(2.5, 1.09, 0.9), offset: 0.66, easing: 'cubic-bezier(.3,.7,.4,1)' },
+      { transform: squashStretch(-1.5, 0.98, 1.02), offset: 0.84, easing: 'ease-in-out' },
+      { transform: squashStretch(0, 1, 1) },
+    ],
+  },
+  // A fast side-to-side shudder that dies down: reads as "something went wrong".
+  jitter: {
+    duration: 520,
+    easing: 'linear',
+    keyframes: [
+      { transform: 'translateX(0)' },
+      { transform: 'translateX(-6%)', offset: 0.08 },
+      { transform: 'translateX(6%)', offset: 0.2 },
+      { transform: 'translateX(-5%)', offset: 0.32 },
+      { transform: 'translateX(4%)', offset: 0.44 },
+      { transform: 'translateX(-2.5%)', offset: 0.58 },
+      { transform: 'translateX(1.5%)', offset: 0.72 },
+      { transform: 'translateX(-.6%)', offset: 0.86 },
+      { transform: 'translateX(0)' },
+    ],
+  },
+  // Pop up from below the ledge, settle with a squash, then one little hop.
+  hello: {
+    duration: 1500,
+    easing: 'linear',
+    keyframes: [
+      { transform: 'translateY(80%) scale(.9, 1.08)', easing: 'cubic-bezier(.15,.75,.3,1)' },
+      { transform: 'translateY(-6%) scale(.96, 1.05)', offset: 0.3, easing: 'cubic-bezier(.5,0,.6,1)' },
+      { transform: 'translateY(0) scale(1.09, .9)', offset: 0.42, easing: 'cubic-bezier(.3,.7,.4,1)' },
+      { transform: 'translateY(0) scale(1, 1)', offset: 0.54 },
+      { transform: 'translateY(0) scale(1.06, .94)', offset: 0.62, easing: 'cubic-bezier(.2,.8,.3,1)' },
+      { transform: 'translateY(-11%) scale(.96, 1.05)', offset: 0.75, easing: 'cubic-bezier(.6,0,.8,.4)' },
+      { transform: 'translateY(0) scale(1.07, .93)', offset: 0.87, easing: 'ease-out' },
+      { transform: 'translateY(0) scale(1, 1)' },
+    ],
+  },
+  // Two fast turns that run out of steam.
+  dizzy: {
+    duration: 1150,
+    easing: 'linear',
+    keyframes: [
+      { transform: 'rotateY(0) scale(1, 1)', easing: 'cubic-bezier(.4,0,.6,1)' },
+      { transform: 'rotateY(380deg) scale(.95, 1.05)', offset: 0.45, easing: 'cubic-bezier(.2,.6,.3,1)' },
+      { transform: 'rotateY(720deg) scale(1.06, .95)', offset: 0.85, easing: 'ease-in-out' },
+      { transform: 'rotateY(720deg) scale(1, 1)' },
     ],
   },
 };

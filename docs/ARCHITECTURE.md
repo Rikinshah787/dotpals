@@ -13,6 +13,8 @@ This document is for contributors. It explains how dotpals is put together: wher
 - [Share with your agents](#share-with-your-agents)
 - [Approve from the pal](#approve-from-the-pal)
 - [The desktop app](#the-desktop-app)
+  - [The notch](#the-notch)
+- [The web component](#the-web-component)
 - [Persistence](#persistence)
 - [Security model](#security-model)
 - [Testing](#testing)
@@ -64,9 +66,10 @@ Everything runs on your computer. Nothing is fetched from, or sent to, the inter
 | Usage | `bridge/usage.js`, `bridge/statusline.js` | Plan limits (5-hour and weekly) and Claude context-window sizes, read from local files. |
 | Story engine | `bridge/ui/story.js`, `bridge/ui/recap.js` | Pure functions shared by every view (and Node): requests, chapters, flags, plan, headline, toolkit, overlaps, compact note, Markdown recaps. |
 | Views | `bridge/index.html`, `bridge/notch.html`, `bridge/dashboard.html` | The pal (Summary, Tools, Files), the notch, and the dashboard (Overview, Sessions, Map, Agents, Settings). |
+| Notch logic | `bridge/ui/notch-state.js`, `bridge/ui/notch-diff.js` | Pure modules for the notch (they run in Node too): its state machine (when it hides, peeks, shows its bar or opens, and which alert it shows) and its live diff card (a patch as a few display lines, and a language chip for a file). |
 | Desktop app | `desktop/main.js`, `desktop/preload.cjs`, `desktop/launch.js` | Electron: the pal, notch and dashboard windows, tray, shortcut, click-through and drag. Runs the bridge in-process. |
 | CLI | `bin/dotpals.js` | `setup`, `start`, `dashboard`, `status`, `notch`, `statusline`, `bridge`. |
-| Web component | `src/*.js`, `src/index.d.ts` | `<dot-pal>`, the characters, custom pals, actions and agent-event helpers. Used by every view and published on its own. |
+| Web component | `src/*.js`, `src/index.d.ts` | `<dot-pal>`, the characters, custom pals, actions and agent-event helpers. Used by every view and published on its own. See [The web component](#the-web-component). |
 
 ## The activity entry model
 
@@ -179,7 +182,7 @@ The bridge alone decides when a session is over. Viewers never end a session on 
 - The bridge remembers each session's last state update and the time of its newest event (`lastHeard`).
 - A reaper runs every 30 s. A session that has been quiet for **15 minutes** (`SLEEP_AFTER`), or **60 minutes** if its state is `waiting` (`SLEEP_AFTER_WAITING`, in case you stepped away), is set to `sleeping`.
 - An agent can also end a session itself (for example Claude Code's `SessionEnd`, or `sessionEnd` from Cursor, Gemini CLI and Copilot CLI map to `sleeping`).
-- You can dismiss a session with the × on its tab in the pal or its card in the notch. That calls `POST /api/sessions/<id>/dismiss`, which sets it to `sleeping` for every viewer. History isn't touched, and the next event from the agent brings it back.
+- You can dismiss a session with the × on its tab in the pal. That calls `POST /api/sessions/<id>/dismiss`, which sets it to `sleeping` for every viewer. History isn't touched, and the next event from the agent brings it back.
 - `sleeping` removes the session's state, context and helpers from the bridge. Viewers let its pal play the sleeping animation, then remove it 6 s later. Any later event brings it back.
 - Separately, the pal page lets a quiet pal **doze** (the sleeping animation) after 3 minutes without events. The next event wakes it. This is only cosmetic.
 - Small mode shows only *active* sessions: working, thinking, speaking or waiting, or with an event in the last 2 minutes. If none are active, it shows the most recent one. The full view's session tabs list sessions with a pal on the stage or an event in the last 30 minutes (at most six, plus the one you picked). The notch shows sessions that are working or waiting, plus those that finished in the last 90 s.
@@ -229,7 +232,7 @@ The bridge keeps, per session, a list of the helper agents (subagents) it starte
 - **`helperFromHook`**: Claude Code's `SubagentStart` and `SubagentStop`, and the `agent_id` on a helper's own `PreToolUse` calls. A helper seen this way is paired with the oldest running Agent call of the same type; from then on its lifecycle hooks, not the tool call, decide when it's done (a background helper's tool call returns long before the helper finishes), and `doing` is its current step as a sentence.
 - **`helperFromEvent`**: the `helper` field of generic events, `{ id, name?, task?, state: 'working' | 'done' | 'error', text? }`.
 
-Finished helpers stay listed for 60 s. The list is dropped when the session sleeps. The pal shows it on the running request; the notch under each agent's card.
+Finished helpers stay listed for 60 s. The list is dropped when the session sleeps. The pal shows it on the running request; the notch on its Now tab and its Story tab.
 
 ## Share with your agents
 
@@ -271,13 +274,103 @@ Claude Code ── PermissionRequest (sync hook, timeout 130 s) ──▶ hook.j
 - **The pal window**: frameless, transparent, always on top (at the `floating` level, on every workspace, above full-screen apps), no taskbar entry. Full view is 380×600 (height remembered), small mode ("Just the pal") is 260×290 and resizes around the bottom-right corner. It loads `http://127.0.0.1:<port>/?float=1` (falling back to the file). Closing hides it; **Ctrl+Alt+P** (⌘⌥P) toggles it.
 - **Drag**: the page handles the pointer on the pal (under 5 px is a click) and asks the main process to follow the real cursor with `setBounds`, always passing the exact intended size, because Windows display scaling makes a window creep bigger on every move. The empty space in the full view is a normal drag region.
 - **Click-through**: in small mode the page tells the main process whether the cursor is over something solid (the pal's drawn shapes, its bubble, the round bar, an approval card). Over empty space the window ignores the mouse with `forward: true`, so clicks reach your editor while the page still gets mouse moves. Linux can't forward moves, so there the window stays solid. The main process also polls the cursor every 100 ms to tell the page when the mouse is over the window, because drag regions swallow mouse events on Windows.
-- **The notch**: a separate frameless, non-focusable window centred at the top of the primary display (at the `screen-saver` level; a `panel` on macOS). The page reports the island's size and the window is resized to fit (it grows at once and shrinks after the closing animation), so it never blocks clicks around it. Mode `auto` (shown whenever the pal is hidden, the default), `always` or `off`, set from the tray or `dotpals notch`. It loads `/bridge/notch.html` and fetches usage over IPC every 20 s.
+- **The notch**: a separate frameless window that never takes focus, centred at the top of the primary display (at the `screen-saver` level; a `panel` on macOS). See [The notch](#the-notch) below.
 - **The dashboard**: a normal 1180×820 window on `/dashboard`. Links to other sites, `vscode:` and `cursor:` open outside the app.
 - **Tray**: Show / hide, Just the pal, Notch at the top of the screen (When the pal is hidden, Always, Never), Dashboard, Notifications, Open when I log in, Quit dotpals.
 - **Notifications** are decided by the page (`notify()` in `index.html`) and shown by the main process if `notifications` is on.
 - On macOS the app lives in the menu bar, not the Dock. On Linux it enables transparent visuals.
 
 `desktop/launch.js` finds Electron (`DOTPALS_ELECTRON`, then this package's `node_modules`, then `~/.dotpals/node_modules`), installs it into `~/.dotpals` with `--install`, and starts the app with `ELECTRON_RUN_AS_NODE` removed from the environment.
+
+### The notch
+
+An island that hangs from the top of the screen. Four pieces work together:
+
+| Piece | File | Job |
+| --- | --- | --- |
+| State machine | `bridge/ui/notch-state.js` | Decides when the notch hides, peeks, shows its bar or opens, and which alert it shows. Pure: no timers, no DOM. |
+| Diff card | `bridge/ui/notch-diff.js` | Turns an edit's patch into a few display lines, and a file name into a language chip. Pure. |
+| Page | `bridge/notch.html` | Feeds events to the state machine, draws what it says, and asks the app for a window size and for shortcuts. |
+| Window | `desktop/main.js`, `desktop/preload.cjs` | Sizes and places the window, lets clicks through, and sends the cursor, idle time and shortcut presses. |
+
+**Sizes.** `derive()` returns one of four modes:
+
+- `hidden`: nothing is running, or you've been away (no keyboard or mouse) for 3 minutes. The window shrinks to a thin, invisible strip (220×5 px) at the top edge, so hovering there can still wake it.
+- `peek`: you're hovering that strip, and a small island peeks out. Rest the pointer on it for 600 ms and it opens. Sliding along the top edge (to reach a browser tab, say) restarts that wait, and moving away hides it after 350 ms.
+- `bar`: agents are working. A slim island with a mini pal per agent (up to 4, then "+N"), the current step, the plan step or helper count, and a ring for your highest usage limit. Hover it for 200 ms, or click, to open.
+- `open`: the big view, 640 px wide.
+
+**The state machine.** `reduce(state, event, now)` returns the next state, `derive(state, now)` says what to show (`{ mode, alert, by, countdown, queued }`), and `nextWake(state, now)` says how many milliseconds until the page should send a `tick` (a dwell finishes, news runs out, it closes by itself). The page passes the time in, so tests can drive it without waiting. Events:
+
+| Event | Meaning |
+| --- | --- |
+| `{ type: 'agents', running }` | How many agents are working or waiting for you. |
+| `{ type: 'idle', seconds }` | The computer's idle time. 3 minutes or more means you're away. |
+| `{ type: 'pointer', inside, restless? }` | The pointer moved. `inside`: over the island (or the hidden strip). `restless`: it moved more than a few px, which restarts a peek's wait. |
+| `{ type: 'click' }` | A click on the island: it opens. |
+| `{ type: 'close' }` | Esc or the close button. Needs-you alerts are set aside until you open it again. |
+| `{ type: 'alert', id, kind, session }` | An alert: `need`, `done` or `error`. |
+| `{ type: 'resolve', id }` or `{ type: 'resolve', session, kind? }` | An alert is over (answered, or the agent moved on). |
+| `{ type: 'tick' }` | Time passed. |
+
+The rules:
+
+- **Alerts open it by themselves** and queue, one at a time: needs-you first, then done and error news, each in the order they came. The header shows how many are waiting ("+2 waiting").
+- **Needs-you** alerts (an approval, or an agent waiting for you) stay until they're answered, and show even when you're away. Esc sets one aside until you open the notch again.
+- **News** (`done`, `error`) shows for `doneFor` (5 s) or `errorFor` (8 s), with a shrinking line, then the notch closes. It waits while you're away, and news older than 15 minutes is dropped. Moving the pointer over news makes it yours: it stays open like one you opened.
+- **Opened by you** (hover, a peek or a click), it closes `afterLeave` (8 s) after the pointer leaves, because an open notch covers browser tabs and title bars. With the pointer resting on it, it closes after `autoClose` (a minute) with no mouse activity. The last stretch (up to 10 s) shows as a shrinking line.
+- After a close, hovering where it was doesn't open it again until the pointer has left.
+
+All the timings are in `TIMING` at the top of the file: `barOpen` 200 ms, `peekOpen` 600 ms, `peekLinger` 350 ms, `doneFor` 5 s, `errorFor` 8 s, `autoClose` 60 s, `afterLeave` 8 s, `countdown` 10 s, `away` 3 min, `staleNews` 15 min.
+
+**Feeds from the app.** The window never takes focus, so it can't see the mouse or the keyboard on its own. `desktop/main.js` sends it:
+
+- **`window:cursor`** `{ x, y, width, height }`: where the cursor is, relative to the window's content in CSS px (so it can be outside the window), about 30 times a second while it moves. `width` and `height` are the content size it was measured against, so the page can hit-test correctly mid-resize. The page works out whether the pointer is over the island, and passes the point to `DotPal.pointAt()` so the pals' eyes follow the cursor anywhere on screen. The pal window gets the same feed.
+- **`notch:idle`** (seconds): `powerMonitor.getSystemIdleTime()` every 2 s while the notch is on screen.
+- Usage limits, over IPC (`usage`), which the page asks for every 20 s.
+
+`preload.cjs` exposes these as `onCursor(fn)` (returns a function that stops listening), `onIdle(fn)`, `usage()`, `notchSize(width, height, island)`, `notchKeys(want)`, `onNotchKey(fn)` and `platform` (to show "Ctrl+Alt+Y" or "⌘⌥Y").
+
+**Window size and click-through.** The page sends `notch:size` with the window size it needs (the island plus room for its shadow and springy overshoot: 26 px each side, 34 px below) and the island's own `{ w, h }`. The window grows at once and shrinks 380 ms later, after the closing animation. Every 33 ms the app checks whether the cursor is over the island, which hangs from the top centre, and calls `setIgnoreMouseEvents()` so clicks go through everywhere else. A peek reports no island, so it never takes a click: the top edge is where browser tabs are.
+
+**Shortcuts.** Keys are global shortcuts, held only while needed. The page asks with `notchKeys({ escape, approval })` and gets back which ones were registered (`{ escape, allow, deny }`); presses come back as `notch:key`.
+
+- **Esc** only while the notch is open, the pointer is over it and has moved in the last 8 s, so it never takes Esc from your editor.
+- **Ctrl+Alt+Y** (Allow) and **Ctrl+Alt+N** (Deny), ⌘⌥Y and ⌘⌥N on macOS, only while an approval card is showing on the Now tab.
+- They're released the moment they aren't wanted, and whenever the notch hides, reloads, crashes or closes. If another app already holds one, the card doesn't show its key hint.
+
+**The page.** The open view has the agent in focus as a big pal on the left (the agent an alert is about, else the one you clicked, else the busiest), one card on the right, a column of mini pals for the other agents (with 2 or more), and two tabs:
+
+- **Now**: an approval card with Deny and Allow, a "needs you" card, a done card (what you asked, what it said, the files it changed), an error card (the failed step and its error), or, while it works, a live diff of the file it's editing (from `diffOf()`: the newest change, up to 8 lines, the newest added line typing in) or a checklist of its steps and what's left on its plan. Below that: plan and context bars, helpers and usage limits.
+- **Story**: Today (requests, files changed, commands, agent time, with Copy today), the plan, helpers, the context bar with Copy /compact (from 60%), the "Using" row, the note when another agent changed the same file, and the last 3 requests as chapters you can expand. It's built from the story engine, like the pal's Summary.
+
+The tab you pick is remembered separately for busy and idle agents (`dotpals.notch.tabs` in local storage). `diffOf()` reads all three patch shapes the adapters produce: `-old`/`+new` lines (Claude Code, Cursor, Gemini CLI, OpenCode), Codex's `apply_patch`, and unified diffs.
+
+**Motion.** The island springs a little past its size when it grows (500 ms) and shrinks without a bounce (340 ms). The view that leaves fades out with a blur and the new one fades in, and the mini pals slide between the bar and the column. With `prefers-reduced-motion`, all of that is turned off.
+
+**When it shows.** Mode `auto` (whenever the pal is hidden, the default), `always` or `off`, set from the tray or `dotpals notch`. It loads `/bridge/notch.html` from the bridge (or the file, if the bridge isn't up yet).
+
+## The web component
+
+`src/` is the `<dot-pal>` element. It has no dependencies and no build step. `src/index.d.ts` is the source of truth for its public API.
+
+| File | What it has |
+| --- | --- |
+| `element.js` | The element: states, moods, faces, reactions, the bubble, particles and blending. |
+| `characters.js` | The eight built-in characters and `registerCharacter()`. |
+| `custom.js` | The pal builder: `buildCharacter()`, `registerCustom()`, `cleanCustom()`. Works in Node. |
+| `actions.js` | One-shot actions for `play()` and `registerAction()`. |
+| `agent.js` | `toAgentState()`, `connectAgent()` and `agentHandler()`. |
+
+- **Layers.** Inside the shadow root: a glow (`--dp-glow`), then `.dp-idle` (the looping idle or mood animation, in CSS), `.dp-pose` (the lean toward the cursor and the dizzy sway) and `.dp-actor` (one-shot actions, with the Web Animations API), around the SVG. Particles are drawn in a separate SVG layer and the bubble sits on top. A ledge clips everything below the bottom edge, so a pal can rise up from below without adding scrollbars.
+- **Faces.** A character that says where its eyes are (`eyes: { at, r }`) gets expression eyes: `eyeShape()` draws happy arcs, closed lids, wide eyes, ×, spirals, hearts or sparkle-stars at those points, and the character's own eyes (`.dp-eyes`, or else `.dp-blink`) hide meanwhile. `MOOD_EYES` picks them for moods (happy → happy, sleepy → closed, surprised and waiting → wide; the error state shows ×). `emote()` faces win over the mood for a moment. The swap happens behind a quick blink. A character without eye anchors just squints its own eyes, as before.
+- **Blending.** Before a mood, idle loop or action changes, the element measures the current transform and plays a short additive animation from the old pose into the new one (`#morph`, `#bridgeFrom`). So nothing snaps, even when an action interrupts another.
+- **Timelines.** Faces and reactions run as small scripts (`#run(channel, cues)`) on one animation-frame loop. A newer script on the same channel ends the old one, and the old one's open faces are still cleared.
+- **Reactions.** Hover: a blink, a squish and slightly bigger eyes. Rest the mouse on it for 2 s: heart eyes (at most every 20 s). Click: its tap action and a "hey" face, and a `dotpal-poke` event. Three clicks within 1.2 s: dizzy. `static` turns these off.
+- **State entry moves.** `waiting` hops, then its loop bounces; `error` jitters; `done` jumps and throws sparkles. After 90 s of `working` or `thinking`, a sweat drop now and then.
+- **Tiny.** Under 48 px (from a pixel `size`, or a `ResizeObserver` for other lengths) the element sets the `tiny` attribute: no fur, no glow, no particles and no lean, bigger eyes and mouth, deeper breathing and more glancing, so an avatar still reads as alive. The notch's mini pals are tiny.
+- **One pointer listener** for every pal on the page, fanned out once per frame. `DotPal.pointAt(x, y)` feeds it from outside, which is how the desktop app's cursor feed reaches the pals.
+- **Reduced motion.** With `prefers-reduced-motion: reduce`, faces and blinks still change, but idle loops, eye wandering, the lean, particles and the pal's own moves (entry moves, hover and click moves, the hello and the dizzy spin) are skipped.
 
 ## Persistence
 
@@ -295,7 +388,7 @@ Everything lives in `~/.dotpals` (or `DOTPALS_HOME`):
 Also:
 
 - The desktop app keeps window position, height, small mode and notch mode in `window.json` in Electron's user-data folder for the app (for example `%APPDATA%\dotpals` on Windows).
-- The browser pal keeps the sound toggle and first character in `localStorage`.
+- The browser pal keeps the sound toggle and first character in `localStorage`, and the notch keeps the tab you last chose (`dotpals.notch.tabs`).
 - Connecting an agent, or `dotpals statusline`, keeps the original file as `<file>.dotpals-backup` next to it.
 
 ## Security model
@@ -320,6 +413,7 @@ npm test          # node --test: every test/*.test.js, no dependencies needed
 - Tests start real bridges on random ports (5190 and up) with `startBridge({ port, log: () => {} })`, and keep away from your real files with `DOTPALS_HOME` (a temp folder), `DOTPALS_CODEX=0`, `DOTPALS_CLAUDE_LOGS=0`, `DOTPALS_HISTORY=0` and the `DOTPALS_*_DIR` variables.
 - Adapter tests feed sample events into `apply…()` functions and check the entries; connect tests check that config files are merged, backed up and restored.
 - `test/server.test.js` covers generic events, static paths, sleeping sessions and approvals; `test/story.test.js` covers the story engine and Codex usage.
+- `test/notch-state.test.js` drives the notch's state machine with made-up times (no waiting), and checks `diffOf()` and `language()`. `test/element.test.js` checks the pal's pure parts in Node: expression eyes, particles, gaze, every character's eye anchors and the new actions.
 - CI (`.github/workflows/ci.yml`) checks the syntax of every file and runs the tests on Node 20 and 22 on Linux, Windows and macOS. Electron isn't installed in CI.
 
 For the UI, run `npm run float` (the desktop pal) or `npm run bridge` and open `http://127.0.0.1:5175/` and `/dashboard`. `npm run dev` serves the web component playground on port 5173.

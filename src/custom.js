@@ -47,32 +47,34 @@ const SHAPES = {
   },
 };
 
-// Eyes: each returns SVG with the element's hooks (.dp-blink closes, .dp-look follows the pointer).
+// Eyes: each returns SVG with the element's hooks (.dp-blink closes, .dp-look follows the pointer;
+// .dp-eyes, when present, is what hides while expression eyes show). `alt(spread)` sizes those
+// expression eyes and picks their ink.
 const EYES = {
   dots: {
-    label: 'Dots', look: 6,
+    label: 'Dots', look: 6, alt: () => ({ r: 10 }),
     draw: (y, d) => `<g class="dp-look">${[-d, d].map((x) => `<g class="dp-blink"><ellipse cx="${100 + x}" cy="${y}" rx="7.5" ry="11.5" fill="${INK}"/>${shine(98 + x, y - 5, 2.2)}</g>`).join('')}</g>`,
   },
   round: {
-    label: 'Button', look: 7,
+    label: 'Button', look: 7, alt: () => ({ r: 11 }),
     draw: (y, d) => `<g class="dp-look">${[-d, d].map((x) => `<g class="dp-blink"><circle cx="${100 + x}" cy="${y}" r="10.5" fill="${INK}"/>${shine(97 + x, y - 4, 3)}</g>`).join('')}</g>`,
   },
   googly: {
-    label: 'Googly', look: 7,
+    label: 'Googly', look: 7, alt: (d) => ({ r: d > 30 ? 17 : 13, own: ['wide'] }),
     draw: (y, d) => [-d, d].map((x) => `<g class="dp-blink"><circle cx="${100 + x}" cy="${y}" r="${d > 30 ? 22 : 17}" fill="#fff" stroke="rgb(0 0 0 / .12)" stroke-width="2"/><g class="dp-look"><circle cx="${100 + x}" cy="${y}" r="${d > 30 ? 11.5 : 9}" fill="${INK}"/>${shine(96 + x, y - 4, 3)}</g></g>`).join(''),
   },
   pixel: {
-    label: 'Pixel', look: 7,
+    label: 'Pixel', look: 7, alt: () => ({ r: 11 }),
     draw: (y, d) => `<g class="dp-look">${[-d, d].map((x) => `<g class="dp-blink"><rect x="${91 + x}" y="${y - 9}" width="18" height="18" rx="3" fill="${INK}"/><rect x="${94 + x}" y="${y - 6}" width="5" height="5" fill="#fff"/></g>`).join('')}</g>`,
   },
   visor: {
-    label: 'Visor', look: 10,
+    label: 'Visor', look: 10, alt: () => ({ r: 12, ink: '#dff4ff', glow: true }),
     draw: (y, d) => `<rect x="${100 - d - 34}" y="${y - 27}" width="${2 * d + 68}" height="54" rx="27" fill="#0d1117" stroke="#252c38" stroke-width="3"/>
       <g class="dp-look" fill="#dff4ff" style="filter: drop-shadow(0 0 4px #9fdcff)">${[-d, d].map((x) => `<g class="dp-blink"><rect x="${91.5 + x}" y="${y - 14}" width="17" height="28" rx="8.5"/></g>`).join('')}</g>`,
   },
   shades: {
-    label: 'Shades', look: 5,
-    draw: (y, d) => `<g class="dp-look"><path d="M${100 - 6} ${y - 4} Q100 ${y - 10} ${100 + 6} ${y - 4}" stroke="${INK}" stroke-width="4.5" fill="none" stroke-linecap="round"/>${[-d, d].map((x) => `<circle cx="${100 + x}" cy="${y}" r="19" fill="#101014"/>${shine(93 + x, y - 7, 3)}`).join('')}</g>`,
+    label: 'Shades', look: 5, alt: () => ({ r: 11, ink: '#fff' }),
+    draw: (y, d) => `<g class="dp-look"><path d="M${100 - 6} ${y - 4} Q100 ${y - 10} ${100 + 6} ${y - 4}" stroke="${INK}" stroke-width="4.5" fill="none" stroke-linecap="round"/>${[-d, d].map((x) => `<circle cx="${100 + x}" cy="${y}" r="19" fill="#101014"/>`).join('')}<g class="dp-eyes">${[-d, d].map((x) => shine(93 + x, y - 7, 3)).join('')}</g></g>`,
   },
 };
 
@@ -149,6 +151,8 @@ export function buildCharacter(spec) {
     look: eyes.look,
     mouth: shape.mouth,
     cheek: shape.cheek,
+    // Where expression eyes (happy arcs, hearts…) go: on top of the drawn eyes.
+    eyes: { at: [[100 - spread, eyeY], [100 + spread, eyeY]], ...eyes.alt(spread) },
     fur: s.fur,
     render: ({ body }) => {
       const top = TOPS[s.top].draw(shape.top, shape.ears);
