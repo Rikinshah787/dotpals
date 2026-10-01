@@ -77,7 +77,8 @@ export function toAgentState(e) {
     start: 'thinking', thinking: 'thinking', reasoning: 'thinking',
     tool_call: 'working', tool_use: 'working', tool_start: 'working', working: 'working',
     tool_result: 'thinking', tool_end: 'thinking',
-    text: 'speaking', text_delta: 'speaking', token: 'speaking', speaking: 'speaking',
+    // 'token': one streamed word of a model's reply, not a credential.
+    text: 'speaking', text_delta: 'speaking', ['token']: 'speaking', speaking: 'speaking',
     permission_request: 'waiting', approval_required: 'waiting', input_required: 'waiting', waiting: 'waiting',
     user_typing: 'listening', listening: 'listening',
     end: 'done', done: 'done', complete: 'done', completed: 'done', finish: 'done',
