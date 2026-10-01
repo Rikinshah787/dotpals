@@ -1,5 +1,6 @@
 // dotpals landing page. Vanilla JS, no build step. The pals are the real
 // <dot-pal> web component from ../src (copied next to this file on Pages).
+import './theme.js';
 import { DotPal, registerCustom, CUSTOM_OPTIONS, agentHandler } from './src/index.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);

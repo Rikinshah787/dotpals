@@ -2,6 +2,8 @@
 // the phone menu, anchor links on headings and the current section in the sidebar.
 // Plain JS, no build step.
 
+import '../theme.js';
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 

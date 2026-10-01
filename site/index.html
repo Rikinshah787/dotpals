@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>try{var t=localStorage.getItem('dotpals.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>dotpals · See what your coding agent actually did</title>
   <meta name="description" content="A small floating pal that watches Claude Code, Codex or any coding agent and tells you in plain words what it did: files changed, commands run, what failed. Free, open source, local.">
-  <meta name="theme-color" content="#0b0a0e">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b0a0e" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f2ea" media="(prefers-color-scheme: light)">
+  <meta name="color-scheme" content="dark light">
   <link rel="canonical" href="https://rikinshah787.github.io/dotpals/">
 
   <meta property="og:type" content="website">
@@ -41,6 +43,10 @@
       <span class="brand-name">dotpals</span>
     </a>
     <a class="top-docs" href="./guide/">Docs</a>
+    <button class="theme-toggle" type="button" aria-label="Switch theme">
+      <svg class="i-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4"/><path d="M10 2.2v1.9M10 15.9v1.9M2.2 10h1.9M15.9 10h1.9M4.5 4.5l1.3 1.3M14.2 14.2l1.3 1.3M4.5 15.5l1.3-1.3M14.2 5.8l1.3-1.3"/></svg>
+      <svg class="i-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.3 12.4A6.9 6.9 0 0 1 7.6 3.7a6.9 6.9 0 1 0 8.7 8.7Z"/></svg>
+    </button>
 
     <!-- The notch: hover (or tap) to open. Driven by the hero pals below. -->
     <div class="notch" id="heroNotch" data-tone="work">

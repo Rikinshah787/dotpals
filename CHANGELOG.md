@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A light theme for the website** (the landing page and the docs). It follows your system setting, and a sun/moon button in the header switches it, remembered for next time. Mockups of the app (the notch, the pal's window, the terminal) stay dark, like the real thing.
+
 ### Changed
 
 - The website shows its visitor count on the home page ("1,284 visitors so far"), instead of counting with Vercel Web Analytics. Each browser counts once, the first time it visits, using a public counter that keeps only the number. No cookies, nothing about the visitor is sent, and the line stays hidden if the counter is down. The app still sends nothing anywhere.
