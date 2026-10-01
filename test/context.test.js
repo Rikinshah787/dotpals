@@ -17,6 +17,10 @@ after(() => rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 1
 
 const { startBridge } = await import('../bridge/server.js');
 
+/** A port no bridge in this file has used yet: fetch keeps connections alive, and reusing an old port could hand a test a dead one ("fetch failed"). */
+const usedPorts = new Set();
+const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port)); usedPorts.add(port); return port; };
+
 function readEvents(port, ms) {
   return new Promise((ok, fail) => {
     const req = get({ host: '127.0.0.1', port, path: '/events' }, (res) => {
@@ -49,7 +53,7 @@ test('context-window updates are sent, replayed to new viewers, and cleared', as
   let port;
   let server;
   for (let tries = 0; !server; tries++) {
-    port = 5190 + Math.floor(Math.random() * 2000);
+    port = freshPort();
     try { server = await startBridge({ port, log: () => {} }); } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
   }
   t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); await sleep(150); });

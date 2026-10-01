@@ -17,9 +17,13 @@ after(() => rm(home, { recursive: true, force: true }));
 
 const { startBridge } = await import('../bridge/server.js');
 
+/** A port no bridge in this file has used yet: fetch keeps connections alive, and reusing an old port could hand a test a dead one ("fetch failed"). */
+const usedPorts = new Set();
+const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port)); usedPorts.add(port); return port; };
+
 async function start() {
   for (let tries = 0; ; tries++) {
-    const port = 5190 + Math.floor(Math.random() * 2000);
+    const port = freshPort();
     try {
       return { port, server: await startBridge({ port, log: () => {} }) };
     } catch (err) {
@@ -128,7 +132,7 @@ test('a session that goes quiet is put to sleep by the bridge; an active one is 
   let server;
   let port;
   for (let tries = 0; !server; tries++) {
-    port = 5190 + Math.floor(Math.random() * 2000);
+    port = freshPort();
     try { server = await startBridge({ port, log: () => {}, sleepAfter: 400, sleepAfterWaiting: 5000 }); } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
   }
   const updates = [];
@@ -439,7 +443,7 @@ function fakeLaya(dir, { installed = true } = {}) {
 
 async function startWith(laya) {
   for (let tries = 0; ; tries++) {
-    const port = 5190 + Math.floor(Math.random() * 2000);
+    const port = freshPort();
     try { return { port, server: await startBridge({ port, log: () => {}, laya }) }; } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
   }
 }
@@ -533,7 +537,7 @@ test('"Install it" (the TypeSafe SDK) needs the header and runs one install at a
   let port;
   let server;
   for (let tries = 0; ; tries++) {
-    port = 5190 + Math.floor(Math.random() * 2000);
+    port = freshPort();
     try { server = await startBridge({ port, log: () => {}, installSdk: async () => { runs++; await new Promise((r) => setTimeout(r, 50)); return { ok: true }; } }); break; } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
   }
   try {

@@ -19,9 +19,13 @@ after(() => rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 1
 
 const { startBridge } = await import('../bridge/server.js');
 
+/** A port no bridge in this file has used yet: fetch keeps connections alive, and reusing an old port could hand a test a dead one ("fetch failed"). */
+const usedPorts = new Set();
+const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port)); usedPorts.add(port); return port; };
+
 async function start() {
   for (let tries = 0; ; tries++) {
-    const port = 5190 + Math.floor(Math.random() * 2000);
+    const port = freshPort();
     try {
       return { port, server: await startBridge({ port, log: () => {} }) };
     } catch (err) {
