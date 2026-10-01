@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { clip, clipText, folderName, relative, toPatch } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 import { describeCall } from './codex.js';
 import { removeOwnFile, writeOwnFile } from './setup.js';
 
@@ -142,8 +142,8 @@ export function applyOpenCode(e, log) {
     case 'tool.after': {
       const id = `${session}:${e.callID}`;
       const known = log.get(id);
-      if (known) add({ id, status: 'ok', ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, body: { output: clipText(e.output, 3000) || undefined } });
-      else add({ ...base, id, tool: e.tool, ...describeTool(e.tool, {}, e.cwd), title: clip(e.title || e.tool, 80), status: 'ok', body: { output: clipText(e.output, 3000) || undefined } });
+      if (known) add({ id, status: 'ok', ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, body: { output: clipEnds(e.output, 3000) || undefined } });
+      else add({ ...base, id, tool: e.tool, ...describeTool(e.tool, {}, e.cwd), title: clip(e.title || e.tool, 80), status: 'ok', body: { output: clipEnds(e.output, 3000) || undefined } });
       out.state = { state: 'thinking' };
       break;
     }

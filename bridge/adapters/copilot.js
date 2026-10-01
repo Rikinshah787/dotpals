@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipText, folderName, relative } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative } from '../activity.js';
 import { hookCommand, isOurs, readJson, removeOwnFile, writeOwnFile } from './setup.js';
 
 const ID = 'copilot';
@@ -69,7 +69,7 @@ export function applyCopilot(e, log) {
       add({
         ...base, id: `${session}:t:${at}-${n}`, tool: e.toolName, ...described, status: failed ? 'failed' : 'ok',
         error: failed ? clip(typeof e.error === 'string' ? e.error : e.error?.message ?? output, 300) || undefined : undefined,
-        body: { ...described.body, output: clipText(output, 3000) || undefined },
+        body: { ...described.body, output: clipEnds(output, 3000) || undefined },
       });
       out.state = { state: 'working', text: clip(described.title, 40) };
       break;

@@ -78,7 +78,9 @@
     .card, .tile, .detail, .split > * { min-width: 0; }
 
     /* -- stat tiles ------------------------------------------------------- */
-    .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; } /* 5 tiles, 6 with test checks */
+    .tile.click { cursor: pointer; } .tile.click:hover { border-color: var(--line-2, var(--muted)); }
+    .checkblock { display: grid; gap: 2px; }
     .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
     .tile .label { color: var(--muted); font-size: 12px; }
     .tile .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; letter-spacing: -.02em; }
@@ -110,6 +112,20 @@
     td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     tr.click { cursor: pointer; }
+    /* Recent checks (Settings → Double-check): what the checker was asked and what it said. */
+    .checks { border-top: 1px solid var(--line); padding-top: 12px; }
+    .checks h3 { margin: 0 0 4px; font-size: 13px; }
+    .checks .sum { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .checks table { font-size: 12.5px; }
+    .checks td { vertical-align: top; }
+    .checks .cmd { font: 12px var(--mono); }
+    .checks .why { color: var(--muted); }
+    .checks .said b { font-weight: 600; }
+    .checks .said .passed { color: var(--ok); } .checks .said .failed { color: var(--bad); } .checks .said .unsure { color: var(--warn); }
+    .checks details { margin-top: 4px; }
+    .checks details summary { cursor: pointer; color: var(--faint); font-size: 11.5px; }
+    .checks pre { margin: 6px 0 0; max-height: 180px; overflow: auto; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; background: var(--raise, rgba(255,255,255,.04)); border-radius: 8px; padding: 8px 10px; }
+    .checks button.link { background: none; border: 0; padding: 0; color: var(--accent, #8fb3ff); cursor: pointer; font: inherit; }
     tr.click:hover td { background: rgb(255 255 255 / .025); }
     .agent { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .agent i { width: 8px; height: 8px; border-radius: 50%; background: var(--h); }
@@ -143,6 +159,15 @@
     .turn .ask p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
     .turn .said { margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8de; }
     .turn .said b { color: var(--h); }
+    /* Simple view (see simple() in story.js) and its switch next to the session's tabs. */
+    .turn .simple { margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; }
+    .turn .simple .mark { flex: none; font-weight: 700; }
+    .turn .simple.ok .mark { color: var(--ok); } .turn .simple.failed .mark { color: var(--bad); }
+    .turn .simple.unclear .mark, .turn .simple.running .mark, .turn .simple.stopped .mark { color: var(--warn); }
+    .chapters .small-steps { color: var(--faint); font-size: 12px; padding: 4px 14px 6px; list-style: none; }
+    .viewseg { margin-left: auto; display: inline-flex; align-self: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .viewseg button { border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 12px; padding: 3px 10px; }
+    .viewseg button[aria-pressed="true"] { background: var(--raise); color: var(--text); }
     .turn .did { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
     .turn .did b { color: var(--text); font-weight: 600; }
     .turn .did .bad { color: var(--bad); }
@@ -169,6 +194,7 @@
     .k-skill { --k: var(--k-skill); } .k-plan, .k-tool, .k-compact, .k-prompt, .k-done, .k-error { --k: var(--k-other); }
     .body { display: grid; gap: 6px; padding: 4px 0 10px; }
     .body .label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .body > .ok { color: var(--ok); } .body > .bad { color: var(--bad); } .body > .wait { color: var(--warn); }
     pre.code { margin: 0; padding: 8px 10px; background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.5 var(--mono); color: #cfcfd6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
     pre.code .add { color: var(--add); background: color-mix(in srgb, var(--add) 9%, transparent); display: block; }
     pre.code .del { color: var(--del); background: color-mix(in srgb, var(--del) 9%, transparent); display: block; }
@@ -177,6 +203,7 @@
     /* -- settings --------------------------------------------------------- */
     .settings { display: grid; gap: 18px; }
     .row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+    [hidden] { display: none !important; } /* hidden wins over display: flex/grid rules like .row's */
     .row:first-of-type { border-top: 0; }
     .row .text { flex: 1; }
     .row .text small { display: block; color: var(--faint); font-size: 12px; }
@@ -185,6 +212,12 @@
     .switch:checked { background: var(--ok); }
     .switch:checked::after { transform: translateX(16px); }
     .switch:disabled { opacity: .5; cursor: not-allowed; }
+    input.field { font: inherit; font-size: 13px; color: var(--text); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; width: 240px; max-width: 100%; }
+    .keyform { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .warn-text { color: var(--warn); font-size: 13px; }
+    details.adv summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .l-line { overflow-wrap: anywhere; }
+    .row .text small.ok { color: var(--ok); } .row .text small.bad { color: var(--bad); }
     .preview { display: flex; align-items: flex-end; justify-content: center; height: 150px; padding-top: 40px; overflow: hidden; background: var(--sunk); border-radius: 12px; border: 1px solid var(--line); }
     /* Make your own pal */
     .maker { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; margin-top: 12px; }
@@ -485,6 +518,43 @@
           </div>
 
           <div class="card">
+            <h2>Double-check unclear test results</h2>
+            <p class="muted" style="margin:4px 0 0">dotpals reads each test run’s output for its summary (“48 passed”, “1 failed”). When it can’t tell, say no tests ran or the exit code disagrees with the output, it says <b>Tests unclear</b>. A checker can look at those runs once and decide. Clear results are never sent.</p>
+            <div class="row"><div class="text">Checker<small>Off unless you choose one.</small></div>
+              <div class="chips" id="c-mode" role="group" aria-label="Checker">
+                <button type="button" data-value="off">Off</button>
+                <button type="button" data-value="local">Local (Laya)</button>
+                <button type="button" data-value="cloud">Cloud (Jev)</button>
+              </div></div>
+            <div id="c-local" hidden>
+              <div class="row"><div class="text">Laya on this computer<small id="l-note">Installs <a href="https://huggingface.co/convaiinnovations/laya" target="_blank" rel="noopener">Laya ↗</a> (free, open source, runs on this computer) into dotpals’ own folder. Needs Python 3.10+. It downloads a few GB the first time (PyTorch and the model). Nothing leaves your computer.</small><small id="l-state" aria-live="polite"></small></div>
+                <div class="keyform">
+                  <button type="button" id="l-setup">Set up Laya</button>
+                  <button type="button" id="l-start" hidden>Start</button>
+                  <button type="button" id="l-stop" hidden>Stop</button>
+                  <button type="button" class="danger" id="l-remove" hidden>Remove Laya</button>
+                </div></div>
+              <div class="row" id="l-progress" hidden><div class="text"><span id="l-phase"></span><small class="mono l-line" id="l-line"></small></div></div>
+              <div class="row" id="l-python" hidden><div class="text warn-text">Python 3.10 or newer isn’t installed. <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">Install Python 3.10 or newer ↗</a>, then click <b>Set up Laya</b> again.<span id="l-python-win" hidden> In the Windows installer, tick “Add python.exe to PATH”.</span></div></div>
+              <details class="adv" id="l-adv"><summary>Advanced: use my own Laya server</summary>
+                <div class="row"><div class="text">Laya’s address<small>Run Laya yourself: <span class="mono">pip install "laya[serve]"</span>, then <span class="mono">LAYA_HOST=127.0.0.1 laya-serve</span> (PowerShell: <span class="mono">$env:LAYA_HOST="127.0.0.1"; laya-serve</span>). It listens on port 8000 (<span class="mono">LAYA_PORT</span> changes it) and downloads its model the first time. The address must be on this computer. If dotpals set Laya up, it runs it on this address’s port.</small></div>
+                  <input type="text" class="field" id="c-url" spellcheck="false" autocomplete="off" aria-label="Laya’s address"></div>
+              </details>
+            </div>
+            <div id="c-cloud" hidden>
+              <div class="row"><div class="text">TypeSafe API key<small id="c-key-state">No key saved.</small><small>Get one at <a href="https://console.typesafe.ai" target="_blank" rel="noopener">console.typesafe.ai ↗</a>. It’s kept in your dotpals settings file and only sent to TypeSafe.</small></div>
+                <form class="keyform" id="c-key-form" autocomplete="off">
+                  <input type="password" class="field" id="c-key" autocomplete="new-password" spellcheck="false" placeholder="Paste a key" aria-label="TypeSafe API key">
+                  <button type="submit">Save</button>
+                  <button type="button" class="danger" id="c-key-remove" hidden>Remove key</button>
+                </form></div>
+              <div class="row"><div class="text warn-text">Sends the test output to TypeSafe, after removing anything that looks like a password, key, email or IP address.</div></div>
+            </div>
+            <div class="row" id="c-test-row" hidden><div class="text">Test connection<small id="c-test-note">One tiny request, to check the checker answers.</small></div><button type="button" id="c-test">Test connection</button></div>
+            <div id="c-checks" class="checks" hidden></div>
+          </div>
+
+          <div class="card">
             <h2>History</h2>
             <div class="row"><div class="text">Keep history<small id="history-where">Saved on this computer only.</small></div><input type="checkbox" class="switch" id="s-history" aria-label="Keep history"></div>
             <div class="row"><div class="text">Keep for<small>Older activity is dropped.</small></div>
@@ -510,7 +580,7 @@
       buildTurns, facts, sentence, plain, turnMarkdown, recapMarkdown, summarizeSessions, turnTime,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
-    import { overlaps, retries, story } from '/bridge/ui/story.js';
+    import { checkOf, minorChapter, overlaps, retries, simple, stepType, story, testVerdict, testWords } from '/bridge/ui/story.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -541,6 +611,8 @@
     source.onerror = () => { $('dot').classList.remove('on'); $('live').textContent = 'offline, retrying…'; };
     source.addEventListener('activity', (e) => { const a = JSON.parse(e.data); entries.set(a.id, a); scheduleRender(); });
     source.addEventListener('config', (e) => { config = JSON.parse(e.data); renderSettings(); });
+    // Laya on this computer, set up by dotpals: install and start progress, live.
+    source.addEventListener('laya', (e) => { if (config?.checker) { config.checker.laya = JSON.parse(e.data); renderChecker(); } });
     source.addEventListener('reset', () => { entries.clear(); render(); });
     source.addEventListener('agents', (e) => { if (status) { status.agents = JSON.parse(e.data); renderAgents(); } });
 
@@ -612,11 +684,31 @@
         tile('Commands run', f.runs, failed),
         tile('Agent time', time ? hours(time) : '0m', el('div', 'sub', 'working on your requests')),
         tile('Sessions', sessions.size, el('div', 'sub', [...new Set(list.map((e) => harnessName(e.harness)))].join(' · ') || '—')),
+        ...[checkTile(list)].filter(Boolean),
       );
       renderTimeline();
       renderChart();
       renderProjects(list);
       renderRecent(turns);
+    }
+
+    /**
+     * Test runs the rules couldn't call and a checker looked at (only when there are some):
+     * how many, what it said, how fast. Click it for the list (Settings → Recent checks).
+     */
+    function checkTile(list) {
+      const checks = list.map(checkOf).filter(Boolean);
+      if (!checks.length) return null;
+      const n = (s) => checks.filter((c) => c.state === s).length;
+      const timed = checks.filter((c) => c.ms != null);
+      const t = el('div', 'tile click');
+      t.title = 'See each check (Settings → Recent checks)';
+      t.onclick = () => { location.hash = 'settings'; setTimeout(() => $('c-checks')?.scrollIntoView({ block: 'center' }), 50); };
+      const sub = el('div', 'sub');
+      sub.append(...[[n('passed'), 'passed', 'ok'], [n('failed'), 'failed', 'bad'], [n('unsure') + n('error'), 'unsure', '']].filter(([k]) => k).flatMap(([k, w, cls], i) => [i ? ' · ' : '', el('span', cls, `${k} ${w}`)]));
+      if (timed.length) sub.append(` · ~${Math.round(timed.reduce((s, c) => s + c.ms, 0) / timed.length)} ms`);
+      t.append(el('div', 'label', `Test checks · ${[...new Set(checks.map((c) => c.who))].join(', ')}`), el('div', 'value', String(checks.length)), sub);
+      return t;
     }
 
     /** Jump to one request on the Sessions page. */
@@ -986,10 +1078,23 @@
         b.onclick = () => { detailTab = key; renderDetail(s); };
         tabs.append(b);
       }
+      // Simple (one plain sentence per request) or Detailed (the chapters), as in the pal and the notch.
+      if (detailTab === 'requests') {
+        const seg = el('span', 'viewseg');
+        for (const [v, label] of [['simple', 'Simple'], ['detailed', 'Detailed']]) {
+          const b = el('button', '', label); b.type = 'button';
+          b.setAttribute('aria-pressed', String(storyView() === v));
+          b.onclick = () => { try { localStorage.setItem('dotpals.view', v); } catch {} renderDetail(s); };
+          seg.append(b);
+        }
+        tabs.append(seg);
+      }
       const body = detailTab === 'requests' ? renderTurns(s) : detailTab === 'files' ? renderFilesTable(s) : renderLog(s);
       box.replaceChildren(head, tabs, body);
     }
 
+    /** Simple or Detailed: the same choice as the pal and the notch (same page origin). */
+    const storyView = () => { let v = null; try { v = localStorage.getItem('dotpals.view'); } catch {} return (v ?? config.storyView) === 'detailed' ? 'detailed' : 'simple'; };
     function renderTurns(s) {
       const wrap = el('div');
       wrap.style.cssText = 'display:grid;gap:12px';
@@ -999,19 +1104,31 @@
         const card = el('div', `turn ${harnessClass(t.harness)}`);
         card.id = `turn-${t.id}`;
         if (t.prompt) { const ask = el('div', 'ask'); ask.append(el('small', '', `You asked · ${when(t.at)}`), el('p', '', t.prompt.title)); card.append(ask); }
-        if (t.end?.summary) { const said = el('p', 'said'); said.append(el('b', '', `${harnessName(t.harness)}: `), plain(t.end.summary)); card.append(said); }
-        // The story: a few chapters instead of every tool call, and anything worth a second look.
-        const { chapters, flags } = story(t);
-        if (flags.length) card.append(flagList(flags));
-        if (chapters.length) {
-          const list = el('ul', 'chapters');
-          list.setAttribute('aria-label', 'What it did');
-          list.append(...chapters.map((ch) => chapterRow(t, ch)));
-          card.append(list);
+        // Simple: one plain sentence and the warnings that matter. Detailed: what the agent
+        // said, the chapters (small steps folded) and every flag.
+        const easy = storyView() === 'simple' && !openRows.has(t.id) ? simple(t, { live: false }) : null;
+        if (easy) {
+          const line = el('p', `simple ${easy.status}`);
+          line.append(el('span', 'mark', { ok: '✓', failed: '✕', unclear: '?', running: '…', stopped: '■' }[easy.status] ?? '•'), el('span', '', easy.text));
+          card.append(line);
+          if (easy.warnings.length) card.append(flagList(easy.warnings.map((text) => ({ level: 'warn', text }))));
+        } else {
+          if (t.end?.summary) { const said = el('p', 'said'); said.append(el('b', '', `${harnessName(t.harness)}: `), plain(t.end.summary)); card.append(said); }
+          // The story: a few chapters instead of every tool call, and anything worth a second look.
+          const { chapters, flags } = story(t);
+          if (flags.length) card.append(flagList(flags));
+          if (chapters.length) {
+            const list = el('ul', 'chapters');
+            list.setAttribute('aria-label', 'What it did');
+            const minor = chapters.length > 1 ? chapters.filter(minorChapter) : [];
+            list.append(...chapters.filter((ch) => !minor.includes(ch)).map((ch) => chapterRow(t, ch)));
+            if (minor.length) { const li = el('li', 'small-steps', `+ ${plural(minor.length, 'small step')}`); li.title = minor.map((c) => c.title).join(' · '); list.append(li); }
+            card.append(list);
+          }
         }
         const foot = el('footer');
         foot.append(t.end ? el('span', t.end.kind === 'done' ? 'ok' : 'bad', t.end.kind === 'done' ? `✓ Done${turnTime(t) ? ` in ${secs(turnTime(t))}` : ''}` : '✕ Stopped with an error') : el('span', '', 'In progress or interrupted'));
-        const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(turnMarkdown(t));
+        const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t));
         const steps = el('button', '', openRows.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`); steps.type = 'button';
         steps.onclick = () => { openRows.has(t.id) ? openRows.delete(t.id) : openRows.add(t.id); renderDetail(s); };
         foot.append(c, ...(t.steps.length ? [steps] : []));
@@ -1044,6 +1161,7 @@
       const num = el('span', 'num');
       if (ch.lines?.add || ch.lines?.del) num.append(el('span', 'add', `+${ch.lines.add}`), ' ', el('span', 'del', `−${ch.lines.del}`), ' ');
       if (ch.status === 'failed') num.append(el('span', 'bad', '✕ failed'));
+      else if (ch.status === 'unclear') num.append(el('span', 'wait', '? unclear'));
       else if (ch.status === 'waiting') num.append(el('span', 'wait', 'needs you'));
       else if (ch.status === 'running') num.append('…');
       b.append(el('span', 'mk'), ttl, num);
@@ -1108,6 +1226,9 @@
         const chain = chains.get(e.id);
         if (chain && chain.attempts.length > 1) st.append(el('span', `rbadge ${chain.outcome}`, chain.outcome === 'fixed' ? `fixed on try ${chain.attempts.length}` : chain.outcome === 'trying' ? 'trying again' : `still failing after ${chain.attempts.length} tries`));
         else if (retryOf.has(e.id)) st.append(el('span', 'rbadge of', `try ${(chains.get(retryOf.get(e.id))?.attempts.findIndex((x) => x.id === e.id) ?? 0) + 1}`));
+        // A checker (Jev, Laya) looked at this test run: its answer, at a glance.
+        const ck = checkOf(e);
+        if (ck) st.append(checkBadge(ck));
         const hit = idq && String(e.id).toLowerCase().includes(idq);
         if (hit) { tr.classList.add('hit'); openRows.add(e.id); }
         const what = el('td', 'wide'); what.append(el('div', 'clip', describe(e)));
@@ -1141,6 +1262,14 @@
       }
       for (const f of e.files ?? []) { const a = el('a', '', `${f.change} · ${f.path}`); a.href = fileUrl(f.path); body.append(a); }
       if (e.error) body.append(el('div', 'bad', e.error));
+      // A test run: the verdict and where it came from (its output, the exit code, or a checker).
+      if (e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running') {
+        const v = testVerdict(e);
+        body.append(el('div', 'label', 'test result'), el('div', v.state === 'passed' ? 'ok' : v.state === 'failed' ? 'bad' : 'wait', testWords(v)));
+        // Double-checked: why the rules weren't sure, and what the checker said.
+        const ck = checkOf(e);
+        if (ck) body.append(el('div', 'label', `double-checked by ${ck.who}`), checkBlock(ck));
+      }
       if (e.summary) body.append(el('div', 'label', 'summary'), el('pre', 'code', plain(e.summary)));
       const b = e.body ?? {};
       if (b.command) body.append(el('div', 'label', 'command'), el('pre', 'code', `$ ${b.command}`));
@@ -1448,6 +1577,196 @@
     $('s-approval-wait').onchange = (e) => save({ approvalWait: Number(e.target.value) });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
     $('s-days').onchange = (e) => save({ historyDays: Number(e.target.value) });
+    // Double-check unclear test results (bridge/checker.js). The key is write-only: the
+    // bridge only ever says whether one is saved and its last 4 characters.
+    for (const b of $('c-mode').children) {
+      b.onclick = () => {
+        $('c-test-note').className = '';
+        $('c-test-note').textContent = 'One tiny request, to check the checker answers.';
+        save({ checker: { mode: b.dataset.value } });
+      };
+    }
+    $('c-url').onchange = (e) => save({ checker: { localUrl: e.target.value.trim() } });
+    $('c-key-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const key = $('c-key').value.trim();
+      if (!key) return; // empty: keep the saved key
+      try {
+        config = await api('/api/config', { checker: { jevKey: key } });
+        $('c-key').value = '';
+        toast('Key saved');
+        renderSettings();
+      } catch (err) { toast(err.message === '403' ? 'The bridge refused. Reload the page and try again.' : err.message || 'Couldn’t save the key'); }
+    };
+    $('c-key-remove').onclick = async () => {
+      if (!confirm('Remove the saved TypeSafe API key?')) return;
+      await save({ checker: { removeKey: true } });
+      toast('Key removed');
+    };
+    $('c-test').onclick = async () => {
+      const b = $('c-test');
+      b.disabled = true;
+      $('c-test-note').className = '';
+      $('c-test-note').textContent = 'Checking…';
+      try {
+        const r = await api('/api/checker/test', { mode: config.checker?.mode });
+        $('c-test-note').className = r.ok ? 'ok' : 'bad';
+        $('c-test-note').textContent = r.ok ? `OK: ${r.by === 'jev' ? 'TypeSafe' : 'Laya'} answered in ${r.ms} ms${r.model ? ` (${r.model})` : ''}` : `Didn’t work: ${r.error}`;
+      } catch { $('c-test-note').className = 'bad'; $('c-test-note').textContent = 'Couldn’t reach the bridge. Is it running?'; }
+      b.disabled = false;
+    };
+
+    // Laya on this computer (bridge/laya.js): one click installs it into dotpals' folder and
+    // starts it. The bridge does the work and sends its progress as `laya` events.
+    const layaAction = async (action, done) => {
+      for (const id of ['l-setup', 'l-start', 'l-stop', 'l-remove']) $(id).disabled = true;
+      try {
+        const r = await api(`/api/checker/laya/${action}`, {});
+        if (r.laya && config.checker) config.checker.laya = r.laya;
+        if (done) toast(done);
+      } catch (err) { toast(err.message === '403' ? 'The bridge refused. Reload the page and try again.' : err.message || 'That didn’t work'); }
+      for (const id of ['l-setup', 'l-start', 'l-stop', 'l-remove']) $(id).disabled = false;
+      renderChecker();
+    };
+    $('l-setup').onclick = () => layaAction('setup');
+    $('l-start').onclick = () => layaAction('start');
+    $('l-stop').onclick = () => layaAction('stop', 'Laya stopped');
+    $('l-remove').onclick = () => {
+      if (!confirm('Remove Laya? This stops it and deletes its Python environment and model from dotpals’ folder (a few GB). The checker is turned off. You can set it up again later.')) return;
+      layaAction('uninstall', 'Laya removed');
+    };
+    $('l-python-win').hidden = !/Windows/i.test(navigator.userAgent);
+    const LAYA_BUSY = { python: 'Looking for Python', venv: 'Making Laya’s Python environment', install: 'Installing Laya and PyTorch', starting: 'Starting Laya' };
+
+    function renderLaya(c) {
+      const l = c.laya ?? { installed: false, running: false, phase: 'idle' };
+      const busy = l.phase in LAYA_BUSY;
+      $('l-setup').hidden = busy || l.installed;
+      $('l-setup').textContent = l.phase === 'error' && !l.installed ? 'Set up Laya again' : 'Set up Laya';
+      $('l-start').hidden = busy || !l.installed || l.running;
+      $('l-stop').hidden = busy || !l.running || !c.layaManaged;
+      $('l-remove').hidden = busy || !l.installed;
+      $('l-note').hidden = l.installed && !busy && l.phase !== 'error';
+      $('l-progress').hidden = !busy;
+      $('l-phase').textContent = busy ? `${l.message || LAYA_BUSY[l.phase]}` : '';
+      $('l-line').textContent = busy ? l.line || ' ' : '';
+      $('l-python').hidden = l.error !== 'no-python';
+      const state = $('l-state');
+      state.className = l.running ? 'ok' : l.phase === 'error' ? 'bad' : '';
+      state.textContent = l.running ? (l.message || 'Laya is running on this computer')
+        : busy ? ''
+        : l.phase === 'error' ? (l.error === 'no-python' ? '' : l.message)
+        : l.installed ? 'Laya is installed, but not running.'
+        : '';
+      state.hidden = !state.textContent;
+      // Someone running their own Laya keeps the address handy.
+      if (!l.installed && c.localUrl && c.localUrl !== 'http://127.0.0.1:8000') $('l-adv').open = true;
+    }
+
+    function renderChecker() {
+      const c = config.checker ?? { mode: 'off' };
+      for (const b of $('c-mode').children) b.setAttribute('aria-pressed', String(b.dataset.value === c.mode));
+      $('c-local').hidden = c.mode !== 'local';
+      renderLaya(c);
+      $('c-cloud').hidden = c.mode !== 'cloud';
+      $('c-test-row').hidden = c.mode === 'off';
+      if (document.activeElement !== $('c-url')) $('c-url').value = c.localUrl ?? '';
+      $('c-key-state').textContent = !c.keySet ? 'No key saved. TYPESAFE_API_KEY works too.'
+        : c.keyFrom === 'env' ? `Using TYPESAFE_API_KEY ••••${c.keyLast4}` : `Saved ••••${c.keyLast4}`;
+      $('c-key').placeholder = c.keyFrom === 'settings' ? 'Paste a new key to replace it' : 'Paste a key';
+      $('c-key-remove').hidden = c.keyFrom !== 'settings';
+      renderChecks(c);
+    }
+
+    /**
+     * Recent checks: each test run the rules couldn't call, what the checker said, how
+     * sure it was and how long it took. The end of the output is what it looked at
+     * (sent with passwords, keys, emails and IP addresses removed).
+     */
+    /** "Jev ✕ 78%": a checker's answer as a badge (Log rows). */
+    function checkBadge(ck) {
+      const mark = { passed: '✓', failed: '✕', unsure: '?', error: '!' }[ck.state];
+      const b = el('span', `rbadge ${{ passed: 'fixed', failed: 'failing' }[ck.state] ?? 'trying'}`, `${ck.who} ${mark}${ck.sure != null && ck.state !== 'unsure' ? ` ${ck.sure}%` : ''}`);
+      b.title = ck.error ? `${ck.who} couldn’t check: ${ck.error}` : `${ck.who} said ${ck.state === 'unsure' ? 'it isn’t sure' : ck.state}${ck.sure != null ? `, ${ck.sure}% sure` : ''}${ck.ms != null ? ` (${ck.ms} ms)` : ''}. ${ck.why ?? ''}`;
+      return b;
+    }
+    /** Why the rules weren't sure, and what the checker said, how sure, how fast (a step's details). */
+    function checkBlock(ck) {
+      const box = el('div', 'checkblock');
+      if (ck.why) box.append(el('div', 'muted', `Why it was asked: ${ck.why.toLowerCase()}.`));
+      if (ck.error) box.append(el('div', 'wait', `${ck.who} couldn’t check: ${ck.error}`));
+      else {
+        box.append(el('div', ck.state === 'passed' ? 'ok' : ck.state === 'failed' ? 'bad' : 'wait', `${ck.who}: ${ck.state === 'unsure' ? 'not sure' : ck.state}${ck.sure != null ? `, ${ck.sure}% sure` : ''}`));
+        const meta = [ck.ms != null ? `${ck.ms} ms` : '', ck.model ?? '', ck.who === 'Jev' ? 'sent with passwords, keys, emails and IPs removed' : 'on this computer'].filter(Boolean).join(' · ');
+        box.append(el('div', 'faint', meta));
+      }
+      return box;
+    }
+
+    const CHECKER_NAMES = { jev: 'Jev', laya: 'Laya' };
+    function renderChecks(c) {
+      const list = [...entries.values()].filter((e) => e.check).sort((a, b) => b.at - a.at);
+      const box = $('c-checks');
+      box.hidden = c.mode === 'off' && !list.length;
+      if (box.hidden) return;
+      const head = el('h3', '', 'Recent checks');
+      if (!list.length) { box.replaceChildren(head, el('div', 'sum', 'None yet. When a test run is unclear, the checker’s answer shows up here.')); return; }
+      const decided = list.filter((e) => ['passed', 'failed'].includes(e.check.state));
+      const timed = list.filter((e) => Number.isFinite(e.check.ms));
+      const avg = timed.length ? Math.round(timed.reduce((n, e) => n + e.check.ms, 0) / timed.length) : null;
+      const sum = [
+        plural(list.length, 'check'),
+        `${decided.filter((e) => e.check.state === 'passed').length} passed, ${decided.filter((e) => e.check.state === 'failed').length} failed`,
+        list.length - decided.length ? `${list.length - decided.length} unsure or couldn’t check` : '',
+        avg != null ? `about ${avg} ms each` : '',
+        list.some((e) => e.check.by === 'jev') ? 'well under a cent in all' : '',
+      ].filter(Boolean).join(' · ');
+      const table = el('table');
+      const hr = el('tr');
+      for (const h of ['When', 'Test run', 'Why the rules weren’t sure', 'What the checker said', '']) hr.append(el('th', '', h));
+      table.append(hr);
+      for (const e of list.slice(0, 25)) {
+        const v = testVerdict(e);
+        const k = e.check;
+        const tr = el('tr');
+        tr.append(el('td', '', `${shortTime(e.at)}${e.at < startOfDay() ? ` · ${new Date(e.at).toLocaleDateString([], { month: 'short', day: 'numeric' })}` : ''}`));
+        const run = el('td');
+        run.append(el('div', 'cmd', String(e.body?.command ?? e.title ?? '').split(/\n/)[0].slice(0, 60)), el('div', 'muted', `${harnessName(e.harness)}${e.label ? ` · ${e.label}` : ''} · exit code said ${e.status === 'failed' ? 'failed' : 'passed'}`));
+        const out = String(e.body?.output ?? '').split(/\n/).slice(-12).join('\n').trim();
+        if (out) { const d = el('details'); d.append(el('summary', '', 'What it looked at (end of the output)'), el('pre', '', out)); run.append(d); }
+        tr.append(run);
+        tr.append(el('td', 'why', v.note ? v.note[0].toUpperCase() + v.note.slice(1) : '—'));
+        const said = el('td', 'said');
+        const who = CHECKER_NAMES[k.by] ?? k.by;
+        if (k.error) said.append(el('b', 'unsure', `${who} couldn’t check`), el('div', 'muted', k.error));
+        else {
+          const state = k.state === 'passed' || k.state === 'failed' ? k.state : 'unsure';
+          const sure = typeof k.p === 'number' ? Math.round((state === 'failed' ? 1 - k.p : state === 'passed' ? k.p : Math.max(k.p, 1 - k.p)) * 100) : null;
+          said.append(el('b', state, `${who}: ${state === 'unsure' ? 'not sure' : state}`));
+          said.append(el('div', 'muted', [sure != null ? `${sure}% sure` : '', Number.isFinite(k.ms) ? `${k.ms} ms` : '', k.model ?? ''].filter(Boolean).join(' · ')));
+        }
+        tr.append(said);
+        const open = el('td');
+        const b = el('button', 'link', 'Open');
+        b.type = 'button';
+        b.title = 'Open this test run in its session’s log';
+        b.onclick = () => openStep(e);
+        open.append(b);
+        tr.append(open);
+        table.append(tr);
+      }
+      box.replaceChildren(head, el('div', 'sum', sum), table);
+    }
+
+    /** Open one step in its session's Log (the search box finds it by its ID). */
+    function openStep(e) {
+      $('f-agent').value = '';
+      $('f-when').value = 'all';
+      $('q').value = String(e.id).toLowerCase();
+      picked = e.session;
+      location.hash = `sessions/${encodeURIComponent(e.session)}`;
+    }
+
     $('clear').onclick = async () => {
       if (!confirm('Clear all dotpals history? Your agents’ own logs aren’t touched.')) return;
       try { await api('/api/history/clear', {}); toast('History cleared'); refreshStatus(); } catch { toast('Couldn’t clear history'); }
@@ -1469,6 +1788,7 @@
       $('s-history').checked = config.history;
       $('s-days').value = String(config.historyDays);
       $('s-days').disabled = !config.history;
+      renderChecker();
       if (!status) return;
       $('history-where').textContent = config.history ? `Saved on this computer only: ${status.historyFile} (${(status.historySize / 1024).toFixed(0)} KB, ${status.entries} entries)` : 'Off. Activity is kept only until the pal closes.';
       $('about-version').textContent = `dotpals ${status.version} · bridge on port ${status.port}`;

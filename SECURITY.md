@@ -5,7 +5,7 @@
 - **Local only.** The bridge (`bridge/server.js`) listens only on `127.0.0.1`, so other machines on your network can't connect to it.
 - **Reads local files.** To build the activity feed, it reads Claude Code session transcripts (the `transcript_path` that Claude Code passes to hooks) and Codex session logs (`~/.codex/sessions`). Set `DOTPALS_CODEX=0` if you don't want it to read Codex logs.
 - **Keeps a local history.** The last week of activity is saved to `~/.dotpals/history.json` so the feed survives restarts. Set `DOTPALS_HISTORY=0` to turn this off, or `DOTPALS_HOME` to move the folder.
-- **Nothing is sent anywhere.** dotpals has no telemetry, no analytics and no network calls. The data stays on your machine and only goes to the pal windows and browser tabs you open.
+- **Nothing is sent anywhere by default.** dotpals has no telemetry and no analytics, and makes no network calls of its own. The data stays on your machine and only goes to the pal windows and browser tabs you open. The one exception is opt-in: with *Settings → Double-check unclear test results → Cloud (Jev)*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. Your TypeSafe API key is stored in `~/.dotpals/config.json` (readable by you only on macOS and Linux) and is never sent to the pal, the notch or the dashboard.
 
 Keep in mind that any program running on your own machine can connect to the bridge's local port and read the activity feed.
 

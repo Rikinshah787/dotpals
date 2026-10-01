@@ -6,6 +6,7 @@
 // Plain rules, no AI: instant, free and the same every time. Shared by the pal
 // (bridge/index.html) and the dashboard (bridge/dashboard.html); runs in Node too.
 import { baseName, plural } from './recap.js';
+import { parseTestOutput } from './testout.js';
 
 // -- what a command is for ---------------------------------------------------------
 
@@ -26,6 +27,8 @@ const RISKY = [
   [/\b(taskkill|Stop-Process|kill\s+-9|pkill|killall)\b/i, 'force-stopped programs', 'force-stops programs'],
   [/\bnpm\s+publish\b/i, 'published a package', 'publishes a package', 'info'],
 ];
+// Folders that are fine to delete: temp and scratch space, build output, installed packages.
+const THROWAWAY = /(\$TEMP|%TEMP%|\$env:TEMP|[\\/]te?mp[\\/]|AppData[\\/]Local[\\/]Temp|[\\/]scratchpad\b|\bnode_modules\b|(?:^|[\s"'\\/])(?:dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)(?:[\s"'\\/]|$))/i;
 const SECRET = /(^|[\\/])(\.env(\.[\w-]+)?|\.npmrc|\.pypirc|id_(rsa|ed25519)|credentials?(\.json)?|secrets?\.[\w]+|[\w-]*\.(pem|key|p12|pfx))$/i;
 
 const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
@@ -36,32 +39,135 @@ const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
  * (a script being written, an echo, a search for "npm test").
  */
 function runsTests(cmd) {
-  return String(cmd).split(/\n|&&|\|\||[;|]/).some((part) => {
-    const s = part.trim()
-      .replace(/^&\s*/, '') // PowerShell's call operator
-      .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
-      .replace(/^(npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run|time)\s+/i, '')
-      .replace(/^["']?[^\s"']*[\\/](?=[\w.-]+["']?(\s|$))/, ''); // ./node_modules/.bin/jest
-    return s.search(TEST) === 0;
-  });
+  return parts(cmd).some((s) => s.search(TEST) === 0);
 }
 
 /**
- * How a test run ended, from its output when it says ("ℹ fail 0", "5 passed",
- * "test result: ok"), else its exit status. A command can fail after the tests passed
- * ("npm test && restart"), and the tests are what count here.
+ * The commands a command line actually runs, each from its start: text written into a
+ * file (a heredoc's body) and inline scripts (`node -e "…"`, `python -c "…"`) are left
+ * out, so a command that only mentions `git push` or `rm -rf` in a file it writes doesn't
+ * count as doing it. Split at && || ; | and new lines; prefixes like `timeout 150`,
+ * `FOO=1`, `npx` and `./node_modules/.bin/` are dropped.
  */
-export function testPassed(e) {
+export function parts(cmd) {
+  const text = String(cmd)
+    .replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '') // heredoc bodies
+    .replace(/(\s-(?:e|c|p|-eval|Command|EncodedCommand))\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, '$1 ""'); // inline scripts
+  return text.split(/\n|&&|\|\||[;|]/).map((part) => {
+    let s = part.trim();
+    for (let i = 0; i < 4; i++) {
+      s = s
+        .replace(/^&\s*/, '') // PowerShell's call operator
+        .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
+        .replace(/^(?:timeout(?:\s+-\S+)*\s+\d+[smhd]?|time|nice|npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run)\s+/i, '')
+        .replace(/^["']?[^\s"']*[\\/](?=[\w.-]+["']?(\s|$))/, ''); // ./node_modules/.bin/jest
+    }
+    return s;
+  }).filter(Boolean);
+}
+/** Whether a command runs something matching `re` (from the start of one of its parts). */
+const runs = (cmd, re) => parts(cmd).some((s) => s.search(re) === 0);
+
+// Output that looks like something broke, or like everything went fine, when there's
+// no summary to count from.
+const BROKE = /\bFAIL(?:ED|URE)?\b|\bfailing\b|^Traceback \(most recent call last\)|\bpanicked\b|\b\w*Error:|^\s*[✕✖×]\s|^not ok\b/m;
+const FINE = /^\s*(?:PASS|ok)\s|\ball (?:\d+ )?tests? passed\b|^OK\b|^\s*[✓✔]\s/m;
+const CHECKERS = { laya: 'Laya', jev: 'Jev' };
+
+// The views ask on every render, so remember the last few hundred outputs read.
+const parsedOutputs = new Map();
+function factsOf(out) {
+  let facts = parsedOutputs.get(out);
+  if (!facts) {
+    facts = parseTestOutput(out);
+    parsedOutputs.set(out, facts);
+    if (parsedOutputs.size > 300) parsedOutputs.delete(parsedOutputs.keys().next().value);
+  }
+  return facts;
+}
+
+/** "1 failed, 47 passed, 2 skipped" from parsed counts. */
+function countWords(f) {
+  return [f.failed && `${f.failed} failed`, f.errors && plural(f.errors, 'error'), f.passed && `${f.passed} passed`, f.skipped && `${f.skipped} skipped`].filter(Boolean).join(', ') || '0 tests';
+}
+
+/**
+ * How a test run ended, and how we know:
+ *   { state: 'passed' | 'failed' | 'unclear' | 'running', source: 'output' | 'exit' | 'checker',
+ *     summary?, note?, reason?, facts, check? }
+ * The output's own summary decides when there is one ("ℹ fail 0", "5 passed", "test
+ * result: ok", see testout.js): a command can fail after the tests passed ("npm test &&
+ * restart"), and the tests are what count here. Zero tests, or only skipped ones, is
+ * unclear: a run where nothing ran isn't a pass. With no summary the exit status
+ * decides, unless the output disagrees with it (an "ok" exit with a Traceback in the
+ * output). An unclear run can be settled by the optional checker (bridge/checker.js),
+ * whose answer is stored on the entry as `check`.
+ */
+export function testVerdict(e) {
+  if (running(e)) return { state: 'running', source: 'exit' };
   const out = `${e.body?.output ?? ''}\n${e.error ?? ''}`;
-  const failed = [
-    /(?:^|\s)(?:ℹ|#)\s*fail\s+(\d+)/im, // node --test, TAP
-    /\b(\d+)\s+(?:failed|failing)\b/i, // jest, vitest, pytest, mocha
-    /\btest result:\s*(FAILED)/i, // cargo
-    /^(FAIL)\b/m, // go
-  ].map((re) => re.exec(out)?.[1]).find((x) => x != null);
-  if (failed != null) return failed === '0';
-  if (/(?:^|\s)(?:ℹ|#)\s*pass\s+\d+|\b\d+\s+(?:passed|passing)\b|\btest result:\s*ok\b|^ok\s+\S+/im.test(out)) return true;
-  return e.status === 'failed' ? false : running(e) ? null : true;
+  const facts = factsOf(out);
+  let v;
+  if (facts.parsed && facts.failed + facts.errors > 0) v = { state: 'failed', source: 'output', summary: countWords(facts) };
+  else if (facts.parsed && facts.passed > 0) v = { state: 'passed', source: 'output', summary: countWords(facts) };
+  else if (facts.parsed) v = { state: 'unclear', source: 'output', summary: countWords(facts), reason: 'no-tests', note: 'no tests actually ran' };
+  else if (e.status === 'stopped') v = { state: 'unclear', source: 'exit', reason: 'stopped', note: 'it didn’t finish' };
+  else if (e.status === 'failed') {
+    v = FINE.test(out) && !BROKE.test(out)
+      ? { state: 'unclear', source: 'exit', reason: 'clean-but-failed', note: 'the exit code says failed, but the output looks fine' }
+      : { state: 'failed', source: 'exit' };
+  } else {
+    v = BROKE.test(out)
+      ? { state: 'unclear', source: 'exit', reason: 'errors-but-ok', note: 'the exit code says passed, but the output shows errors' }
+      : { state: 'passed', source: 'exit' };
+  }
+  v.facts = facts;
+  if (v.state !== 'unclear' || !e.check) return v;
+  v.check = e.check;
+  if (e.check.state === 'passed' || e.check.state === 'failed') return { ...v, state: e.check.state, source: 'checker' };
+  return v;
+}
+
+/** The evidence behind a verdict, in a few words: "48 passed", "exit code only", "checked by Jev, 94% sure". */
+export function testEvidence(v) {
+  if (!v || v.state === 'running') return '';
+  const c = v.check;
+  const by = c ? CHECKERS[c.by] ?? c.by : '';
+  if (v.source === 'checker') return typeof c.p === 'number' ? `checked by ${by}, ${Math.round((v.state === 'passed' ? c.p : 1 - c.p) * 100)}% sure` : `checked by ${by}`;
+  if (v.state === 'unclear') {
+    const extra = !c ? '' : c.error ? ` · couldn’t check with ${by}` : typeof c.p === 'number' ? ` · ${by} wasn’t sure (${Math.round(c.p * 100)}% that they passed)` : '';
+    return `${v.note}${extra}`;
+  }
+  return v.source === 'output' ? v.summary : 'exit code only';
+}
+
+/** "Tests passed · 48 passed", "Tests passed (exit code only)", "Tests unclear: no tests actually ran". */
+export function testWords(v) {
+  if (!v || v.state === 'running') return 'Running the tests…';
+  const evidence = testEvidence(v);
+  if (v.state === 'unclear') return `Tests unclear: ${evidence}`;
+  return v.source === 'exit' ? `Tests ${v.state} (${evidence})` : `Tests ${v.state} · ${evidence}`;
+}
+
+/**
+ * A checker's answer on a step, for showing it: { who: 'Jev', state: 'passed' | 'failed'
+ * | 'unsure' | 'error', sure (0–100, how sure of that answer), ms, model, error, why (why
+ * the rules weren't sure) }, or null when no checker looked at it.
+ */
+export function checkOf(e) {
+  const c = e?.check;
+  if (!c) return null;
+  const state = c.error ? 'error' : c.state === 'passed' || c.state === 'failed' ? c.state : 'unsure';
+  const p = typeof c.p === 'number' ? c.p : null;
+  const sure = p == null ? null : Math.round((state === 'failed' ? 1 - p : state === 'passed' ? p : Math.max(p, 1 - p)) * 100);
+  const note = testVerdict({ ...e, check: undefined }).note;
+  return { who: CHECKERS[c.by] ?? c.by, state, sure, ms: Number.isFinite(c.ms) ? c.ms : null, model: c.model ?? null, error: c.error ?? null, why: note ? note[0].toUpperCase() + note.slice(1) : null };
+}
+
+/** Whether a test run passed: true, false, or null while it runs or when it's unclear. */
+export function testPassed(e) {
+  const { state } = testVerdict(e);
+  return state === 'passed' ? true : state === 'failed' ? false : null;
 }
 
 /** What kind of chapter a step belongs to. */
@@ -80,9 +186,9 @@ export function stepType(e) {
     case 'run': {
       const cmd = commandOf(e);
       if (runsTests(cmd)) return 'test';
-      if (SHIP.test(cmd)) return 'ship';
-      if (INSTALL.test(cmd)) return 'install';
-      if (BUILD.test(cmd)) return 'build';
+      if (runs(cmd, SHIP)) return 'ship';
+      if (runs(cmd, INSTALL)) return 'install';
+      if (runs(cmd, BUILD)) return 'build';
       if (LOOK.test(cmd) && !/[>]|\|\s*(sh|bash|iex)/.test(cmd)) return 'explore';
       return 'run';
     }
@@ -163,15 +269,25 @@ const firstWord = (cmd) => {
 };
 const times = (n) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n}×`);
 
-/** "failed twice, then passed" from a list of test runs. */
-function outcome(runs) {
+/**
+ * "failed twice, then passed" from a list of test runs, plus the evidence for the
+ * last one ("48 passed", "exit code only"). An unclear run is never counted as a pass.
+ */
+function outcome(runs, { tests = true } = {}) {
   const done = runs.filter((e) => !running(e));
   if (!done.length) return { text: 'running', status: 'running' };
-  const last = done.at(-1);
-  const failed = done.filter((e) => !testPassed(e)).length;
-  if (!testPassed(last)) return { text: failed === done.length && failed > 1 ? `failed ${times(failed)}` : 'failed', status: 'failed' };
-  if (failed) return { text: `failed ${times(failed)}, then passed`, status: 'ok' };
-  return { text: done.length > 1 ? `passed (${done.length} runs)` : 'passed', status: 'ok' };
+  // Builds and checks have no tests to count: there, what isn't clearly failed passed.
+  const verdicts = done.map((e) => {
+    const v = testVerdict(e);
+    return tests || v.state !== 'unclear' ? v : { state: e.status === 'failed' ? 'failed' : 'passed', source: 'exit' };
+  });
+  const last = verdicts.at(-1);
+  const evidence = tests ? testEvidence(last) : '';
+  const failed = verdicts.filter((v) => v.state === 'failed').length;
+  if (last.state === 'failed') return { text: failed === done.length && failed > 1 ? `failed ${times(failed)}` : 'failed', status: 'failed', evidence };
+  if (last.state === 'unclear') return { text: failed ? `failed ${times(failed)}, then unclear` : 'unclear', status: 'unclear', evidence };
+  if (failed) return { text: `failed ${times(failed)}, then passed`, status: 'ok', evidence };
+  return { text: done.length > 1 ? `passed (${done.length} runs)` : 'passed', status: 'ok', evidence };
 }
 
 function describe({ type, steps }) {
@@ -208,11 +324,12 @@ function describe({ type, steps }) {
       const o = outcome(cmds);
       ch.status = o.status;
       ch.title = live ? 'Running the tests' : `Tests ${o.text}`;
-      ch.detail = matched(cmds, TEST);
+      // Where the verdict came from: "npm test · 48 passed", "pytest · exit code only".
+      ch.detail = [matched(cmds, TEST), live ? '' : o.evidence].filter(Boolean).join(' · ');
       break;
     }
     case 'build': {
-      const o = outcome(cmds);
+      const o = outcome(cmds, { tests: false });
       ch.status = o.status;
       ch.title = live ? 'Checking the build' : `Build and checks ${o.text}`;
       ch.detail = matched(cmds, BUILD);
@@ -239,17 +356,18 @@ function describe({ type, steps }) {
       break;
     }
     case 'ship': {
-      const all = cmds.map(commandOf).join('\n');
+      // Only what the commands ran, one per line, not what they wrote into files.
+      const all = cmds.flatMap((c) => parts(commandOf(c))).join('\n');
       const did = [];
-      const msg = /git\s+commit\b[^\n]*?-m\s+(["'])([\s\S]*?)\1/.exec(all)?.[2];
-      if (/git\s+commit\b/.test(all)) did.push(live ? 'committing' : 'committed');
-      if (/git\s+push\b/.test(all)) did.push(live ? 'pushing' : 'pushed');
-      if (/git\s+tag\b/.test(all)) did.push('tagged');
-      const release = /gh\s+release\s+create\s+(\S+)/.exec(all)?.[1];
+      const msg = /^git\s+commit\b[^\n]*?-m\s+(["'])([\s\S]*?)\1/m.exec(all)?.[2];
+      if (/^git\s+commit\b/m.test(all)) did.push(live ? 'committing' : 'committed');
+      if (/^git\s+push\b/m.test(all)) did.push(live ? 'pushing' : 'pushed');
+      if (/^git\s+tag\b/m.test(all)) did.push('tagged');
+      const release = /^gh\s+release\s+create\s+(\S+)/m.exec(all)?.[1];
       if (release) did.push(`released ${release}`);
-      if (/gh\s+pr\s+create/.test(all)) did.push('opened a pull request');
-      if (/gh\s+pr\s+merge|git\s+merge/.test(all)) did.push('merged');
-      if (/npm\s+publish/.test(all)) did.push('published to npm');
+      if (/^gh\s+pr\s+create/m.test(all)) did.push('opened a pull request');
+      if (/^(?:gh\s+pr\s+merge|git\s+merge)/m.test(all)) did.push('merged');
+      if (/^npm\s+publish/m.test(all)) did.push('published to npm');
       const text = did.length ? did.join(', ').replace(/, ([^,]*)$/, ' and $1') : 'shipped';
       ch.title = text[0].toUpperCase() + text.slice(1);
       ch.detail = msg ? quote(msg, 60) : '';
@@ -342,9 +460,17 @@ export function flags(steps, { before = false } = {}) {
     }
     if (e.kind !== 'run') continue;
     const cmd = commandOf(e);
+    const ran = parts(cmd);
     for (const [re, did, will, level = 'warn'] of RISKY) {
+      // A command it ran (not text it wrote into a file); a pipe into a shell and SQL
+      // (often inside `psql -c "…"`) and force-stops (inside a PowerShell pipeline) are looked
+      // for across the whole line, minus any text written into a file.
+      const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[6][0];
+      if (anywhere ? !re.test(cmd.replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '')) : !ran.some((p) => p.search(re) === 0)) continue;
+      // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
+      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every((p) => THROWAWAY.test(p))) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
-      if (re.test(cmd)) add(level, text[0].toUpperCase() + text.slice(1), e);
+      add(level, text[0].toUpperCase() + text.slice(1), e);
     }
     if (e.status === 'failed') {
       const key = cmd.trim().slice(0, 200);
@@ -429,8 +555,8 @@ const COMMIT = /\bgit\s+commit\b/i;
  * agent ran count: dotpals can't see the ones you run yourself or CI.
  *   { state, last, since, commit } or null when no code changed and nothing was tested
  *   state:  'untested' (code changed, no test run) | 'running' | 'stale' (code changed
- *           after the last test run) | 'passing' | 'failing'
- *   last:   the last test run;  since: the code files changed after it
+ *           after the last test run) | 'passing' | 'failing' | 'unclear' (see testVerdict)
+ *   last:   the last test run;  verdict: testVerdict(last);  since: the code files changed after it
  *   commit: the last commit: { at, tested } (tested: a passing run after the last change before it)
  */
 export function testState(steps) {
@@ -446,16 +572,21 @@ export function testState(steps) {
   const seen = new Map();
   for (const x of edits) if (!last || x.at > last.at) seen.set(String(x.path).toLowerCase(), x.path);
   const since = [...seen.values()];
-  const state = !last ? 'untested' : running(last) ? 'running' : since.length ? 'stale' : !testPassed(last) ? 'failing' : 'passing';
-  const c = list.findLast((e) => e.kind === 'run' && COMMIT.test(commandOf(e)) && e.status !== 'failed' && !running(e));
+  const verdict = last ? testVerdict(last) : null;
+  const state = !last ? 'untested' : running(last) ? 'running' : since.length ? 'stale'
+    : verdict.state === 'failed' ? 'failing' : verdict.state === 'unclear' ? 'unclear' : 'passing';
+  const c = list.findLast((e) => e.kind === 'run' && runs(commandOf(e), COMMIT) && e.status !== 'failed' && !running(e));
   let commit = null;
   if (c) {
     // "npm test && git commit" tests and commits in one go.
     const before = stepType(c) === 'test' ? c : tests.filter((t) => t.at < c.at && !running(t)).at(-1);
-    commit = { at: c.at, tested: !!before && testPassed(before) && !edits.some((x) => x.at > before.at && x.at < c.at) };
+    commit = { at: c.at, tested: !!before && testPassed(before) === true && !edits.some((x) => x.at > before.at && x.at < c.at) };
   }
-  return { state, last, since, commit };
+  return { state, last, verdict, since, commit };
 }
+
+/** "passed", "failed" or "were unclear", for a sentence about the last run. */
+const lastWord = (v) => (v.state === 'passed' ? 'passed' : v.state === 'failed' ? 'failed' : 'were unclear');
 
 /** For a finished request: a flag when it changed code it didn't test, or changed it after testing. */
 function testFlag(steps) {
@@ -464,7 +595,8 @@ function testFlag(steps) {
   const step = steps.findLast((e) => stepType(e) === 'change') ?? t.last;
   const names = list(t.since.map(baseName));
   if (t.state === 'untested') return { level: 'warn', text: `Not tested: changed ${plural(t.since.length, 'code file')} (${names}), and the agent ran no tests`, step };
-  if (t.state === 'stale') return { level: 'warn', text: `Changed ${names} after the tests ${!testPassed(t.last) ? 'last failed' : 'passed'}: not tested since`, step };
+  if (t.state === 'stale') return { level: 'warn', text: `Changed ${names} after the tests ${t.verdict.state === 'failed' ? 'last failed' : lastWord(t.verdict)}: not tested since`, step };
+  if (t.state === 'unclear') return { level: 'warn', text: testWords(t.verdict), step: t.last };
   if (t.commit && !t.commit.tested) return { level: 'warn', text: 'Committed without a passing test run after the last change', step };
   return null;
 }
@@ -477,12 +609,15 @@ export function testLine(steps, time = (at) => new Date(at).toLocaleTimeString([
   const t = testState(steps);
   if (!t) return null;
   const commit = t.commit ? ` · last commit ${t.commit.tested ? 'tested' : 'not tested'}` : '';
+  // The verdict says where it came from: "Tests passed · 48 passed", "Tests passed (exit
+  // code only)", "Tests unclear: no tests actually ran", "… · checked by Jev, 94% sure".
   switch (t.state) {
     case 'untested': return { level: 'warn', text: `No tests run by the agent · ${plural(t.since.length, 'code file')} changed${commit}` };
     case 'running': return { level: 'info', text: 'Running the tests…' };
-    case 'stale': return { level: 'warn', text: `Tests ${!testPassed(t.last) ? 'failed' : 'passed'} at ${time(t.last.at)} · ${plural(t.since.length, 'file')} changed since${commit}` };
-    case 'failing': return { level: 'bad', text: `Tests failing (${time(t.last.at)})${commit}` };
-    default: return { level: 'ok', text: `Tests passed at ${time(t.last.at)}, after the last change${commit}` };
+    case 'stale': return { level: 'warn', text: `Tests ${lastWord(t.verdict)} at ${time(t.last.at)} · ${plural(t.since.length, 'file')} changed since${commit}` };
+    case 'failing': return { level: 'bad', text: `${testWords(t.verdict)} · ${time(t.last.at)}${commit}` };
+    case 'unclear': return { level: 'warn', text: `${testWords(t.verdict)} · ${time(t.last.at)}${commit}` };
+    default: return { level: 'ok', text: `${testWords(t.verdict)} · ${time(t.last.at)}, after the last change${commit}` };
   }
 }
 
@@ -636,7 +771,7 @@ export function compactNote(entries) {
     goal && `Keep the current goal: "${clipped(goal, 140)}"`,
     todo.length && `still to do: ${todo.join('; ')}`,
     files.length && `files changed so far: ${files.join(', ')}`,
-    lastTest && !testPassed(lastTest) && `the tests are failing right now (${clipped(commandOf(lastTest), 40)})`,
+    lastTest && testPassed(lastTest) === false && `the tests are failing right now (${clipped(commandOf(lastTest), 40)})`,
   ].filter(Boolean);
   const sentences = parts.map((x) => x[0].toUpperCase() + x.slice(1));
   return `/compact ${sentences.length ? `${sentences.join('. ')}.` : 'Keep the current goal and the files changed so far.'}`;
@@ -683,7 +818,10 @@ export function crossRecap(entries, { session, label, since = Date.now() - 2 * 3
     const status = ['working', 'thinking', 'speaking', 'waiting'].includes(state) ? 'working now' : `last active ${agoText(last)}`;
     const parts = [];
     if (files.length) parts.push(`changed ${files.slice(0, 5).map((p) => relativeish(p, label)).join(', ')}${files.length > 5 ? ` and ${files.length - 5} more` : ''}`);
-    if (test) parts.push(!testPassed(test) ? `its last test run failed (${words(commandOf(test), 40)})` : 'its tests passed');
+    if (test) {
+      const passed = testPassed(test);
+      parts.push(passed === false ? `its last test run failed (${words(commandOf(test), 40)})` : passed ? 'its tests passed' : `its last test run was unclear (${testVerdict(test).note ?? 'not finished'})`);
+    }
     if (asked) parts.push(`it was asked: "${words(asked, 80)}"`);
     lines.push(`- ${agent} (session ${String(id).slice(-4)}, ${status}): ${parts.join('; ')}.`);
     if (lines.length >= max) break;
@@ -711,6 +849,60 @@ function words(text, n) {
   // Don't end on a word that needs another after it ("…scheme and").
   while (/\s(and|or|but|the|a|an|to|of|for|with|in|on|at|by|from|into|that)$/i.test(cut)) cut = cut.replace(/\s\S+$/, '');
   return cut.length >= n / 2 ? cut : text.slice(0, n).trim();
+}
+
+/** Chapters that rarely matter (tool plumbing, scratch files, memory): folded into "+N small steps". */
+export const minorChapter = (c) => c.type === 'scratch' || c.type === 'memory' || (c.type === 'tool' && c.status !== 'failed');
+
+/**
+ * The simple view of a request: one plain sentence, and the warnings worth a look.
+ *   { text: 'Changed billing.ts, the tests passed after one retry, and pushed it.',
+ *     status: 'ok' | 'failed' | 'running' | 'unclear', warnings: ['…'] }
+ * Rules, not AI: it picks what changed, how the tests went and what was shipped, and
+ * only falls back to the looking around when nothing else happened.
+ */
+export function simple(turn, { live = !turn.end } = {}) {
+  // Not finished and not working any more (you sent something new, or it was interrupted).
+  const stopped = !turn.end && !live;
+  const chs = chapters(turn.steps);
+  const by = (type) => chs.find((c) => c.type === type);
+  const parts = [];
+  let status = turn.end?.kind === 'error' ? 'failed' : live ? 'running' : stopped ? 'stopped' : 'ok';
+
+  const change = by('change');
+  if (change) {
+    const files = change.files ?? [];
+    parts.push(files.length === 1 ? change.title[0].toLowerCase() + change.title.slice(1) : `${live ? 'changing' : 'changed'} ${plural(files.length, 'file')}${live ? ' so far' : ''}`);
+  }
+  const tests = turn.steps.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e));
+  if (tests.length) {
+    const last = testVerdict(tests.at(-1));
+    const fails = tests.slice(0, -1).filter((e) => testVerdict(e).state === 'failed').length;
+    if (last.state === 'passed') parts.push(fails ? `the tests passed after ${fails === 1 ? 'one retry' : `${fails} retries`}` : 'the tests passed');
+    else if (last.state === 'failed') { parts.push('the tests are failing'); if (status === 'ok') status = 'failed'; }
+    else { parts.push('the test result is unclear'); if (status === 'ok') status = 'unclear'; }
+  } else if (change && !live && testState(turn.steps)?.state === 'untested') parts.push('but it didn’t run the tests');
+  const build = by('build');
+  if (build?.status === 'failed') { parts.push('the build is failing'); if (status === 'ok') status = 'failed'; }
+  if (by('install')) parts.push(live ? 'installing packages' : 'installed packages');
+  const ship = by('ship');
+  if (ship) parts.push(ship.title[0].toLowerCase() + ship.title.slice(1));
+  // Nothing changed: say what it did instead.
+  if (!parts.length) {
+    const other = ['ask', 'agent', 'web', 'explore', 'run', 'skill', 'mcp'].map(by).filter(Boolean).slice(0, 2);
+    for (const c of other) parts.push(c.title[0].toLowerCase() + c.title.slice(1));
+  }
+
+  let text;
+  if (!parts.length) text = live ? 'Thinking…' : turn.end?.kind === 'error' ? 'Stopped with an error.' : stopped ? 'Stopped before it did anything.' : 'Answered without changing anything.';
+  else {
+    const joined = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')}${parts.at(-1).startsWith('but ') ? ', ' : ', and '}${parts.at(-1)}`;
+    text = `${live ? 'Working on it: ' : turn.end?.kind === 'error' ? 'Stopped with an error after it ' : stopped ? 'Stopped before finishing: ' : ''}${joined}.`;
+    text = text[0].toUpperCase() + text.slice(1);
+  }
+  // Warnings: the risky things, minus what the sentence already says.
+  const warnings = live ? [] : story(turn).flags.filter((f) => f.level === 'warn' && !(/^Not tested:/.test(f.text) && parts.includes('but it didn’t run the tests'))).slice(0, 2).map((f) => f.text);
+  return { text, status, warnings };
 }
 
 /** A turn's story: chapters, flags for the whole turn, and the plan. */

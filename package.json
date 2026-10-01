@@ -54,7 +54,8 @@
     "bin",
     "hooks",
     "commands",
-    ".claude-plugin"
+    ".claude-plugin",
+    "THIRD_PARTY_NOTICES"
   ],
   "bin": {
     "dotpals": "bin/dotpals.js",
@@ -72,6 +73,9 @@
     "test": "node --test",
     "setup": "node bin/dotpals.js setup",
     "dashboard": "node bin/dotpals.js dashboard"
+  },
+  "optionalDependencies": {
+    "@typesafe-ai/sdk": "^0.6.0"
   },
   "devDependencies": {
     "electron": "^44.5.1"

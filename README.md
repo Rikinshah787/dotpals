@@ -44,7 +44,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
 - **Retries**: when a step fails and the agent tries the same thing again, the tries are linked: *fixed on try 2*, *still failing after 3 tries*. Click a try to jump to it. On the dashboard, paste a step's ID (`toolu_…`) to open it.
-- **Was it tested?** One line per session says *Tests passed at 7:08 PM, after the last change*, *Tests passed at 7:08 PM · 3 files changed since* or *No tests run by the agent*, and whether the last commit was tested. Test results come from the test output (`fail 0`, `5 passed`), not just the exit code. Only tests the agent ran count.
+- **Was it tested?** One line per session says *Tests passed · 48 passed · 7:08 PM, after the last change*, *Tests passed at 7:08 PM · 3 files changed since* or *No tests run by the agent*, and whether the last commit was tested. Each result says where it came from: the test output's own summary (jest, vitest, mocha, node:test, pytest, go, cargo, dotnet, Maven, Gradle, PHPUnit, RSpec and more), or *(exit code only)*. Zero tests or only skipped ones read as *Tests unclear: no tests actually ran*, never as passed. Optionally, an unclear result can be double-checked by [Laya](https://huggingface.co/convaiinnovations/laya) on your computer (one click sets it up: *Settings → Set up Laya*, or `dotpals laya`; needs Python 3.10+) or TypeSafe's Jev in the cloud (off by default). Only tests the agent ran count.
 - **The notch**: an island at the top of your screen with every agent, a live diff of the file it's editing, its plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. It opens by itself when an agent needs you, and you can allow or deny from the keyboard. Hide the pal and the notch takes over; **–** minimizes it, so nothing sits at the top while agents work.
 - **Context and limits**: the pal gets worried as a session's context window fills up and cheers after it compacts. Usage bars show your 5-hour and weekly limits with reset times (for Claude, run `dotpals statusline` once).
 - **Summary**: one card per request, with what you asked, what the agent said it did, and a tally such as *Changed 3 files · Ran 5 commands, 1 failed · Used 1 skill*. **Show steps** lists every step as a short sentence.
@@ -179,7 +179,7 @@ dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dash
 
 ## Privacy
 
-Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
+Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
 
 ## How it works
 
@@ -557,6 +557,11 @@ npm run dev        # the web component playground on http://localhost:5173
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). To support a new agent, add an adapter next to [`bridge/adapters/codex.js`](bridge/adapters/codex.js), which is a good template for any agent that writes a session log.
+
+## Credits
+
+- Reading test results and double-checking unclear ones builds on [claude-referee](https://github.com/ismaildasci/claude-referee) by Ismail Dasci (MIT): its test-output parsers, redaction rules and "done" question are adapted in `bridge/ui/testout.js`, `bridge/redact.js` and `bridge/checker.js`. See [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+- The optional checkers are [Laya](https://huggingface.co/convaiinnovations/laya) by Convai Innovations (runs on your computer; not bundled, dotpals installs it from PyPI when you click Set up Laya) and [TypeSafe](https://typesafe.ai)'s Jev, through its MIT-licensed SDK `@typesafe-ai/sdk`.
 
 ## Trademarks
 

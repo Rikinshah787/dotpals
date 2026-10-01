@@ -48,7 +48,7 @@ test('running chapters read in the present tense', () => {
 test('flags: secrets, risky commands and a stuck loop', () => {
   const f = flags([
     step('edit', { title: '.env', files: [{ path: '/p/.env', change: 'edit' }] }),
-    run('rm -rf build'),
+    run('rm -rf src'),
     run('git push --force origin main'),
     run('npm run e2e', 'failed'), run('npm run e2e', 'failed'), run('npm run e2e', 'failed'),
   ]);
@@ -258,4 +258,132 @@ test('a command only counts as a test run when it runs a test command, not when 
   assert.notEqual(stepType(run("node -e \"await a({ body: { command: 'npm test' } })\"")), 'test');
   assert.notEqual(stepType(run('echo "run npm test before pushing" > NOTES.txt')), 'test');
   assert.notEqual(stepType(run('grep -rn "npm test" docs')), 'test');
+});
+
+test('testVerdict: the summary decides, and says where the verdict came from', async () => {
+  const { testVerdict, testWords } = await import('../bridge/ui/story.js');
+  const ran = (output, status = 'ok', extra = {}) => ({ ...run('npm test', status), body: { command: 'npm test', output }, ...extra });
+  const v = (output, status, extra) => { const x = testVerdict(ran(output, status, extra)); return [x.state, x.source]; };
+  assert.deepEqual(v('ℹ tests 48\nℹ pass 48\nℹ fail 0'), ['passed', 'output']);
+  assert.equal(testWords(testVerdict(ran('ℹ tests 48\nℹ pass 48\nℹ fail 0'))), 'Tests passed · 48 passed');
+  assert.equal(testWords(testVerdict(ran('Tests: 1 failed, 47 passed, 48 total', 'failed'))), 'Tests failed · 1 failed, 47 passed');
+  // The summary wins over the exit status, both ways.
+  assert.deepEqual(v('===== 3 passed in 0.1s =====', 'failed'), ['passed', 'output']);
+  assert.deepEqual(v('test result: FAILED. 3 passed; 1 failed; 0 ignored;', 'ok'), ['failed', 'output']);
+  // No summary: the exit status, and it says so.
+  assert.deepEqual(v('Compiling…\ndone'), ['passed', 'exit']);
+  assert.equal(testWords(testVerdict(ran('done'))), 'Tests passed (exit code only)');
+  assert.deepEqual(v('something broke', 'failed'), ['failed', 'exit']);
+  assert.equal(testVerdict(run('npm test', 'running')).state, 'running');
+});
+
+test('testVerdict: zero tests, only skipped, or output that disagrees with the exit code is unclear', async () => {
+  const { testVerdict, testWords, testPassed, testState, testLine, chapters, story } = await import('../bridge/ui/story.js');
+  const ran = (output, status = 'ok', extra = {}) => ({ ...run('npm test', status), body: { command: 'npm test', output }, ...extra });
+  for (const output of ['ℹ tests 0\nℹ pass 0\nℹ fail 0', '======= 4 skipped in 0.02s =======', 'No tests found, exiting with code 0']) {
+    const x = testVerdict(ran(output));
+    assert.equal(x.state, 'unclear', output);
+    assert.equal(x.note, 'no tests actually ran');
+  }
+  assert.equal(testWords(testVerdict(ran('ℹ tests 0\nℹ pass 0\nℹ fail 0'))), 'Tests unclear: no tests actually ran');
+  // An "ok" exit with a crash in the output, and a "failed" exit with clean output.
+  assert.equal(testVerdict(ran('Traceback (most recent call last):\n  File "x.py"\nValueError: bad')).state, 'unclear');
+  assert.equal(testVerdict(ran('PASS src/a.test.js\n✓ adds', 'failed')).state, 'unclear');
+  assert.equal(testVerdict(ran('', 'stopped')).state, 'unclear');
+  // Unclear is never a pass.
+  const change = edit('src/a.js');
+  const unclear = ran('ℹ tests 0\nℹ pass 0\nℹ fail 0');
+  assert.equal(testPassed(unclear), null);
+  const t = testState([change, unclear, run('git commit -m x')]);
+  assert.equal(t.state, 'unclear');
+  assert.equal(t.commit.tested, false);
+  const line = testLine([change, unclear], () => '7:08 PM');
+  assert.equal(line.level, 'warn');
+  assert.equal(line.text, 'Tests unclear: no tests actually ran · 7:08 PM');
+  const [ch] = chapters([unclear]);
+  assert.equal(ch.title, 'Tests unclear');
+  assert.equal(ch.status, 'unclear');
+  assert.equal(ch.detail, 'npm test · no tests actually ran');
+  assert.match(story({ steps: [change, unclear], end: { kind: 'done' } }).flags[0].text, /^Tests unclear: no tests actually ran$/);
+});
+
+test('testVerdict: a checker settles an unclear run, and only an unclear one', async () => {
+  const { testVerdict, testWords, testLine, chapters } = await import('../bridge/ui/story.js');
+  const ran = (output, status, check) => ({ ...run('npm test', status), body: { command: 'npm test', output }, check });
+  const crash = 'Traceback (most recent call last):\nValueError: bad';
+  const passed = testVerdict(ran(crash, 'ok', { by: 'jev', state: 'passed', p: 0.94, ms: 300 }));
+  assert.deepEqual([passed.state, passed.source], ['passed', 'checker']);
+  assert.equal(testWords(passed), 'Tests passed · checked by Jev, 94% sure');
+  const failed = testVerdict(ran(crash, 'ok', { by: 'laya', state: 'failed', p: 0.1, ms: 40 }));
+  assert.equal(testWords(failed), 'Tests failed · checked by Laya, 90% sure');
+  const unsure = testVerdict(ran(crash, 'ok', { by: 'laya', state: 'unclear', p: 0.55, ms: 40 }));
+  assert.equal(unsure.state, 'unclear');
+  assert.match(testWords(unsure), /Laya wasn’t sure \(55% that they passed\)$/);
+  const error = testVerdict(ran(crash, 'ok', { by: 'jev', error: 'no answer within 5 s' }));
+  assert.equal(testWords(error), 'Tests unclear: the exit code says passed, but the output shows errors · couldn’t check with Jev');
+  // A clear result ignores a checker.
+  assert.equal(testVerdict(ran('ℹ pass 3\nℹ fail 1', 'failed', { by: 'jev', state: 'passed', p: 0.99 })).state, 'failed');
+  const change = edit('src/a.js');
+  const checked = ran(crash, 'ok', { by: 'jev', state: 'passed', p: 0.94 });
+  assert.match(testLine([change, checked], () => '7:08 PM').text, /^Tests passed · checked by Jev, 94% sure · 7:08 PM, after the last change$/);
+  assert.equal(chapters([checked])[0].detail, 'npm test · checked by Jev, 94% sure');
+});
+
+test('checkOf describes a checker’s answer: who, what, how sure, why the rules weren’t sure', async () => {
+  const { checkOf } = await import('../bridge/ui/story.js');
+  const e = { ...run('npm test'), body: { command: 'npm test', output: 'Error: Cannot find module ./config' } };
+  assert.equal(checkOf(e), null);
+  const c = checkOf({ ...e, check: { by: 'jev', state: 'failed', p: 0.22, ms: 167, model: 'jev-1.13.0' } });
+  assert.deepEqual(c, { who: 'Jev', state: 'failed', sure: 78, ms: 167, model: 'jev-1.13.0', error: null, why: 'The exit code says passed, but the output shows errors' });
+  assert.equal(checkOf({ ...e, check: { by: 'laya', error: 'couldn’t reach Laya' } }).state, 'error');
+});
+
+test('simple: one plain sentence for a request, with the warnings that matter', async () => {
+  const { simple } = await import('../bridge/ui/story.js');
+  const done = { kind: 'done' };
+  assert.equal(simple({ steps: [edit('src/billing.ts'), run('npm test', 'failed'), run('npm test'), run('git commit -m "Fix VAT" && git push')], end: done }).text,
+    'Changed billing.ts, the tests passed after one retry, and committed and pushed.');
+  assert.equal(simple({ steps: [edit('src/a.js'), edit('src/b.js')], end: done }).text, 'Changed 2 files, but it didn’t run the tests.');
+  assert.equal(simple({ steps: [read('src/a.js'), read('src/b.js')], end: done }).text, 'Looked through 2 files.');
+  assert.equal(simple({ steps: [], end: done }).text, 'Answered without changing anything.');
+  const failing = simple({ steps: [edit('src/a.js'), run('npm test', 'failed')], end: done });
+  assert.equal(failing.status, 'failed');
+  assert.match(failing.text, /the tests are failing\.$/);
+  assert.match(simple({ steps: [edit('src/a.js')], end: null }).text, /^Working on it: /);
+  // Only warnings, and not the one the sentence already says.
+  const risky = simple({ steps: [edit('.env'), edit('src/a.js')], end: done });
+  assert.deepEqual(risky.warnings, ['Changed .env, which usually holds secrets']);
+});
+
+test('deleting a temp or build folder is a quiet note, deleting code is a warning', () => {
+  const quiet = flags([run('rm -rf "$TEMP/claude/scratchpad/laya"')]);
+  assert.deepEqual(quiet.map((f) => [f.level, f.text]), [['info', 'Deleted a temporary or build folder']]);
+  assert.equal(flags([run('rm -rf dist node_modules')])[0].level, 'info');
+  assert.equal(flags([run('rm -rf src')])[0].level, 'warn');
+  assert.equal(flags([run('rm -rf $TEMP/x && rm -rf src')])[0].level, 'warn'); // one real delete is enough
+});
+
+test('a command counts for what it runs, not for what it writes into a file (seen for real)', async () => {
+  const { parts, simple } = await import('../bridge/ui/story.js');
+  // Writing a test file that mentions git push and rm -rf: not a push, not a delete.
+  const writing = "cd /c/Dot; cat >> test/story.test.js <<'EOF'\n  run('git commit -m \"Fix VAT\" && git push')\n  flags([run('rm -rf src')])\nEOF\nnpm test";
+  assert.notEqual(stepType(run(writing)), 'ship');
+  assert.equal(flags([run(writing)]).length, 0);
+  assert.doesNotMatch(simple({ steps: [edit('src/a.js'), run(writing)], end: { kind: 'done' } }).text, /pushed/);
+  // An inline script that mentions them doesn't count either; a real push does.
+  assert.notEqual(stepType(run(`node -e "console.log('git push --force')"`)), 'ship');
+  assert.equal(stepType(run('git add -A && git commit -m "x" && git push')), 'ship');
+  // `timeout 150 npm test` is a test run.
+  assert.equal(stepType(run('timeout 150 npm test > out.txt 2>&1')), 'test');
+  assert.deepEqual(parts('FOO=1 timeout 30 npx jest --ci | tail -5'), ['jest --ci', 'tail -5']);
+  // Stop-Process inside a PowerShell pipeline is still a force-stop.
+  assert.equal(flags([run("Get-Process electron | ForEach-Object { Stop-Process -Id $_.Id -Force }")])[0]?.text, 'Force-stopped programs');
+});
+
+test('simple: a request that stopped before finishing says so, not "working on it"', async () => {
+  const { simple } = await import('../bridge/ui/story.js');
+  const s = simple({ steps: [edit('src/a.js'), edit('src/b.js'), run('npm test', 'failed')], end: null }, { live: false });
+  assert.equal(s.status, 'stopped');
+  assert.equal(s.text, 'Stopped before finishing: changed 2 files, and the tests are failing.');
+  assert.match(simple({ steps: [edit('src/a.js')], end: null }, { live: true }).text, /^Working on it: /);
 });

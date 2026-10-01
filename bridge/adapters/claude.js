@@ -9,7 +9,7 @@
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { clip, clipText, folderName, relative, toPatch } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 
 const HARNESS = 'claude';
 
@@ -108,17 +108,18 @@ export function describeTool(name = '', input = {}, cwd) {
 /** A tool's result as text for the details panel (file contents aren't kept). */
 function resultText(name, result) {
   if (result == null || name === 'Read' || name === 'Write') return undefined;
-  if (typeof result === 'string') return clipText(result, 3000);
-  if (Array.isArray(result)) return clipText(result.map((b) => b?.text ?? '').join('\n'), 3000);
+  if (typeof result === 'string') return clipEnds(result, 3000);
+  // Command output keeps its start and its end, where test runners print their summary.
+  if (Array.isArray(result)) return clipEnds(result.map((b) => b?.text ?? '').join('\n'), 3000);
   if (name === 'Bash' || name === 'PowerShell') {
-    return clipText([result.stdout, result.stderr].filter(Boolean).join('\n'), 3000) || undefined;
+    return clipEnds([result.stdout, result.stderr].filter(Boolean).join('\n'), 3000) || undefined;
   }
   if (name === 'Edit' || name === 'MultiEdit') return undefined;
   if (name === 'Grep' || name === 'Glob') {
     const files = result.filenames ?? [];
     return clipText(result.content || `${result.numFiles ?? files.length} files\n${files.join('\n')}`, 3000);
   }
-  if (Array.isArray(result.content)) return clipText(result.content.map((b) => b?.text ?? '').join('\n'), 3000);
+  if (Array.isArray(result.content)) return clipEnds(result.content.map((b) => b?.text ?? '').join('\n'), 3000);
   return clipText(JSON.stringify(result, null, 2), 3000);
 }
 

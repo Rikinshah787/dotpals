@@ -28,6 +28,19 @@ export const clipText = (s, n = 4000) => {
   return s.length > n ? `${s.slice(0, n)}\n… (${s.length - n} more characters)` : s;
 };
 
+/**
+ * Clip a command's output, keeping its start and its end: test runners and builds
+ * print their summary ("48 passed", "1 failed") last, and that's what tells whether
+ * it worked. Keeps about n characters, half from each end.
+ */
+export const clipEnds = (s, n = 3000) => {
+  s = String(s ?? '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
+  if (s.length <= n) return s;
+  const head = Math.ceil(n / 2);
+  const tail = n - head;
+  return `${s.slice(0, head)}\n… (${s.length - n} characters cut) …\n${s.slice(-tail)}`;
+};
+
 /** A path relative to the session's folder when it's inside it. */
 export function relative(path, cwd) {
   if (!path) return '';

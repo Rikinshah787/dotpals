@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clip, clipText, createActivityLog, folderName, relative, toPatch } from '../bridge/activity.js';
+import { clip, clipEnds, clipText, createActivityLog, folderName, relative, toPatch } from '../bridge/activity.js';
+import { testVerdict } from '../bridge/ui/story.js';
+
+test('clipEnds keeps the start and the end of long output, so a test summary survives', () => {
+  assert.equal(clipEnds('short\r\nout\n\n'), 'short\nout');
+  const long = `> npm test\n${'✔ a test that passed (1ms)\n'.repeat(400)}ℹ tests 400\nℹ pass 399\nℹ fail 1`;
+  const kept = clipEnds(long, 3000);
+  assert.ok(kept.length < 3100);
+  assert.ok(kept.startsWith('> npm test\n'));
+  assert.ok(kept.endsWith('ℹ fail 1'));
+  assert.match(kept, /\n… \(\d+ characters cut\) …\n/);
+  // clipText loses the summary; clipEnds keeps it, so the run reads as failed, not "exit code only".
+  const entry = (output) => ({ kind: 'run', status: 'ok', body: { command: 'npm test', output } });
+  assert.equal(testVerdict(entry(clipText(long, 3000))).source, 'exit');
+  assert.deepEqual([testVerdict(entry(kept)).state, testVerdict(entry(kept)).summary], ['failed', '1 failed, 399 passed']);
+});
 
 test('helpers: clip, clipText, relative, folderName, toPatch', () => {
   assert.equal(clip('  a \n b  '), 'a b');

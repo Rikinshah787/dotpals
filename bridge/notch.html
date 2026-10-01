@@ -302,6 +302,15 @@
     .turn .asked small { color: var(--faint); margin-right: 4px; }
     .turn .said { margin: 0; color: var(--muted); font-size: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; user-select: text; }
     .turn .said b { color: var(--soft); }
+    .turn .simple { margin: 0; font-size: 12px; color: var(--text); display: flex; gap: 6px; align-items: baseline; }
+    .turn .simple .mark { flex: none; font-weight: 700; }
+    .turn .simple.ok .mark { color: var(--ok); } .turn .simple.failed .mark { color: var(--bad); }
+    .turn .simple.unclear .mark, .turn .simple.running .mark, .turn .simple.stopped .mark { color: var(--warn); }
+    .chapters .small-steps { color: var(--faint); font-size: 10.5px; padding: 2px 0 0 10px; list-style: none; }
+    .viewseg { display: flex; justify-content: flex-end; gap: 0; }
+    .viewseg button { border: 1px solid var(--line, rgb(255 255 255 / .1)); background: none; color: var(--muted); font-size: 10.5px; padding: 2px 9px; cursor: pointer; }
+    .viewseg button:first-child { border-radius: 7px 0 0 7px; } .viewseg button:last-child { border-radius: 0 7px 7px 0; border-left: 0; }
+    .viewseg button[aria-pressed="true"] { background: rgb(255 255 255 / .1); color: var(--text); }
     .chapters { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
     .ch .row { display: flex; align-items: center; gap: 7px; padding: 3px 5px; margin: 0 -5px; border-radius: 7px; cursor: pointer; min-width: 0; }
     .ch .row:hover { background: #1c1c23; }
@@ -312,6 +321,7 @@
     .ch .what b { flex: none; font-weight: 600; font-size: 11.5px; }
     .ch .what small { min-width: 0; color: var(--faint); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
     .ch .side { flex: none; display: flex; gap: 5px; align-items: center; font: 600 10.5px var(--mono); }
+    .ch .side .unclear { color: var(--warn); }
     .ch .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--h) 35%, transparent); border-top-color: var(--h); animation: spin .8s linear infinite; }
     .ch .caret { color: var(--faint); font-size: 9px; transition: transform .2s; }
     .ch.open .caret { transform: rotate(90deg); }
@@ -346,7 +356,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnMarkdown, turnTime } from './ui/recap.js';
-    import { compactNote, headline, overlaps, planOf, stepType, story, testLine, toolkit } from './ui/story.js';
+    import { compactNote, headline, minorChapter, overlaps, planOf, simple, stepType, story, testLine, toolkit } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
 
@@ -490,6 +500,7 @@
         }
         schedule();
       } else if (type === 'config') {
+        if (data.storyView === 'simple' || data.storyView === 'detailed') defaultView = data.storyView;
         if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); }
         if (DotPal.characters.includes(data.character) && data.character !== first) {
           first = data.character;
@@ -1012,6 +1023,13 @@
       ]);
     }
 
+    // Poke a pal three times quickly and it gets dizzy (see src/element.js); here it also says so.
+    const DIZZY = ['Whoa, too many pokes at once!', 'Okay, okay, I’m watching!', 'Easy! I’m keeping an eye on it.', 'My head’s spinning… still watching, though.'];
+    let dizzyLine = 0;
+    document.addEventListener('dotpal-poke', (e) => {
+      if (e.detail?.count === 3) e.target.say?.(DIZZY[dizzyLine++ % DIZZY.length], { duration: 3200 });
+    });
+
     /** Put a session to sleep everywhere (the bridge tells every viewer); it wakes on new activity. */
     function dismiss(id) {
       helpers.delete(id);
@@ -1343,7 +1361,17 @@
       // Was the code as it is now tested (by the agent)?
       const tests = testLine(list, shortTime);
       const top = box.scrollTop;
+      const view = storyView();
       keyed(box, [
+        { key: `view|${view}`, make: () => {
+          const seg = el('div', 'viewseg');
+          for (const [v, label] of [['simple', 'Simple'], ['detailed', 'Detailed']]) {
+            const b = button('', label, () => { activity(); setStoryView(v); });
+            b.setAttribute('aria-pressed', String(view === v));
+            seg.append(b);
+          }
+          return seg;
+        } },
         todayItem(s, turns, rev),
         tests && { key: `tests|${tests.level}|${tests.text}`, make: () => { const n = el('div', `note ${tests.level}`, tests.text); n.title = 'Only tests the agent ran count: dotpals can’t see tests you run yourself, or CI.'; return n; } },
         plan && { key: `plan|${plan.done}/${plan.total}|${plan.items.map((p) => p.status[0] + p.text).join('|')}`, make: () => planBlock(s, plan) },
@@ -1351,7 +1379,7 @@
         c && (c.known ? cPct >= 60 : c.used >= 120_000) && { key: `ctx|${Math.round(cPct ?? c.used / 1000)}`, make: () => ctxBlock(s, c, cPct) },
         (kit.skills.length || kit.tools.length || kit.helpers) && { key: `kit|${JSON.stringify([kit.skills.slice(0, 5).map((k) => k.name), kit.tools.slice(0, 5).map((k) => k.name), kit.helpers])}`, make: () => kitRow(kit) },
         cross.length && { key: `cross|${cross.map((o) => o.path).join('|')}`, make: () => { const n = el('div', 'note'); const o = cross[0]; n.textContent = `${baseName(o.path)} was also changed by ${o.sessions.filter((x) => x.session !== s.id).map((x) => `${harnessName(x.harness)} (${x.label ?? '?'})`).join(' and ')}. Check they didn’t undo each other.${cross.length > 1 ? ` (+${cross.length - 1} more files)` : ''}`; return n; } },
-        ...recent.map((t, i) => ({ key: `turn|${t.id}|${t.steps.length}|${t.steps.at(-1)?.status}|${t.end?.id}|${t.end?.summary?.length ?? 0}|${[...openChapters].filter((k) => k.startsWith(`${t.id}:`)).join(',')}|${i === 0 && live}`, make: () => turnBlock(s, t, i === 0 && live) })),
+        ...recent.map((t, i) => ({ key: `turn|${view}|${t.id}|${t.steps.length}|${t.steps.at(-1)?.status}|${t.end?.id}|${t.end?.summary?.length ?? 0}|${[...openChapters].filter((k) => k.startsWith(`${t.id}:`)).join(',')}|${i === 0 && live}`, make: () => turnBlock(s, t, i === 0 && live) })),
         !recent.length && { key: 'none', make: () => el('div', 'block quiet', 'Each request you give this agent shows up here, with what it changed in plain words.') },
       ]);
       box.scrollTop = top;
@@ -1416,6 +1444,11 @@
       if (kit.helpers) chip(plural(kit.helpers, 'helper agent'), '', 'Subagents it asked for help');
       return row;
     }
+    // Simple (one plain sentence per request) or Detailed (the chapters). The pal's
+    // Summary uses the same choice (same page origin, same localStorage key).
+    let defaultView = 'simple'; // from the settings (chosen at setup), until you pick one here
+    const storyView = () => { let v = null; try { v = localStorage.getItem('dotpals.view'); } catch {} return (v ?? defaultView) === 'detailed' ? 'detailed' : 'simple'; };
+    const setStoryView = (v) => { try { localStorage.setItem('dotpals.view', v); } catch {} render(); };
     function turnBlock(s, t, live) {
       const box = el('div', `turn ${harnessClass(s.harness)}`);
       if (t.prompt) {
@@ -1424,7 +1457,18 @@
         asked.title = t.prompt.title;
         box.append(asked);
       }
-      if (t.end?.summary) {
+      // Simple view (shared with the pal): one plain sentence and the warnings that matter.
+      const easy = storyView() === 'simple' ? simple(t, { live }) : null;
+      if (easy) {
+        const line = el('p', `simple ${easy.status}`);
+        line.append(el('span', 'mark', { ok: '✓', failed: '✕', unclear: '?', running: '…', stopped: '■' }[easy.status] ?? '•'), el('span', '', easy.text));
+        box.append(line);
+        if (easy.warnings.length) {
+          const f = el('div', 'flags');
+          for (const w of easy.warnings) f.append(el('div', 'flag', w));
+          box.append(f);
+        }
+      } else if (t.end?.summary) {
         const said = el('p', 'said');
         said.append(el('b', '', `${harnessName(s.harness)}: `), plain(t.end.summary));
         box.append(said);
@@ -1432,12 +1476,15 @@
         box.append(el('p', 'said bad', t.end.title));
       }
       const { chapters, flags } = story(t, live ? stepsOf(s) : t.steps);
-      if (chapters.length) {
+      if (!easy && chapters.length) {
         const ul = el('ul', 'chapters');
-        for (const c of chapters) ul.append(chapterRow(t, c));
+        // Small steps (tool plumbing, scratch files, memory) fold away in the notch.
+        const shown = chapters.length > 1 ? chapters.filter((c) => !minorChapter(c)) : chapters;
+        for (const c of shown) ul.append(chapterRow(t, c));
+        if (shown.length < chapters.length) ul.append(el('li', 'small-steps', `+ ${plural(chapters.length - shown.length, 'small step')}`));
         box.append(ul);
       }
-      if (flags.length) {
+      if (!easy && flags.length) {
         const f = el('div', 'flags');
         for (const x of flags.slice(0, 4)) { const d = el('div', `flag ${x.level}`, x.text); d.title = sentence(x.step); f.append(d); }
         box.append(f);
@@ -1451,7 +1498,7 @@
       foot.append(el('span', 'grow'));
       if (t.end || t.steps.length) {
         const copy = button('mini-btn', 'Copy', null, 'Copy this as Markdown (for a PR, commit message or standup)');
-        copy.onclick = () => copyText(turnMarkdown(t), copy);
+        copy.onclick = () => copyText(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t), copy);
         foot.append(copy);
       }
       box.append(foot);
@@ -1473,6 +1520,7 @@
       if (c.lines?.add || c.lines?.del) side.append(el('span', 'add', `+${c.lines.add}`), el('span', 'del', `−${c.lines.del}`));
       if (c.status === 'running' || c.status === 'waiting') side.append(el('span', 'spin'));
       else if (c.status === 'failed') side.append(el('span', 'bad', '✕'));
+      else if (c.status === 'unclear') side.append(Object.assign(el('span', 'unclear', '?'), { title: 'Tests unclear: dotpals couldn’t tell whether they passed' }));
       else if (['test', 'build', 'ship'].includes(c.type)) side.append(el('span', 'ok', '✓'));
       side.append(el('span', 'caret', '▶'));
       row.append(el('span', 'mark'), what, side);
