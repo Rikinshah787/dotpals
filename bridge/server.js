@@ -56,7 +56,7 @@ import { applyHook, backfillTranscript, describeTool, lastReply, watchClaude } f
 import { crossRecap, flags as riskFlags, stepType } from './ui/story.js';
 import { sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
-import { createChecker } from './checker.js';
+import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
 import { checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
 import { claudeContextSize, readUsage } from './usage.js';
@@ -122,7 +122,7 @@ function createHistory(activity, getConfig) {
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {} } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk } = {}) {
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
@@ -252,6 +252,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // { by, error }), so every viewer updates. Only fresh runs: not every old run in a
   // transcript read at startup.
   const checker = createChecker({ getConfig: () => config, getKey: checkerKey });
+  let sdkInstall = null; // a running "Install it" (npm install @typesafe-ai/sdk)
   function maybeCheck(entry) {
     if (!config.checker || config.checker.mode === 'off' || entry.kind !== 'run' || entry.check || stepType(entry) !== 'test') return;
     if (Date.now() - ((entry.at ?? 0) + (entry.ms ?? 0)) > 15 * 60_000) return;
@@ -612,6 +613,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       let mode;
       try { mode = JSON.parse((await readBody(req)) || '{}').mode; } catch {}
       return json(res, 200, await checker.test(['local', 'cloud'].includes(mode) ? mode : undefined));
+    }
+    // "Install it", when Test connection finds the TypeSafe SDK missing: one npm install at a time.
+    if (path === '/api/checker/jev/install') {
+      sdkInstall ??= installTheSdk().finally(() => { sdkInstall = null; });
+      return json(res, 200, await sdkInstall);
     }
     // Laya on this computer: Set up (install once, then start), Start, Stop, Remove.
     const layaAction = /^\/api\/checker\/laya\/(setup|start|stop|uninstall)$/.exec(path);

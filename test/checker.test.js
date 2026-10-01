@@ -139,3 +139,14 @@ test('redactText: credentials, assignments, URLs with passwords, emails and IPs'
   assert.match(text, /page_token=abc/); // not a secret
   assert.deepEqual(Object.keys(replaced).sort(), ['email', 'ip', 'private_key', 'secret_assignment']);
 });
+
+test('installSdk: npm install into the folder dotpals runs from, with a plain reason when it fails', async () => {
+  const { installSdk } = await import('../bridge/checker.js');
+  const calls = [];
+  const ok = await installSdk({ dir: '/opt/dotpals', run: async (args, opts) => { calls.push([args, opts.cwd]); return { code: 0, output: 'added 1 package' }; } });
+  assert.deepEqual(ok, { ok: true });
+  assert.deepEqual(calls[0], [['install', '--no-save', '--no-audit', '--no-fund', '--no-package-lock', '@typesafe-ai/sdk@^0.6.0'], '/opt/dotpals']);
+  const offline = await installSdk({ run: async () => ({ code: 1, output: 'npm error code ENOTFOUND' }) });
+  assert.deepEqual(offline, { ok: false, error: 'npm couldn’t reach the internet' });
+  assert.deepEqual(await installSdk({ run: async () => ({ code: 1, output: 'EACCES' }) }), { ok: false, error: 'npm couldn’t install it' });
+});

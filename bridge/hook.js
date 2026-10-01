@@ -16,6 +16,7 @@
 //
 //   { "type": "command", "command": "node /path/to/dotpals/bridge/hook.js", "async": true }
 import { spawn } from 'node:child_process';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const agent = /^[a-z][a-z0-9-]{0,30}$/.test(process.argv[2] ?? '') ? process.argv[2] : null;
@@ -44,9 +45,12 @@ const send = (body) =>
   });
 
 async function startBridge() {
-  const { launchFloat } = await import('../desktop/launch.js');
-  if (process.env.DOTPALS_FLOAT !== '0' && launchFloat()) return;
-  const server = fileURLToPath(new URL('./server.js', import.meta.url));
+  const { installedRoot, launchFloat } = await import('../desktop/launch.js');
+  // The installed copy when there is one (it has setup's extras, like the TypeSafe SDK),
+  // else the plugin's own files.
+  const app = installedRoot();
+  if (process.env.DOTPALS_FLOAT !== '0' && launchFloat(undefined, app ? { app } : {})) return;
+  const server = app ? join(app, 'bridge', 'server.js') : fileURLToPath(new URL('./server.js', import.meta.url));
   spawn(process.execPath, [server], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
 }
 

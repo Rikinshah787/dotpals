@@ -27,12 +27,26 @@ export function findElectron() {
   return null;
 }
 
-/** Start the floating pal in the background. Returns false if Electron isn't installed. */
-export function launchFloat(electron = findElectron()) {
+/**
+ * The installed copy (`dotpals setup` puts it in ~/.dotpals/app), when there is one. It has
+ * what setup installed next to it (the optional TypeSafe SDK), which a Claude Code plugin's
+ * folder doesn't.
+ */
+export function installedRoot() {
+  const dir = join(shared, 'app');
+  return existsSync(join(dir, 'desktop', 'main.js')) ? dir : null;
+}
+
+/**
+ * Start the floating pal in the background. Returns false if Electron isn't installed.
+ * `app`: the dotpals folder to run (this one by default; the plugin's hook passes the
+ * installed copy).
+ */
+export function launchFloat(electron = findElectron(), { app = root } = {}) {
   if (!electron) return false;
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  spawn(electron, [join(root, 'desktop', 'main.js')], { detached: true, stdio: 'ignore', env }).unref();
+  spawn(electron, [join(app, 'desktop', 'main.js')], { detached: true, stdio: 'ignore', env }).unref();
   return true;
 }
 

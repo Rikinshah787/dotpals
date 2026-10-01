@@ -164,6 +164,14 @@ lsof -i :5175</code></pre>
   <li>The hook is silent when something goes wrong. Set <code>DOTPALS_DEBUG=1</code> in Claude Code's environment to see its errors.</li>
 </ul>
 
+<h2 id="sdk-missing">Test connection says the TypeSafe SDK isn't installed</h2>
+<p>The Cloud (Jev) checker needs TypeSafe's SDK in the folder dotpals runs from. <code>dotpals setup</code> installs it, but it can be missing when setup ran offline, or when dotpals runs from a clone of the repo.</p>
+<ul>
+  <li>Click <strong>Install it</strong> next to <strong>Test connection</strong> (<strong>Settings → Double-check unclear test results</strong>). It runs <code>npm install @typesafe-ai/sdk</code> in the folder dotpals runs from, then tests again.</li>
+  <li>Or run <code>dotpals setup</code> again. In a clone, run <code>npm install</code> in the repository.</li>
+  <li>dotpals looks for the SDK both next to the copy that's running and in the installed copy (<code>~/.dotpals/app</code>), and the Claude Code plugin opens the installed copy when there is one. So after <code>dotpals setup</code>, it's found whichever way the pal was started.</li>
+</ul>
+
 <h2 id="linux-click-through">Clicks don't go through the pal on Linux</h2>
 <p>In small mode on Windows and macOS, clicks on the empty space around the pal go through to the window underneath. Linux can't pass clicks through a window while still telling it where the mouse is, so there the small window stays solid over its whole area.</p>
 <ul>

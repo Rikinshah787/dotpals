@@ -517,3 +517,19 @@ test('the bridge starts Laya when the checker is on Local and dotpals set it up,
   await api(last.port, '/api/config', { checker: { mode: 'off', layaManaged: false } });
   await closeBridge(last.server);
 });
+
+test('"Install it" (the TypeSafe SDK) needs the header and runs one install at a time', async () => {
+  let runs = 0;
+  let port;
+  let server;
+  for (let tries = 0; ; tries++) {
+    port = 5190 + Math.floor(Math.random() * 2000);
+    try { server = await startBridge({ port, log: () => {}, installSdk: async () => { runs++; await new Promise((r) => setTimeout(r, 50)); return { ok: true }; } }); break; } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
+  }
+  try {
+    assert.equal((await post(port, '/api/checker/jev/install', {})).status, 403); // no header
+    const [a, b] = await Promise.all([api(port, '/api/checker/jev/install', {}), api(port, '/api/checker/jev/install', {})]);
+    assert.deepEqual([a.status, JSON.parse(a.text), JSON.parse(b.text)], [200, { ok: true }, { ok: true }]);
+    assert.equal(runs, 1);
+  } finally { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); }
+});

@@ -550,7 +550,7 @@
                 </form></div>
               <div class="row"><div class="text warn-text">Sends the test output to TypeSafe, after removing anything that looks like a password, key, email or IP address.</div></div>
             </div>
-            <div class="row" id="c-test-row" hidden><div class="text">Test connection<small id="c-test-note">One tiny request, to check the checker answers.</small></div><button type="button" id="c-test">Test connection</button></div>
+            <div class="row" id="c-test-row" hidden><div class="text">Test connection<small id="c-test-note">One tiny request, to check the checker answers.</small></div><button type="button" id="c-sdk" hidden>Install it</button><button type="button" id="c-test">Test connection</button></div>
             <div id="c-checks" class="checks" hidden></div>
           </div>
 
@@ -1612,6 +1612,20 @@
         const r = await api('/api/checker/test', { mode: config.checker?.mode });
         $('c-test-note').className = r.ok ? 'ok' : 'bad';
         $('c-test-note').textContent = r.ok ? `OK: ${r.by === 'jev' ? 'TypeSafe' : 'Laya'} answered in ${r.ms} ms${r.model ? ` (${r.model})` : ''}` : `Didn’t work: ${r.error}`;
+        // The SDK is missing where dotpals runs (a clone, or setup was offline): one click installs it.
+        $('c-sdk').hidden = r.fix !== 'install-sdk';
+      } catch { $('c-test-note').className = 'bad'; $('c-test-note').textContent = 'Couldn’t reach the bridge. Is it running?'; }
+      b.disabled = false;
+    };
+    $('c-sdk').onclick = async () => {
+      const b = $('c-sdk');
+      b.disabled = true;
+      $('c-test-note').className = '';
+      $('c-test-note').textContent = 'Installing TypeSafe’s SDK (a few seconds)…';
+      try {
+        const r = await api('/api/checker/jev/install', {});
+        if (r.ok) { b.hidden = true; $('c-test').click(); } // installed: test again
+        else { $('c-test-note').className = 'bad'; $('c-test-note').textContent = `Couldn’t install it: ${r.error}. In a terminal, run: dotpals setup`; }
       } catch { $('c-test-note').className = 'bad'; $('c-test-note').textContent = 'Couldn’t reach the bridge. Is it running?'; }
       b.disabled = false;
     };

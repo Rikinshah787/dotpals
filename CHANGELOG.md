@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Long command output keeps its start and its end ("… (12480 characters cut) …"), instead of only its start, so a test summary printed last isn't lost (`clipEnds()` in `bridge/activity.js`, used by every adapter and for `POST /event` output).
 - The website shows its visitor count on the home page ("1,284 visitors so far"), instead of counting with Vercel Web Analytics. Each browser counts once, the first time it visits, using a public counter that keeps only the number. No cookies, nothing about the visitor is sent, and the line stays hidden if the counter is down. The app still sends nothing anywhere, unless you turn on the cloud test checker above.
 
+### Fixed
+
+- **Test connection said the TypeSafe SDK wasn't installed** when the pal had been opened by the Claude Code plugin: the plugin started dotpals from its own folder, which doesn't have what setup installs. The plugin now opens the installed copy (`~/.dotpals/app`) when there is one, the checker also looks for the SDK there, and an **Install it** button next to Test connection installs it in one click when it's missing.
+
 ## [0.9.2] - 2026-09-30
 
 ### Added

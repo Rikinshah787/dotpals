@@ -22,8 +22,14 @@
 // most, always after redact.js. It fails open: an error or no answer within the budget
 // (5 s) changes nothing except a "couldn't check" note. The API key is only ever passed
 // to the SDK; it's never logged, stored on an entry or sent to a viewer.
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { home } from './config.js';
 import { parseTestOutput } from './ui/testout.js';
 import { testVerdict } from './ui/story.js';
 import { redact } from './redact.js';
@@ -98,11 +104,60 @@ async function pingLaya({ url, signal }) {
 }
 
 let sdk = null;
+/** The folder dotpals runs from (an install in ~/.dotpals/app, or a clone): where the SDK goes. */
+export const APP_DIR = fileURLToPath(new URL('..', import.meta.url)).replace(/[\\/]+$/, '');
+
+/**
+ * Install the SDK into the folder dotpals runs from, for "Install it" next to Test
+ * connection (setup normally does this; a clone or an offline setup may not have it).
+ * A fixed command, no user input: npm install @typesafe-ai/sdk, without touching
+ * package.json. Resolves { ok, error? }.
+ */
+export function installSdk({ run = spawnNpm, dir = sdkHome(), timeoutMs = 120_000 } = {}) {
+  return run(['install', '--no-save', '--no-audit', '--no-fund', '--no-package-lock', '@typesafe-ai/sdk@^0.6.0'], { cwd: dir, timeoutMs })
+    .then((r) => {
+      sdk = null; // try loading it again
+      return r.code === 0 ? { ok: true } : { ok: false, error: /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|network/i.test(r.output) ? 'npm couldn’t reach the internet' : 'npm couldn’t install it' };
+    });
+}
+function spawnNpm(args, { cwd, timeoutMs }) {
+  return new Promise((resolve) => {
+    // On Windows npm is a .cmd script, which Node only runs through a shell; the arguments are fixed above.
+    const child = process.platform === 'win32'
+      ? spawn(['npm', ...args].join(' '), { cwd, shell: true, windowsHide: true })
+      : spawn('npm', args, { cwd, windowsHide: true });
+    let output = '';
+    const keep = (d) => { output = (output + d).slice(-4000); };
+    child.stdout?.on('data', keep);
+    child.stderr?.on('data', keep);
+    const timer = setTimeout(() => child.kill(), timeoutMs);
+    child.on('error', () => { clearTimeout(timer); resolve({ code: -1, output }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, output }); });
+  });
+}
+
 /** @typesafe-ai/sdk, loaded the first time cloud mode needs it. */
 async function typesafe() {
-  sdk ??= import('@typesafe-ai/sdk').catch((err) => { sdk = null; throw Object.assign(new Error('sdk missing'), { code: 'SDK_MISSING', cause: err }); });
+  sdk ??= loadSdk().catch((err) => { sdk = null; throw Object.assign(new Error('sdk missing'), { code: 'SDK_MISSING', cause: err }); });
   return sdk;
 }
+/**
+ * The SDK from wherever it is: next to this copy of dotpals, or in the installed copy
+ * (~/.dotpals/app, where setup and "Install it" put it). A Claude Code plugin's folder,
+ * or a clone, may run without it.
+ */
+async function loadSdk() {
+  try { return await import('@typesafe-ai/sdk'); } catch (err) {
+    for (const dir of sdkDirs()) {
+      try { return await import(pathToFileURL(createRequire(join(dir, 'package.json')).resolve('@typesafe-ai/sdk')).href); } catch {}
+    }
+    throw err;
+  }
+}
+/** Where the SDK can live: this copy, then the installed one. */
+const sdkDirs = () => [...new Set([APP_DIR, join(home(), 'app')])];
+/** Where "Install it" puts the SDK: the installed copy when there is one, so updates of a plugin's folder don't lose it. */
+const sdkHome = () => (existsSync(join(home(), 'app', 'package.json')) ? join(home(), 'app') : APP_DIR);
 const jevClient = async (key) => {
   const { TypeSafeClient } = await typesafe();
   // No logging (it could print request details), no SDK retries: one try within the budget.
@@ -128,7 +183,7 @@ export const TRANSPORTS = { laya: { ask: askLaya, ping: pingLaya }, jev: { ask: 
 /** A short, safe reason for a failed call. Never the raw error text, which could echo a request. */
 function reason(err, by, timedOut) {
   if (timedOut || err?.name === 'TimeoutError' || err?.name === 'APITimeoutError' || err?.name === 'AbortError') return `no answer within ${BUDGET_MS / 1000} s`;
-  if (err?.code === 'SDK_MISSING') return 'the TypeSafe SDK isn’t installed (npm install @typesafe-ai/sdk in the dotpals folder)';
+  if (err?.code === 'SDK_MISSING') return 'the TypeSafe SDK isn’t installed where dotpals runs';
   if (err?.code === 'NO_KEY') return 'no API key: add one in Settings, or set TYPESAFE_API_KEY';
   const status = err?.status ?? err?.statusCode;
   if (status === 401 || status === 403 || err?.name === 'AuthenticationError' || err?.name === 'PermissionDeniedError') return by === 'jev' ? 'TypeSafe didn’t accept the API key' : 'Laya wants a key (LAYA_API_KEY): run it without one on this computer';
@@ -204,7 +259,7 @@ export function createChecker({ getConfig, getKey, transports = TRANSPORTS, budg
         const reply = await within((signal) => transports[by].ping(args(by, signal)));
         return { ok: true, by, ms: Date.now() - started, ...(reply?.model ? { model: String(reply.model).slice(0, 80) } : {}) };
       } catch (err) {
-        return { ok: false, by, ms: Date.now() - started, error: reason(err, by, err?.timedOut) };
+        return { ok: false, by, ms: Date.now() - started, error: reason(err, by, err?.timedOut), ...(err?.code === 'SDK_MISSING' ? { fix: 'install-sdk' } : {}) };
       }
     },
   };
