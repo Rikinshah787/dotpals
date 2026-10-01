@@ -114,6 +114,13 @@
     tr.click { cursor: pointer; }
     /* Recent checks (Settings → Double-check): what the checker was asked and what it said. */
     .checks { border-top: 1px solid var(--line); padding-top: 12px; }
+    /* Is the checker working? (checker.health from the bridge: answers, errors, a heartbeat) */
+    .health { gap: 10px; }
+    .hdot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--faint); }
+    .hdot.working { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+    .hdot.failing { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
+    .checks .funnel { color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
+    .checks .funnel b { color: var(--text); font-weight: 600; }
     .checks h3 { margin: 0 0 4px; font-size: 13px; }
     .checks .sum { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
     .checks table { font-size: 12.5px; }
@@ -526,6 +533,7 @@
                 <button type="button" data-value="local">Local (Laya)</button>
                 <button type="button" data-value="cloud">Cloud (Jev)</button>
               </div></div>
+            <div class="row health" id="c-health" hidden><span class="hdot" id="c-hdot"></span><div class="text"><span id="c-hline"></span><small id="c-hsub"></small></div></div>
             <div id="c-local" hidden>
               <div class="row"><div class="text">Laya on this computer<small id="l-note">Installs <a href="https://huggingface.co/convaiinnovations/laya" target="_blank" rel="noopener">Laya ↗</a> (free, open source, runs on this computer) into dotpals’ own folder. Needs Python 3.10+. It downloads a few GB the first time (PyTorch and the model). Nothing leaves your computer.</small><small id="l-state" aria-live="polite"></small></div>
                 <div class="keyform">
@@ -610,7 +618,8 @@
     source.onopen = () => { $('dot').classList.add('on'); $('live').textContent = 'live'; };
     source.onerror = () => { $('dot').classList.remove('on'); $('live').textContent = 'offline, retrying…'; };
     source.addEventListener('activity', (e) => { const a = JSON.parse(e.data); entries.set(a.id, a); scheduleRender(); });
-    source.addEventListener('config', (e) => { config = JSON.parse(e.data); renderSettings(); });
+    // Settings changed (or the checker's health did): the Overview's tiles show some of it too.
+    source.addEventListener('config', (e) => { config = JSON.parse(e.data); renderSettings(); if (current === 'overview') scheduleRender(); });
     // Laya on this computer, set up by dotpals: install and start progress, live.
     source.addEventListener('laya', (e) => { if (config?.checker) { config.checker.laya = JSON.parse(e.data); renderChecker(); } });
     source.addEventListener('reset', () => { entries.clear(); render(); });
@@ -698,7 +707,10 @@
      */
     function checkTile(list) {
       const checks = list.map(checkOf).filter(Boolean);
-      if (!checks.length) return null;
+      const mode = config.checker?.mode ?? 'off';
+      // Shown while a checker is on (with its health), or when there were checks.
+      if (!checks.length && mode === 'off') return null;
+      const health = config.checker?.health;
       const n = (s) => checks.filter((c) => c.state === s).length;
       const timed = checks.filter((c) => c.ms != null);
       const t = el('div', 'tile click');
@@ -707,7 +719,17 @@
       const sub = el('div', 'sub');
       sub.append(...[[n('passed'), 'passed', 'ok'], [n('failed'), 'failed', 'bad'], [n('unsure') + n('error'), 'unsure', '']].filter(([k]) => k).flatMap(([k, w, cls], i) => [i ? ' · ' : '', el('span', cls, `${k} ${w}`)]));
       if (timed.length) sub.append(` · ~${Math.round(timed.reduce((s, c) => s + c.ms, 0) / timed.length)} ms`);
-      t.append(el('div', 'label', `Test checks · ${[...new Set(checks.map((c) => c.who))].join(', ')}`), el('div', 'value', String(checks.length)), sub);
+      if (!checks.length) sub.append('none needed yet: the rules settled every run');
+      const label = el('div', 'label');
+      const who = [...new Set(checks.map((c) => c.who))].join(', ') || (mode === 'cloud' ? 'Jev' : 'Laya');
+      label.append(`Test checks · ${who} `);
+      if (mode !== 'off') {
+        const dot = el('span', `hdot ${health?.state ?? 'unknown'}`);
+        dot.style.cssText = 'display:inline-block;width:8px;height:8px;margin-left:4px;vertical-align:middle';
+        dot.title = health?.state === 'working' ? `${who} is working (answered ${ago(health.okAt)})` : health?.state === 'failing' ? `${who} isn’t answering: ${health.error}` : 'Checking whether it answers…';
+        label.append(dot);
+      }
+      t.append(label, el('div', 'value', String(checks.length)), sub);
       return t;
     }
 
@@ -1677,6 +1699,26 @@
       if (!l.installed && c.localUrl && c.localUrl !== 'http://127.0.0.1:8000') $('l-adv').open = true;
     }
 
+    /** "Jev is working · answered 4 min ago in 222 ms" or "Jev isn't answering: … · since 4:10 PM". */
+    function renderHealth(c) {
+      const h = c.health;
+      const row = $('c-health');
+      row.hidden = c.mode === 'off';
+      if (row.hidden) return;
+      const who = c.mode === 'cloud' ? 'Jev' : 'Laya';
+      $('c-hdot').className = `hdot ${h?.state ?? 'unknown'}`;
+      if (h?.state === 'working') {
+        $('c-hline').textContent = `${who} is working`;
+        $('c-hsub').textContent = `Answered ${ago(h.okAt)}${h.okMs != null ? ` in ${h.okMs} ms` : ''}. dotpals checks it every 30 minutes.`;
+      } else if (h?.state === 'failing') {
+        $('c-hline').textContent = `${who} isn’t answering: ${h.error}`;
+        $('c-hsub').textContent = `Since ${new Date(h.failingSince).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${h.okAt ? `. Last answer ${ago(h.okAt)}` : ''}. Unclear test runs stay unclear until it answers again.`;
+      } else {
+        $('c-hline').textContent = `Checking whether ${who} answers…`;
+        $('c-hsub').textContent = 'dotpals checks it when it starts, when you change this, and every 30 minutes.';
+      }
+    }
+
     function renderChecker() {
       const c = config.checker ?? { mode: 'off' };
       for (const b of $('c-mode').children) b.setAttribute('aria-pressed', String(b.dataset.value === c.mode));
@@ -1689,6 +1731,7 @@
         : c.keyFrom === 'env' ? `Using TYPESAFE_API_KEY ••••${c.keyLast4}` : `Saved ••••${c.keyLast4}`;
       $('c-key').placeholder = c.keyFrom === 'settings' ? 'Paste a new key to replace it' : 'Paste a key';
       $('c-key-remove').hidden = c.keyFrom !== 'settings';
+      renderHealth(c);
       renderChecks(c);
     }
 
@@ -1697,6 +1740,29 @@
      * sure it was and how long it took. The end of the output is what it looked at
      * (sent with passwords, keys, emails and IP addresses removed).
      */
+    /**
+     * Why the checker is rarely asked: of the test runs in your history, how many the rules
+     * settled from the output or the exit code, how many were unclear, how many it checked.
+     */
+    function checkFunnel() {
+      const runs = [...entries.values()].filter((e) => e.kind === 'run' && stepType(e) === 'test' && !['running', 'waiting'].includes(e.status));
+      if (!runs.length) return null;
+      const unclear = runs.filter((e) => testVerdict({ ...e, check: undefined }).state === 'unclear');
+      const checked = runs.filter((e) => e.check && !e.check.error);
+      const p = el('p', 'funnel');
+      const b = (n, text) => { p.append(el('b', '', String(n)), ` ${text}`); };
+      p.append('In your history: ');
+      b(runs.length, runs.length === 1 ? 'test run' : 'test runs');
+      p.append(' · ');
+      b(runs.length - unclear.length, 'settled by the rules');
+      p.append(' · ');
+      b(unclear.length, 'unclear');
+      p.append(' → ');
+      b(checked.length, 'checked');
+      p.title = 'The rules read each test run’s output (“48 passed”) or its exit code. Only runs they can’t call go to the checker, so it’s rarely needed.';
+      return p;
+    }
+
     /** "Jev ✕ 78%": a checker's answer as a badge (Log rows). */
     function checkBadge(ck) {
       const mark = { passed: '✓', failed: '✕', unsure: '?', error: '!' }[ck.state];
@@ -1724,7 +1790,8 @@
       box.hidden = c.mode === 'off' && !list.length;
       if (box.hidden) return;
       const head = el('h3', '', 'Recent checks');
-      if (!list.length) { box.replaceChildren(head, el('div', 'sum', 'None yet. When a test run is unclear, the checker’s answer shows up here.')); return; }
+      const funnel = checkFunnel();
+      if (!list.length) { box.replaceChildren(head, ...(funnel ? [funnel] : []), el('div', 'sum', 'None yet. When a test run is unclear, the checker’s answer shows up here.')); return; }
       const decided = list.filter((e) => ['passed', 'failed'].includes(e.check.state));
       const timed = list.filter((e) => Number.isFinite(e.check.ms));
       const avg = timed.length ? Math.round(timed.reduce((n, e) => n + e.check.ms, 0) / timed.length) : null;
@@ -1769,7 +1836,7 @@
         tr.append(open);
         table.append(tr);
       }
-      box.replaceChildren(head, el('div', 'sum', sum), table);
+      box.replaceChildren(head, ...(funnel ? [funnel] : []), el('div', 'sum', sum), table);
     }
 
     /** Open one step in its session's Log (the search box finds it by its ID). */

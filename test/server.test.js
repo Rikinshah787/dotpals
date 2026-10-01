@@ -321,8 +321,9 @@ test('settings never return the TypeSafe key: not from /api/config, /api/status 
   const saved = await api(port, '/api/config', { checker: { mode: 'cloud', jevKey: key } });
   assert.equal(saved.status, 200);
   assert.ok(!saved.text.includes(key));
-  const { laya, ...checker } = JSON.parse(saved.text).checker;
+  const { laya, health, ...checker } = JSON.parse(saved.text).checker;
   assert.deepEqual(checker, { mode: 'cloud', localUrl: 'http://127.0.0.1:8000', layaManaged: false, keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });
+  assert.ok(!JSON.stringify(health).includes(key)); // its health (working, failing, why) never carries the key
   assert.deepEqual([laya.installed, laya.running, laya.phase], [false, false, 'idle']);
   for (const path of ['/api/config', '/api/status']) {
     const text = await (await fetch(`http://127.0.0.1:${port}${path}`)).text();
@@ -532,4 +533,24 @@ test('"Install it" (the TypeSafe SDK) needs the header and runs one install at a
     assert.deepEqual([a.status, JSON.parse(a.text), JSON.parse(b.text)], [200, { ok: true }, { ok: true }]);
     assert.equal(runs, 1);
   } finally { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); }
+});
+
+test('the checker’s health: a heartbeat when the setting changes, the reason when it fails, cleared when off', async () => {
+  const { port, server } = await start();
+  const saved = process.env.TYPESAFE_API_KEY;
+  delete process.env.TYPESAFE_API_KEY;
+  try {
+    await api(port, '/api/config', { checker: { mode: 'cloud', removeKey: true } }); // no key: Jev can't answer
+    let health;
+    await until(async () => (health = (await getJson(port, '/api/config')).checker.health).state === 'failing');
+    assert.equal(health.by, 'jev');
+    assert.match(health.error, /no API key/);
+    assert.ok(health.failingSince <= Date.now());
+    await api(port, '/api/config', { checker: { mode: 'off' } });
+    await until(async () => (health = (await getJson(port, '/api/config')).checker.health).by === null);
+    assert.equal(health.state, 'unknown');
+  } finally {
+    if (saved !== undefined) process.env.TYPESAFE_API_KEY = saved;
+    await closeBridge(server);
+  }
 });

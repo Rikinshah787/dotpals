@@ -258,8 +258,37 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (Date.now() - ((entry.at ?? 0) + (entry.ms ?? 0)) > 15 * 60_000) return;
     checker.check(entry).then((check) => {
       if (check && !activity.get(entry.id)?.check) publish([activity.upsert({ id: entry.id, check })]);
+      if (check?.by) noteHealth(check.by, check.error ? { ok: false, error: check.error } : { ok: true, ms: check.ms });
     }, () => {});
   }
+
+  // -- Is the checker working? -------------------------------------------------------------
+  // Its answers, its errors, Test connection and a heartbeat (on start, when the setting
+  // changes, then every 30 minutes; for Jev that's the free model list) all update one
+  // status, which rides along in the settings as checker.health:
+  //   { by, state: 'working' | 'failing' | 'unknown', okAt, okMs, errorAt, error, failingSince, heartbeatAt }
+  const HEARTBEAT_MS = 30 * 60_000;
+  const freshHealth = (by = null) => ({ by, state: 'unknown', okAt: null, okMs: null, errorAt: null, error: null, failingSince: null, heartbeatAt: null });
+  let health = freshHealth();
+  function noteHealth(by, result) {
+    if (health.by !== by) health = freshHealth(by);
+    const now = Date.now();
+    if (result.ok) Object.assign(health, { state: 'working', okAt: now, okMs: result.ms ?? null, error: null, failingSince: null });
+    else Object.assign(health, { state: 'failing', errorAt: now, error: result.error ?? 'no answer', failingSince: health.failingSince ?? now });
+    send('config', withLaya());
+  }
+  async function heartbeat() {
+    const mode = config.checker?.mode;
+    if (!mode || mode === 'off') { if (health.by) { health = freshHealth(); send('config', withLaya()); } return; }
+    const r = await checker.test(mode).catch(() => null);
+    if (!r?.by) return;
+    noteHealth(r.by, r);
+    health.heartbeatAt = Date.now();
+  }
+  const firstBeat = setTimeout(() => heartbeat(), 15_000);
+  const beat = setInterval(() => heartbeat(), HEARTBEAT_MS);
+  firstBeat.unref?.();
+  beat.unref?.();
 
   // -- Laya on this computer, set up by dotpals (bridge/laya.js) ----------------------
   // Runs while the checker is on Local and dotpals set it up (checker.layaManaged), on the
@@ -267,7 +296,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // closes. Its status rides along in the settings (checker.laya) and as `laya` events.
   const laya = createLaya({ getUrl: () => config.checker?.localUrl, ...layaOptions });
   laya.subscribe((s) => send('laya', s));
-  const withLaya = () => ({ ...config, checker: { ...config.checker, laya: laya.status() } });
+  const withLaya = () => ({ ...config, checker: { ...config.checker, laya: laya.status(), health } });
   function applyLaya(before) {
     const b = before?.checker ?? {};
     const c = config.checker ?? {};
@@ -581,6 +610,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (enabled('claude') !== (before.agents?.claude !== false)) applyClaude();
       if (config.history && !before.history) history.save();
       applyLaya(before);
+      // A different checker (or a new key): check it's answering, right away.
+      if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
       send('config', withLaya());
       return json(res, 200, withLaya());
     }
@@ -612,7 +643,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (path === '/api/checker/test') {
       let mode;
       try { mode = JSON.parse((await readBody(req)) || '{}').mode; } catch {}
-      return json(res, 200, await checker.test(['local', 'cloud'].includes(mode) ? mode : undefined));
+      const result = await checker.test(['local', 'cloud'].includes(mode) ? mode : undefined);
+      if (result.by) noteHealth(result.by, result);
+      return json(res, 200, result);
     }
     // "Install it", when Test connection finds the TypeSafe SDK missing: one npm install at a time.
     if (path === '/api/checker/jev/install') {
@@ -725,7 +758,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       res.writeHead(404).end();
     }
   });
-  server.on('close', () => { stopWatchers(); clearInterval(reaper); laya.stop().catch(() => {}); });
+  server.on('close', () => { stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });
