@@ -525,6 +525,14 @@
           </div>
 
           <div class="card">
+            <h2>Two agents, one file</h2>
+            <div class="row"><div class="text">When an agent is about to change a file another agent just changed<small>Another session changed it a few minutes ago and is still at it: that’s how parallel agents undo each other’s work. Claude Code can be stopped before the edit: <b>Ask me first</b> shows Claude’s permission prompt with the reason (“Codex (api) changed billing.ts 2 minutes ago. Edit anyway?”); <b>Tell Claude</b> stops the edit and tells Claude to re-read the file first. Other agents (Codex, Cursor, Gemini…) can’t be stopped: the notch and the pal tell you right after.</small></div>
+              <select id="s-conflict" aria-label="Two agents, one file"><option value="ask">Ask me first</option><option value="tell">Tell Claude to re-read it</option><option value="off">Off</option></select></div>
+            <div class="row"><div class="text">“Just changed” means within<small>Older changes, and sessions that have gone quiet, don’t count.</small></div>
+              <select id="s-conflict-minutes" aria-label="Just changed means within"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
+          </div>
+
+          <div class="card">
             <h2>Double-check unclear test results</h2>
             <p class="muted" style="margin:4px 0 0">dotpals reads each test run’s output for its summary (“48 passed”, “1 failed”). When it can’t tell, say no tests ran or the exit code disagrees with the output, it says <b>Tests unclear</b>. A checker can look at those runs once and decide. Clear results are never sent.</p>
             <div class="row"><div class="text">Checker<small>Off unless you choose one.</small></div>
@@ -1284,6 +1292,7 @@
       }
       for (const f of e.files ?? []) { const a = el('a', '', `${f.change} · ${f.path}`); a.href = fileUrl(f.path); body.append(a); }
       if (e.error) body.append(el('div', 'bad', e.error));
+      if (e.guard) body.append(el('div', 'wait', e.guard.text)); // paused: another agent had just changed the file
       // A test run: the verdict and where it came from (its output, the exit code, or a checker).
       if (e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running') {
         const v = testVerdict(e);
@@ -1598,6 +1607,18 @@
     $('s-share').onchange = (e) => save({ shareRecap: e.target.checked });
     $('s-approval-wait').onchange = (e) => save({ approvalWait: Number(e.target.value) });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
+    // Two agents, one file (bridge/guard.js): kept in step with the settings as they arrive.
+    $('s-conflict').onchange = (e) => save({ conflictGuard: e.target.value });
+    $('s-conflict-minutes').onchange = (e) => save({ conflictMinutes: Number(e.target.value) });
+    function renderGuard() {
+      if (!config.conflictGuard) return;
+      $('s-conflict').value = config.conflictGuard;
+      const minutes = String(config.conflictMinutes ?? 10);
+      if (![...$('s-conflict-minutes').options].some((o) => o.value === minutes)) $('s-conflict-minutes').add(new Option(`${minutes} minutes`, minutes));
+      $('s-conflict-minutes').value = minutes;
+      $('s-conflict-minutes').disabled = config.conflictGuard === 'off';
+    }
+    source.addEventListener('config', renderGuard);
     $('s-days').onchange = (e) => save({ historyDays: Number(e.target.value) });
     // Double-check unclear test results (bridge/checker.js). The key is write-only: the
     // bridge only ever says whether one is saved and its last 4 characters.

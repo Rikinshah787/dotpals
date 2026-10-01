@@ -10,13 +10,14 @@
 //   bar     agents are working: a slim island with their pals and the current step.
 //           Hover it briefly, or click, to open. Minimized (tucked), it hides instead,
 //           like when nothing's running: alerts still show, the top edge still peeks.
-//   open    the big view. An alert (an agent needs you, finished or failed) opens it
+//   open    the big view. An alert (an agent needs you, finished, failed, or is changing
+//           a file another agent just changed) opens it
 //           by itself. Opened by you, it closes 8 s after the pointer leaves it, or
 //           after a minute with no mouse activity while the pointer rests on it (a
 //           shrinking line shows the countdown); Esc closes it at once.
 //
 // Alerts queue and show one at a time: needs-you first (they stay until answered),
-// then "done" and "error" news, in the order they came. News waits while you're away.
+// then "done", "error" and "clash" news, in the order they came. News waits while you're away.
 
 export const TIMING = {
   barOpen: 200,         // hovering the bar this long opens it
@@ -24,6 +25,7 @@ export const TIMING = {
   peekLinger: 350,      // a peek you moved away from hides after this
   doneFor: 5000,        // a "done" alert shows this long
   errorFor: 8000,       // an "error" alert shows this long
+  clashFor: 10_000,     // a "clash" alert (two agents, one file) shows this long
   autoClose: 60_000,    // open with no mouse activity over it this long → it closes
   afterLeave: 8000,     // open, and the pointer left it this long ago → it closes (it covers tabs and title bars)
   countdown: 10_000,    // the last part of that, shown as a shrinking line
@@ -42,12 +44,12 @@ export function initialState() {
     peekUntil: 0,     // a peek you left stays until then
     tucked: false,    // minimized: no bar while agents work (alerts and peeks still show)
     open: null,       // opened by you: { by: 'hover' | 'peek' | 'click', at, activeAt, leftAt }
-    alerts: [],       // [{ id, kind: 'need' | 'done' | 'error', session, at, shownAt, snoozed }]
+    alerts: [],       // [{ id, kind: 'need' | 'done' | 'error' | 'clash', session, text?, at, shownAt, snoozed }]
   };
 }
 
-const isNews = (a) => a.kind === 'done' || a.kind === 'error';
-const lasts = (a, T) => (a.kind === 'error' ? T.errorFor : T.doneFor);
+const isNews = (a) => a.kind === 'done' || a.kind === 'error' || a.kind === 'clash';
+const lasts = (a, T) => (a.kind === 'clash' ? T.clashFor ?? T.errorFor : a.kind === 'error' ? T.errorFor : T.doneFor);
 
 /** When a notch you opened closes by itself: soon after the pointer leaves, else after a quiet minute. */
 const closesAt = (s, T) => {
@@ -100,7 +102,8 @@ export function derive(s, now, T = TIMING) {
  *   { type: 'click' }                  a click on the island: opens it
  *   { type: 'close' }                  Esc, or a close button: closes, sets needs-you alerts aside
  *   { type: 'tuck', on }               minimize (on) or bring back the bar; minimizing also closes it
- *   { type: 'alert', id, kind, session }   an alert to show (ignored if already queued)
+ *   { type: 'alert', id, kind, session, text? }   an alert to show (ignored if already queued);
+ *                                      a 'clash' carries its `text`
  *   { type: 'resolve', id }            an alert is over (answered, the agent moved on)
  *   { type: 'resolve', session, kind? }   every alert of a session (of one kind)
  *   { type: 'tick' }                   time passed (see nextWake)
@@ -156,7 +159,7 @@ export function reduce(prev, ev, now, T = TIMING) {
       break;
     case 'alert':
       if (ev.id != null && !s.alerts.some((a) => a.id === ev.id)) {
-        s.alerts.push({ id: ev.id, kind: ['need', 'done', 'error'].includes(ev.kind) ? ev.kind : 'need', session: ev.session ?? null, at: now, shownAt: null, snoozed: false });
+        s.alerts.push({ id: ev.id, kind: ['need', 'done', 'error', 'clash'].includes(ev.kind) ? ev.kind : 'need', session: ev.session ?? null, ...(typeof ev.text === 'string' ? { text: ev.text } : {}), at: now, shownAt: null, snoozed: false });
       }
       break;
     case 'resolve':

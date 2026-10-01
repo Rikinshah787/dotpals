@@ -678,6 +678,16 @@
       $('title').textContent = s ? sessionName(s) : picked === 'all' ? 'All sessions' : 'dotpals';
     }
 
+    // -- two agents, one file (bridge/guard.js) ----------------------------------------
+    // An agent is changing a file another active session changed a moment ago: its pal
+    // says so, and a desktop notification tells you (once per file and pair, per 10 min).
+    function applyConflict(c) {
+      if (!c?.text || !fresh(c.at)) return;
+      slots.get(c.session)?.pal.say?.(c.text, { duration: 6000 });
+      sound.play('waiting');
+      desktop?.notify?.('Two agents, one file', `${c.text}. Check they don’t undo each other’s work.`);
+    }
+
     function pick(session, byUser) {
       picked = session;
       if (byUser) pickedByUser = true;
@@ -1097,6 +1107,8 @@
       const meta = el('span', 'meta');
       const rb = retryBadge(e);
       if (rb) meta.append(rb);
+      // dotpals paused it: another agent had just changed the file (bridge/guard.js).
+      if (e.guard) meta.append(Object.assign(el('span', 'wait', 'paused'), { title: e.guard.text }));
       // A checker (Jev, Laya) looked at this test run: "Jev ✕ 78%".
       const ck = checkOf(e);
       if (ck) {
@@ -1734,6 +1746,7 @@
       : type === 'context' ? applyContext(data)
       : type === 'approval' ? applyApproval(data)
       : type === 'helpers' ? applyHelpers(data)
+      : type === 'conflict' ? applyConflict(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
       : applyState(data);
@@ -1841,6 +1854,7 @@
       source.addEventListener('context', (e) => onEvent({ type: 'context', data: JSON.parse(e.data) }));
       source.addEventListener('approval', (e) => onEvent({ type: 'approval', data: JSON.parse(e.data) }));
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
+      source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
     }
 

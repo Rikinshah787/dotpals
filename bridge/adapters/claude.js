@@ -198,7 +198,7 @@ export function transcriptReader(log, { session, label }) {
     try { o = JSON.parse(line); } catch { return changed; }
     if (o.isSidechain) return changed;
     const at = Date.parse(o.timestamp) || Date.now();
-    if (o.cwd) reader.label = label ?? folderName(o.cwd);
+    if (o.cwd) { reader.label = label ?? folderName(o.cwd); reader.cwd ??= o.cwd; }
     const base = { session, label: reader.label, harness: HARNESS, at };
     const content = o.message?.content;
     const set = (state, text) => { reader.state = { state, ...(text ? { text } : {}) }; reader.at = at; };
@@ -264,7 +264,8 @@ const LIVE = 30_000;             // written to in the last 30s: show it on the p
  * view, but sessions that started before the plugin was installed (or with it
  * turned off) have none; this way they show up too.
  *
- * `skip(session)` is true for sessions the hooks already cover.
+ * `skip(session)` is true for sessions the hooks already cover; `cwd(session, folder)`
+ * hears the folder each session started in.
  */
 /**
  * How full the context window is after an assistant reply: { used, size, known, at }.
@@ -282,7 +283,7 @@ export function contextOf(o, sizeOf = () => null) {
   return { used, size, known: !!told || used > 200_000, at: Date.parse(o.timestamp) || Date.now() };
 }
 
-export function watchClaude(log, { emit, state, context = () => {}, sizeOf, skip = () => false, dir = join(homedir(), '.claude', 'projects'), interval = 1500 } = {}) {
+export function watchClaude(log, { emit, state, context = () => {}, cwd = () => {}, sizeOf, skip = () => false, dir = join(homedir(), '.claude', 'projects'), interval = 1500 } = {}) {
   const files = new Map(); // path → { offset, partial, reader, context }
   let stopped = false;
 
@@ -334,6 +335,7 @@ export function watchClaude(log, { emit, state, context = () => {}, sizeOf, skip
             break;
           }
           if (skip(session)) continue; // the hooks have it
+          if (file.reader.cwd) cwd(session, file.reader.cwd);
           const out = lines.flatMap((line) => (line.trim() ? file.reader.line(line) : []));
           if (out.length) emit(out);
           if (live && file.reader.state) state(session, file.reader.label, file.reader.state, file.reader.at);
