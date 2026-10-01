@@ -758,6 +758,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       res.writeHead(404).end();
     }
   });
+  // Keep idle connections open longer than a client does (Node's fetch drops its own after
+  // 4 s), so a client never reuses one this end is just closing ("fetch failed").
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
   server.on('close', () => { stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {

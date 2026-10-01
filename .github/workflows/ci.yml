@@ -11,7 +11,7 @@ jobs:
   test:
     name: Node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # A hung test fails the job in minutes, not hours (each test also has a 60 s limit: npm test).
+    # A hung test fails the job in minutes, not hours (each test also has a 5 min limit: npm test).
     timeout-minutes: 15
     strategy:
       fail-fast: false
