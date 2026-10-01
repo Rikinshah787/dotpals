@@ -146,6 +146,21 @@ test('applyHook: injected messages are not prompts', () => {
   assert.deepEqual(log.all(), []);
 });
 
+test('applyHook: pasted text becomes a placeholder; only a paste shows its first line', () => {
+  const log = createActivityLog();
+  const session = newSession();
+  const paste = '<pasted_content id="37a9">\n### where is the summary\nIt is here.\n</pasted_content id="37a9">';
+  applyHook({ session_id: session, hook_event_name: 'UserPromptSubmit', prompt: `${paste}\n\nmy last prompt and here it is` }, log, { session });
+  assert.ok(log.findLast(session, (x) => x.kind === 'prompt' && x.title === 'my last prompt and here it is [pasted text]'));
+  const other = newSession();
+  applyHook({ session_id: other, hook_event_name: 'UserPromptSubmit', prompt: paste }, log, { session: other });
+  assert.ok(log.findLast(other, (x) => x.kind === 'prompt' && x.title === 'Pasted: where is the summary'));
+  // A paste of a copied recap that had a paste in it: Claude Code escapes the inner tags.
+  const nested = newSession();
+  applyHook({ session_id: nested, hook_event_name: 'UserPromptSubmit', prompt: '<pasted_content id="37a9">\n### <\\pasted_content id="37a9"> ### my last prompt and here it is\n</pasted_content id="37a9">' }, log, { session: nested });
+  assert.ok(log.findLast(nested, (x) => x.kind === 'prompt' && x.title === 'Pasted: my last prompt and here it is'));
+});
+
 test('backfillTranscript rebuilds prompt, tool call and closing message', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'dotpals-claude-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

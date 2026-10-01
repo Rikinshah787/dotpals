@@ -193,6 +193,12 @@
     .flags.cross a { color: var(--text); font-weight: 600; text-decoration: none; }
     .flags.cross a:hover { text-decoration: underline; }
     .flag.info::before { content: "i"; background: var(--k-read); }
+    /* Whether the code as it is now was tested (the session you're looking at). */
+    .flags.tests { margin: 0 10px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
+    .flags.tests.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 7%, var(--raise)); }
+    .flags.tests.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: color-mix(in srgb, var(--bad) 7%, var(--raise)); }
+    .flag.ok { color: var(--muted); } .flag.ok::before { content: "✓"; background: var(--ok); }
+    .flag.bad { color: #f5b3b3; } .flag.bad::before { content: "✕"; background: var(--bad); }
     .plan { padding: 8px 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
     .plan header { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
     .plan .progress { flex: 1; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
@@ -397,7 +403,7 @@
 
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
-    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries } from '../bridge/ui/story.js';
+    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine } from '../bridge/ui/story.js';
     import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnMarkdown, turnTime } from '../bridge/ui/recap.js';
 
     const $ = (id) => document.getElementById(id);
@@ -1511,6 +1517,21 @@
       return li;
     }
 
+    /**
+     * Was the code as it is now tested? "Tests passed at 7:08 PM · 3 files changed since",
+     * "No tests run by the agent", for the session you're looking at (tests the agent ran).
+     */
+    function testBar() {
+      if (picked === 'all' || !picked) return null;
+      const line = testLine(stepsOf(picked), shortTime);
+      if (!line) return null;
+      const li = el('li', `flags tests ${line.level}`);
+      const d = el('div', `flag ${line.level === 'warn' ? '' : line.level}`, line.text);
+      d.title = 'Only tests the agent ran count: dotpals can’t see tests you run yourself, or CI.';
+      li.append(d);
+      return li;
+    }
+
     /** "Using: frontend-design skill · Adobe (plugin) · 2 helper agents" for the session you're looking at. */
     function kitBar() {
       if (picked === 'all' || !picked) return null;
@@ -1542,7 +1563,7 @@
         recap.replaceChildren(el('li', 'none', 'Each request you give your agent shows up here, with what it changed in plain words.'));
         return;
       }
-      recap.replaceChildren(...[todayBar(turns), crossBar(), contextBar(), kitBar(), ...turns.slice(-60).map(renderTurn)].filter(Boolean));
+      recap.replaceChildren(...[todayBar(turns), crossBar(), testBar(), contextBar(), kitBar(), ...turns.slice(-60).map(renderTurn)].filter(Boolean));
       recap.scrollTop = stick ? recap.scrollHeight : top;
     }
 

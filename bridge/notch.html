@@ -293,6 +293,10 @@
     .kit span { padding: 1px 7px; border-radius: 6px; background: #1d1d24; color: var(--soft); }
     .kit em { font-style: normal; color: var(--faint); margin-left: 4px; }
     .note { padding: 7px 10px; border-radius: 10px; font-size: 11px; color: #ffd48a; background: rgb(245 185 74 / .08); }
+    .note.ok { color: var(--muted); background: rgb(255 255 255 / .04); } .note.ok::before { content: "✓ "; color: var(--ok); }
+    .note.bad { color: #ffb4b4; background: rgb(240 90 90 / .1); } .note.bad::before { content: "✕ "; }
+    .note.warn::before { content: "! "; font-weight: 700; }
+    .note.info { color: var(--muted); background: rgb(255 255 255 / .04); }
     .turn { display: grid; gap: 6px; padding: 9px 10px 8px; border-radius: 12px; background: var(--card); }
     .turn .asked { font-size: 11px; color: var(--soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .turn .asked small { color: var(--faint); margin-right: 4px; }
@@ -342,7 +346,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnMarkdown, turnTime } from './ui/recap.js';
-    import { compactNote, headline, overlaps, planOf, stepType, story, toolkit } from './ui/story.js';
+    import { compactNote, headline, overlaps, planOf, stepType, story, testLine, toolkit } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
 
@@ -1336,9 +1340,12 @@
       const kit = toolkit(list);
       const cross = overlaps([...steps.values()].flat()).filter((o) => o.sessions.some((x) => x.session === s.id));
       const recent = turns.filter((t) => t.prompt || t.steps.length).slice(-3).reverse();
+      // Was the code as it is now tested (by the agent)?
+      const tests = testLine(list, shortTime);
       const top = box.scrollTop;
       keyed(box, [
         todayItem(s, turns, rev),
+        tests && { key: `tests|${tests.level}|${tests.text}`, make: () => { const n = el('div', `note ${tests.level}`, tests.text); n.title = 'Only tests the agent ran count: dotpals can’t see tests you run yourself, or CI.'; return n; } },
         plan && { key: `plan|${plan.done}/${plan.total}|${plan.items.map((p) => p.status[0] + p.text).join('|')}`, make: () => planBlock(s, plan) },
         crew.length && { key: `crew|${JSON.stringify(crew.map((x) => [x.id, x.status, x.doing]))}`, make: () => { const b = el('div', 'block'); const running = crew.filter((x) => x.status === 'running').length; b.append(el('header', '', `Helpers · ${running ? `${running} working` : 'all done'}`), crewList(s, crew, 6)); return b; } },
         c && (c.known ? cPct >= 60 : c.used >= 120_000) && { key: `ctx|${Math.round(cPct ?? c.used / 1000)}`, make: () => ctxBlock(s, c, cPct) },

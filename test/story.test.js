@@ -202,3 +202,60 @@ test('retries: a command that keeps failing says so plainly', async () => {
   assert.match(chs[0].detail, /still failing after 3 tries/);
   assert.doesNotMatch(chs[0].detail, /1 failed · 1 still failing/);
 });
+
+test('testState: untested, tested, then changed after the tests passed', async () => {
+  const { testState, testLine } = await import('../bridge/ui/story.js');
+  assert.equal(testState([read('src/a.js')]), null); // only looked: nothing to test
+  assert.equal(testState([edit('README.md'), edit('CHANGELOG.md')]), null); // docs don't need tests
+  const untested = testState([edit('src/a.js'), edit('src/b.js')]);
+  assert.equal(untested.state, 'untested');
+  assert.equal(untested.since.length, 2);
+  assert.equal(testState([edit('src/a.js'), run('npm test')]).state, 'passing');
+  assert.equal(testState([edit('src/a.js'), run('npm test', 'failed')]).state, 'failing');
+  const stale = testState([edit('src/a.js'), run('npm test'), edit('src/b.js'), edit('docs/x.md')]);
+  assert.equal(stale.state, 'stale');
+  assert.deepEqual(stale.since, ['/p/src/b.js']);
+  assert.match(testLine([edit('src/a.js'), run('npm test'), edit('src/b.js')], () => '7:08 PM').text, /^Tests passed at 7:08 PM · 1 file changed since$/);
+});
+
+test('testState: was the last commit tested after its last change?', async () => {
+  const { testState } = await import('../bridge/ui/story.js');
+  assert.equal(testState([edit('src/a.js'), run('npm test'), run('git commit -m x')]).commit.tested, true);
+  assert.equal(testState([edit('src/a.js'), run('npm test'), edit('src/a.js'), run('git commit -m x')]).commit.tested, false);
+  assert.equal(testState([edit('src/a.js'), run('npm test && git commit -m x')]).commit.tested, true);
+  assert.equal(testState([edit('src/a.js'), run('git commit -m x')]).commit.tested, false);
+});
+
+test('story: a finished request that changed code without testing says so, loudly', async () => {
+  const { story } = await import('../bridge/ui/story.js');
+  const turn = (steps, end = { kind: 'done' }) => ({ steps, end });
+  assert.match(story(turn([edit('src/a.js')])).flags[0].text, /^Not tested: changed 1 code file \(a\.js\), and the agent ran no tests$/);
+  assert.equal(story(turn([edit('src/a.js')])).flags[0].level, 'warn');
+  assert.match(story(turn([edit('src/a.js'), run('npm test'), edit('src/b.js')])).flags[0].text, /^Changed b\.js after the tests passed: not tested since$/);
+  assert.equal(story(turn([edit('src/a.js'), run('npm test')])).flags.length, 0);
+  assert.equal(story(turn([edit('src/a.js')], null)).flags.length, 0); // still working: it may test yet
+});
+
+test('a test run’s result comes from its output: a later part of the command failing isn’t a test failure', async () => {
+  const { testPassed, testState } = await import('../bridge/ui/story.js');
+  const ran = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });
+  // npm test passed, then restarting the app returned 255 (seen for real).
+  const change = edit('src/a.js');
+  const restart = ran('npm test 2>&1 | Select-String pass; Stop-Process -Id 1; dotpals start', 'Exit code 255\nℹ pass 102\nℹ fail 0', 'failed');
+  assert.equal(testPassed(restart), true);
+  assert.equal(testState([change, restart]).state, 'passing');
+  assert.equal(testPassed(ran('npx jest', 'Tests:       1 failed, 5 passed, 6 total')), false);
+  assert.equal(testPassed(ran('pytest -q', '===== 12 passed in 0.31s =====')), true);
+  assert.equal(testPassed(ran('cargo test', 'test result: FAILED. 3 passed; 1 failed', 'failed')), false);
+  assert.equal(testPassed(ran('go test ./...', 'ok  \texample.com/pkg\t0.01s')), true);
+  assert.equal(testPassed(ran('npm test', 'something broke', 'failed')), false); // no counts: the exit status decides
+});
+
+test('a command only counts as a test run when it runs a test command, not when it mentions one', async () => {
+  assert.equal(stepType(run('cd app && CI=1 npm test -- --watch=false')), 'test');
+  assert.equal(stepType(run('./node_modules/.bin/jest --ci')), 'test');
+  assert.equal(stepType(run('& npm test 2>&1 | Select-String fail')), 'test');
+  assert.notEqual(stepType(run("node -e \"await a({ body: { command: 'npm test' } })\"")), 'test');
+  assert.notEqual(stepType(run('echo "run npm test before pushing" > NOTES.txt')), 'test');
+  assert.notEqual(stepType(run('grep -rn "npm test" docs')), 'test');
+});

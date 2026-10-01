@@ -30,6 +30,17 @@ function promptText(text) {
   // IDE context the editor adds to the prompt ("the user opened file X"), not what the user typed.
   text = text.replace(/<(ide_[a-z_]+|system-reminder)>[\s\S]*?<\/\1>/g, '').trim();
   if (!text) return null;
+  // Text the user pasted (Claude Code wraps it in <pasted_content id="…">): what they typed
+  // leads, the paste is a "[pasted text]" placeholder after it. Only a paste: its first line.
+  const PASTE = /<pasted_content\b[^>]*>([\s\S]*?)(?:<\/pasted_content\b[^>]*>|$)/g;
+  if (/<pasted_content\b/.test(text)) {
+    // Inside a paste, Claude Code escapes tags of its own (`<\pasted_content …>`), e.g. a
+    // copied recap that had a paste in it. They and Markdown markers aren't worth a title.
+    const tidy = (s) => s.replace(/<\\?\/?pasted_content\b[^>]*>/g, ' ').replace(/(^|\s)#{1,6}(?=\s)/g, '$1').replace(/^\s*(?:[-*•]|\d+\.)\s+/, '').replace(/\s+/g, ' ').trim();
+    const typed = tidy(text.replace(PASTE, '\n'));
+    const first = [...text.matchAll(PASTE)].map((m) => m[1]).join('\n').split('\n').map(tidy).find(Boolean);
+    text = typed ? `${typed} [pasted text]` : `Pasted: ${first ?? 'some text'}`;
+  }
   const cmd = /<command-name>\s*([^<]+?)\s*<\/command-name>/.exec(text);
   if (cmd) {
     const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1]?.trim();

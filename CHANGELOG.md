@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-30
+
+### Added
+
+- **Was it tested?** A green result from before the latest edits no longer looks like a check of the current code. Ideas from [@magpiehoard](https://x.com/magpiehoard).
+  - A finished request that changed code warns **"Not tested: changed 2 code files, and the agent ran no tests"**, or **"Changed app.tsx after the tests passed: not tested since"**. It also warns when the agent committed without a passing test run after the last change.
+  - The pal's Summary and the notch's Story show one line for the session: "Tests passed at 7:08 PM · 3 files changed since", "No tests run by the agent", "Tests failing", plus whether the last commit was tested.
+  - A test run's result comes from its output when it says ("ℹ fail 0", "5 passed", "test result: ok"), not only the exit code. A command like `npm test && restart` that fails after the tests passed no longer reads as "Tests failing". A command counts as a test run only when it runs one (`cd app && npm test`), not when it just mentions `npm test`.
+  - Docs, images and lockfiles don't count as code. Only tests the agent ran count, because dotpals can't see the ones you run yourself or in CI. `testState()` and `testLine()` in `bridge/ui/story.js`.
+
+### Fixed
+
+- Code blocks in an agent's reply disappeared: **Copy** dropped them (it now keeps the reply as Markdown, as the agent wrote it), and on screen they were cut out (they now show their contents).
+- A Claude Code prompt with pasted text showed the paste's raw `<pasted_content id="…">` wrapper in its title. Now the title is what you typed plus "[pasted text]", or "Pasted: <its first line>" when you only pasted.
+
+### Changed
+
+- The website counts its visitors with Vercel Web Analytics (no cookies, nothing that identifies you), and its privacy page says so. The app itself still sends nothing anywhere.
+- The README and the feature guide cover retries, "Was it tested?", search by ID and minimizing the notch.
+
 ## [0.9.1] - 2026-09-30
 
 ### Added
@@ -196,7 +216,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/rikinshah787/dotpals/compare/v0.8.0...v0.8.1

@@ -22,7 +22,9 @@ npx --allow-git=all github:rikinshah787/dotpals setup
 
 <sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
-**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[⭐ Star on GitHub](https://github.com/Rikinshah787/dotpals)** if your agent ever surprised you
+**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](CHANGELOG.md)**
+
+**[⭐ Star dotpals](https://github.com/Rikinshah787/dotpals/stargazers)** if your agent ever said "Done!" and you weren't sure · **[Tell us what's confusing](https://github.com/Rikinshah787/dotpals/issues/new)**
 
 </div>
 
@@ -31,7 +33,8 @@ npx --allow-git=all github:rikinshah787/dotpals setup
 Coding agents do a lot in a single request. They read dozens of files, edit a handful, run tests, retry and search. The chat scrolls by and the diff is spread across files. dotpals keeps a live, plain-language record next to your editor, so at any moment you can answer:
 
 - **What did it change?** Every file edited, created or deleted, with the diff one click away.
-- **What did it run, and did it work?** Every command, with its output, duration and ✓ or ✕.
+- **What did it run, and did it work?** Every command, with its output, duration and ✓ or ✕. A step that failed and was retried says **fixed on try 2** or **still failing after 3 tries**.
+- **Was the code as it is now tested?** "Changed 2 files after the tests passed: not tested since" is impossible to miss, so an old green result doesn't pass for a check of the latest edits.
 - **What is it doing right now?** The pal thinks, works, asks for your OK and celebrates, live.
 - **What did I get done today?** A running tally, and one click copies it as Markdown for a standup or PR.
 
@@ -39,8 +42,10 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
-- **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, or two agents editing the same file.
-- **The notch**: an island at the top of your screen with every agent, a live diff of the file it's editing, its plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. It opens by itself when an agent needs you, and you can allow or deny from the keyboard. Hide the pal and the notch takes over.
+- **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
+- **Retries**: when a step fails and the agent tries the same thing again, the tries are linked: *fixed on try 2*, *still failing after 3 tries*. Click a try to jump to it. On the dashboard, paste a step's ID (`toolu_…`) to open it.
+- **Was it tested?** One line per session says *Tests passed at 7:08 PM, after the last change*, *Tests passed at 7:08 PM · 3 files changed since* or *No tests run by the agent*, and whether the last commit was tested. Test results come from the test output (`fail 0`, `5 passed`), not just the exit code. Only tests the agent ran count.
+- **The notch**: an island at the top of your screen with every agent, a live diff of the file it's editing, its plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. It opens by itself when an agent needs you, and you can allow or deny from the keyboard. Hide the pal and the notch takes over; **–** minimizes it, so nothing sits at the top while agents work.
 - **Context and limits**: the pal gets worried as a session's context window fills up and cheers after it compacts. Usage bars show your 5-hour and weekly limits with reset times (for Claude, run `dotpals statusline` once).
 - **Summary**: one card per request, with what you asked, what the agent said it did, and a tally such as *Changed 3 files · Ran 5 commands, 1 failed · Used 1 skill*. **Show steps** lists every step as a short sentence.
 - **Tools**: every tool call as it happens. Click one to see the exact command and output, or the lines an edit changed.
@@ -73,10 +78,10 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 A small island that hangs from the top of your screen. It has four sizes:
 
 - **Hidden** when nothing is running, or you've been away for 3 minutes: just a thin, invisible strip at the top edge. Hover it and a small island **peeks** out; rest there a moment and it opens.
-- **Bar** while agents work: a mini pal for each agent, the current step, the plan step ("2/4") and a ring for your highest usage limit. Hover it for about 200 ms, or click, to open.
+- **Bar** while agents work: a mini pal for each agent, the current step, the plan step ("2/4") and a ring for your highest usage limit. Hover it for about 200 ms, or click, to open. Don't want it there? **–** in the open notch minimizes it (remembered): it stays hidden while agents work, still opens when one needs you, and the top edge still peeks.
 - **Open** (640 px): the agent in focus as a big pal on the left, one card on the right, a column of mini pals for the other agents, and two tabs:
   - **Now**: a live diff of the file it's editing (or a checklist of its steps), its plan, context window, helpers and your usage limits. When it needs your OK, an approval card with **Deny** and **Allow**, or **Ctrl+Alt+N** and **Ctrl+Alt+Y** (**⌘⌥N** and **⌘⌥Y** on macOS), which work only while the card is showing. When it's done or fails, a short card says what happened.
-  - **Story**: today's totals with **Copy today**, the plan, helpers, the context window with **Copy /compact**, what it's been using, a note when two agents changed the same file, and the last few requests as chapters you can expand.
+  - **Story**: today's totals with **Copy today**, whether the code was tested since its last change, the plan, helpers, the context window with **Copy /compact**, what it's been using, a note when two agents changed the same file, and the last few requests as chapters you can expand.
 
 Alerts open it by themselves, one at a time. One that needs you shows even if you've been away, and stays until you answer. Done and error cards close after about 5 and 8 seconds. When you open it yourself, it closes 8 seconds after the pointer leaves (a shrinking line shows the last seconds), or after a quiet minute with the pointer resting on it. **Esc** closes it while the pointer is over it. Its window lets clicks through everywhere except the island, and the peek never takes a click, so it doesn't get in the way of your browser tabs.
 

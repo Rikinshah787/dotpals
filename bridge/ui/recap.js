@@ -39,9 +39,9 @@ export function sentence(e) {
   }
 }
 
-/** Agent replies are Markdown; show them as plain text. */
+/** Agent replies are Markdown; show them as plain text (a code block keeps its contents, without the fences). */
 export const plain = (md) => String(md ?? '')
-  .replace(/```[\s\S]*?```/g, '')
+  .replace(/```[^\n]*\n?([\s\S]*?)\n?```/g, '$1')
   .replace(/`([^`\n]+)`/g, '$1')
   .replace(/\*\*([^*\n]+)\*\*|__([^_\n]+)__/g, '$1$2')
   .replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1')
@@ -111,7 +111,7 @@ export function turnMarkdown(t) {
   const f = facts(t.steps);
   const lines = [];
   if (t.prompt) lines.push(`### ${t.prompt.title.split('\n')[0]}`, '');
-  if (t.end?.summary) lines.push(plain(t.end.summary), '');
+  if (t.end?.summary) lines.push(String(t.end.summary).trim(), ''); // already Markdown: kept as the agent wrote it
   if (f.changed.length) lines.push(`- Changed: ${names(f.changed)}`);
   if (f.wrote.length) lines.push(`- Wrote: ${names(f.wrote)}`);
   if (f.deleted.length) lines.push(`- Deleted: ${names(f.deleted)}`);

@@ -117,7 +117,7 @@
   <tbody>
     <tr><td>Questions</td><td>The agent asking you something</td><td>Asked you a question</td></tr>
     <tr><td>Changes</td><td>Edits, new files and deletes in the project, with lines added and removed</td><td>Changed 5 files (1 new) · app.js, style.css, dark.css +2 · +42 −7</td></tr>
-    <tr><td>Tests</td><td><code>npm test</code>, <code>pytest</code>, <code>go test</code>, <code>cargo test</code> and other test runners</td><td>Tests failed twice, then passed</td></tr>
+    <tr><td>Tests</td><td><code>npm test</code>, <code>pytest</code>, <code>go test</code>, <code>cargo test</code> and other test runners, when the command runs one (not when it only mentions one). Passed or failed comes from the test output (<code>fail 0</code>, <code>5 passed</code>) when it says, else the exit code</td><td>Tests failed twice, then passed</td></tr>
     <tr><td>Build and checks</td><td>Builds, type checks and linters (<code>tsc</code>, <code>eslint</code>, <code>npm run build</code>…)</td><td>Build and checks passed</td></tr>
     <tr><td>Installs</td><td>Package installs (<code>npm install</code>, <code>pip install</code>…)</td><td>Installed packages · express, zod</td></tr>
     <tr><td>Shipping</td><td>git commit, push, tag and merge, <code>gh pr create</code>, <code>gh release create</code>, <code>npm publish</code></td><td>Committed, pushed and released v0.6.0</td></tr>
@@ -138,8 +138,23 @@
   <li>deleted files recursively, force-pushed, or threw away changes in git,</li>
   <li>dropped database tables, piped a download straight into a shell, used <code>sudo</code> or <code>chmod 777</code>, or force-stopped programs,</li>
   <li>ran the same command and it failed 3 times,</li>
+  <li>changed code and ran no tests (“Not tested: changed 2 code files, and the agent ran no tests”), changed code after the tests passed (“Changed app.tsx after the tests passed: not tested since”), or committed without a passing test run after the last change. Docs, images and lockfiles don't count as code. This shows once the request is finished,</li>
   <li>published a package (shown as a note).</li>
 </ul>
+
+<h3 id="tested">Was it tested?</h3>
+<p>A green result from before the latest edits isn't a check of the code as it is now. One line at the top of the Summary (and in the notch's Story) says where things stand for the session you're looking at:</p>
+<ul>
+  <li>“Tests passed at 7:08 PM, after the last change”,</li>
+  <li>“Tests passed at 7:08 PM · 3 files changed since” (amber),</li>
+  <li>“No tests run by the agent · 2 code files changed” (amber),</li>
+  <li>“Tests failing (7:08 PM)” (red),</li>
+  <li>and whether the last commit was tested: “· last commit not tested”.</li>
+</ul>
+<p>Only tests the agent ran count. dotpals can't see tests you run yourself in a terminal, or in CI.</p>
+
+<h3 id="retries">Retries</h3>
+<p>When a step fails and the agent tries the same thing again (the same file, the same command or the same tool call, within the next 25 steps and 15 minutes), dotpals links the tries. On the Tools tab and the dashboard's Log, the failed step says <strong>fixed on try 2</strong>, <strong>still failing after 3 tries</strong> or <strong>trying again</strong>, and each retry says which try it was. Open either to see every try with its result, and click one to jump to it. The chapters say it too: “1 edit failed, fixed on the next try”. Agents don't label their retries, so this is a good guess: a later step at the same thing counts.</p>
 
 <h3 id="today">Today, Tools and Files</h3>
 <ul>
@@ -179,7 +194,7 @@
 <p>It <strong>glows amber</strong> when an agent needs you, shows a moving light while agents work, <strong>flashes green</strong> when one is done and <strong>shakes</strong> on errors.</p>
 
 <h3 id="notch-open">The open notch</h3>
-<p>The agent in focus is a big pal on the left, with its name, project and state. On the right is one card about it. With two or more agents, their mini pals line up in a column on the right edge; click one to look at that agent. The header counts the agents (“3 agents · 1 needs you · 2 working”), shows how many alerts are waiting behind this one, and has buttons to bring back the pal, open the dashboard or close the notch. There are two tabs, <strong>Now</strong> and <strong>Story</strong>. The notch remembers which one you like, for busy agents and for idle ones.</p>
+<p>The agent in focus is a big pal on the left, with its name, project and state. On the right is one card about it. With two or more agents, their mini pals line up in a column on the right edge; click one to look at that agent. The header counts the agents (“3 agents · 1 needs you · 2 working”), shows how many alerts are waiting behind this one, and has buttons to show or hide the pal (eyes open: it's on screen; showing it brings it back in small mode, waving), open the dashboard, minimize the notch (<strong>–</strong>, below) or close it. There are two tabs, <strong>Now</strong> and <strong>Story</strong>. The notch remembers which one you like, for busy agents and for idle ones.</p>
 <p><strong>Now</strong> is what the agent is doing, or needs, right now:</p>
 <ul>
   <li><strong>While it works</strong>: a live diff of the file it's editing, with the file's language, <strong>+adds −dels</strong> and the newest line typing in. When it isn't editing, a checklist of its latest steps and what's left on its plan. Below the card: its plan and context window as two small bars, its helpers, and your usage limits.</li>
@@ -190,6 +205,7 @@
 <p><strong>Story</strong> is the agent's day so far:</p>
 <ul>
   <li><strong>Today</strong>: requests, files changed, commands and agent time, with <strong>Copy today</strong>.</li>
+  <li>Whether the code was <a href="#tested">tested since its last change</a>.</li>
   <li>Its plan, its helpers, and its context window with <strong>Copy /compact</strong> (from 60% full).</li>
   <li>The “<a href="#using">Using</a>” row, and a note when <a href="#two-agents">another agent changed the same file</a>.</li>
   <li>The last few requests, each as <a href="#chapters">chapters</a>. Click a chapter to see its steps, or <strong>Copy</strong> a request as Markdown.</li>
@@ -202,6 +218,7 @@
   <li><strong>Opened by you</strong>, it closes <strong>8 seconds after the pointer leaves</strong>, because an open notch covers your browser tabs and title bars. If the pointer stays on it, it closes after a quiet minute. A shrinking line at the bottom shows the last seconds.</li>
   <li><kbd>Esc</kbd> closes it while the pointer is over it. It's only taken while you're there, so Esc still reaches your editor the rest of the time. Closing an alert that needs you sets it aside until you open the notch again.</li>
   <li>After it closes, it won't open again under a pointer that's still there. Move away first.</li>
+  <li><strong>Minimize</strong> (<strong>–</strong> in the header) hides the bar while agents work, so nothing sits at the top of your screen. It's remembered. An agent that needs you still opens it, and hovering the top edge still peeks. Click the same button (now a small bar) to bring the bar back.</li>
 </ul>
 <p>It opens with a little spring and closes cleanly, and its contents fade between views. If your system asks for reduced motion, it doesn't animate.</p>
 
@@ -313,7 +330,7 @@ Check these files for their changes before editing them, and avoid undoing their
   <figcaption>The Sessions page.</figcaption>
 </figure>
 <ul>
-  <li>Search prompts, files, commands and replies; filter by agent; and choose today, the last 7 days or everything.</li>
+  <li>Search prompts, files, commands and replies; filter by agent; and choose today, the last 7 days or everything. Paste a step's ID (the agent's own tool-call ID, such as <code>toolu_…</code>; each step in the Log shows its own) to open that session's Log on that step, with its retries.</li>
   <li>Each session has three tabs: <strong>Requests</strong> (each one as a story, with its flags, <strong>Copy</strong> and <strong>Show steps</strong>), <strong>Files</strong> (what happened to each file, and when) and <strong>Log</strong> (every entry; click one for its details).</li>
   <li><strong>Copy recap</strong> copies the session as Markdown. <strong>Export</strong> downloads it as Markdown and as JSON.</li>
   <li>Every session has its own link, <code>/dashboard#sessions/&lt;session id&gt;</code>.</li>

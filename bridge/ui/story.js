@@ -30,6 +30,40 @@ const SECRET = /(^|[\\/])(\.env(\.[\w-]+)?|\.npmrc|\.pypirc|id_(rsa|ed25519)|cre
 
 const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
 
+/**
+ * Whether a command runs tests: a test command at the start of one of its parts
+ * ("cd app && pytest", "CI=1 npm test | tail"), not just mentioned somewhere in it
+ * (a script being written, an echo, a search for "npm test").
+ */
+function runsTests(cmd) {
+  return String(cmd).split(/\n|&&|\|\||[;|]/).some((part) => {
+    const s = part.trim()
+      .replace(/^&\s*/, '') // PowerShell's call operator
+      .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
+      .replace(/^(npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run|time)\s+/i, '')
+      .replace(/^["']?[^\s"']*[\\/](?=[\w.-]+["']?(\s|$))/, ''); // ./node_modules/.bin/jest
+    return s.search(TEST) === 0;
+  });
+}
+
+/**
+ * How a test run ended, from its output when it says ("ℹ fail 0", "5 passed",
+ * "test result: ok"), else its exit status. A command can fail after the tests passed
+ * ("npm test && restart"), and the tests are what count here.
+ */
+export function testPassed(e) {
+  const out = `${e.body?.output ?? ''}\n${e.error ?? ''}`;
+  const failed = [
+    /(?:^|\s)(?:ℹ|#)\s*fail\s+(\d+)/im, // node --test, TAP
+    /\b(\d+)\s+(?:failed|failing)\b/i, // jest, vitest, pytest, mocha
+    /\btest result:\s*(FAILED)/i, // cargo
+    /^(FAIL)\b/m, // go
+  ].map((re) => re.exec(out)?.[1]).find((x) => x != null);
+  if (failed != null) return failed === '0';
+  if (/(?:^|\s)(?:ℹ|#)\s*pass\s+\d+|\b\d+\s+(?:passed|passing)\b|\btest result:\s*ok\b|^ok\s+\S+/im.test(out)) return true;
+  return e.status === 'failed' ? false : running(e) ? null : true;
+}
+
 /** What kind of chapter a step belongs to. */
 export function stepType(e) {
   switch (e.kind) {
@@ -45,7 +79,7 @@ export function stepType(e) {
     case 'compact': return 'memory';
     case 'run': {
       const cmd = commandOf(e);
-      if (TEST.test(cmd)) return 'test';
+      if (runsTests(cmd)) return 'test';
       if (SHIP.test(cmd)) return 'ship';
       if (INSTALL.test(cmd)) return 'install';
       if (BUILD.test(cmd)) return 'build';
@@ -134,8 +168,8 @@ function outcome(runs) {
   const done = runs.filter((e) => !running(e));
   if (!done.length) return { text: 'running', status: 'running' };
   const last = done.at(-1);
-  const failed = done.filter((e) => e.status === 'failed').length;
-  if (last.status === 'failed') return { text: failed === done.length && failed > 1 ? `failed ${times(failed)}` : 'failed', status: 'failed' };
+  const failed = done.filter((e) => !testPassed(e)).length;
+  if (!testPassed(last)) return { text: failed === done.length && failed > 1 ? `failed ${times(failed)}` : 'failed', status: 'failed' };
   if (failed) return { text: `failed ${times(failed)}, then passed`, status: 'ok' };
   return { text: done.length > 1 ? `passed (${done.length} runs)` : 'passed', status: 'ok' };
 }
@@ -384,6 +418,74 @@ function failureNote(steps, noun) {
   return [`${total} failed${fixed.length ? `, ${fixed.length} fixed` : ''}`, failing ? `${failing} still failing` : ''].filter(Boolean).join(' · ');
 }
 
+// -- was the code as it is now tested? ------------------------------------------------
+
+// Files whose changes don't need tests: docs, images, lockfiles.
+const NOT_CODE = /\.(md|mdx|markdown|txt|rst|adoc|png|jpe?g|gif|webp|svg|ico|mp4|lock)$|(^|[\\/])(LICENSE|CHANGELOG|README)[^\\/]*$|(^|[\\/])(package-lock\.json|pnpm-lock\.yaml)$/i;
+const COMMIT = /\bgit\s+commit\b/i;
+
+/**
+ * Whether the code as it stands was tested, from steps (any order). Only tests the
+ * agent ran count: dotpals can't see the ones you run yourself or CI.
+ *   { state, last, since, commit } or null when no code changed and nothing was tested
+ *   state:  'untested' (code changed, no test run) | 'running' | 'stale' (code changed
+ *           after the last test run) | 'passing' | 'failing'
+ *   last:   the last test run;  since: the code files changed after it
+ *   commit: the last commit: { at, tested } (tested: a passing run after the last change before it)
+ */
+export function testState(steps) {
+  const list = [...steps].sort((a, b) => a.at - b.at);
+  const tests = list.filter((e) => e.kind === 'run' && stepType(e) === 'test');
+  const edits = [];
+  for (const e of list) {
+    if (stepType(e) !== 'change' || outside(e) || e.status === 'failed') continue;
+    for (const f of e.files ?? []) if (f.change !== 'read' && !NOT_CODE.test(String(f.path))) edits.push({ at: e.at, path: f.path });
+  }
+  const last = tests.at(-1) ?? null;
+  if (!edits.length && !last) return null;
+  const seen = new Map();
+  for (const x of edits) if (!last || x.at > last.at) seen.set(String(x.path).toLowerCase(), x.path);
+  const since = [...seen.values()];
+  const state = !last ? 'untested' : running(last) ? 'running' : since.length ? 'stale' : !testPassed(last) ? 'failing' : 'passing';
+  const c = list.findLast((e) => e.kind === 'run' && COMMIT.test(commandOf(e)) && e.status !== 'failed' && !running(e));
+  let commit = null;
+  if (c) {
+    // "npm test && git commit" tests and commits in one go.
+    const before = stepType(c) === 'test' ? c : tests.filter((t) => t.at < c.at && !running(t)).at(-1);
+    commit = { at: c.at, tested: !!before && testPassed(before) && !edits.some((x) => x.at > before.at && x.at < c.at) };
+  }
+  return { state, last, since, commit };
+}
+
+/** For a finished request: a flag when it changed code it didn't test, or changed it after testing. */
+function testFlag(steps) {
+  const t = testState(steps);
+  if (!t) return null;
+  const step = steps.findLast((e) => stepType(e) === 'change') ?? t.last;
+  const names = list(t.since.map(baseName));
+  if (t.state === 'untested') return { level: 'warn', text: `Not tested: changed ${plural(t.since.length, 'code file')} (${names}), and the agent ran no tests`, step };
+  if (t.state === 'stale') return { level: 'warn', text: `Changed ${names} after the tests ${!testPassed(t.last) ? 'last failed' : 'passed'}: not tested since`, step };
+  if (t.commit && !t.commit.tested) return { level: 'warn', text: 'Committed without a passing test run after the last change', step };
+  return null;
+}
+
+/**
+ * One line on the code's test status for a whole session, for the pal and the notch:
+ * { level: 'ok' | 'warn' | 'bad' | 'info', text } or null. `time` formats a timestamp.
+ */
+export function testLine(steps, time = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) {
+  const t = testState(steps);
+  if (!t) return null;
+  const commit = t.commit ? ` · last commit ${t.commit.tested ? 'tested' : 'not tested'}` : '';
+  switch (t.state) {
+    case 'untested': return { level: 'warn', text: `No tests run by the agent · ${plural(t.since.length, 'code file')} changed${commit}` };
+    case 'running': return { level: 'info', text: 'Running the tests…' };
+    case 'stale': return { level: 'warn', text: `Tests ${!testPassed(t.last) ? 'failed' : 'passed'} at ${time(t.last.at)} · ${plural(t.since.length, 'file')} changed since${commit}` };
+    case 'failing': return { level: 'bad', text: `Tests failing (${time(t.last.at)})${commit}` };
+    default: return { level: 'ok', text: `Tests passed at ${time(t.last.at)}, after the last change${commit}` };
+  }
+}
+
 // -- the agent's own plan ----------------------------------------------------------
 
 /**
@@ -534,7 +636,7 @@ export function compactNote(entries) {
     goal && `Keep the current goal: "${clipped(goal, 140)}"`,
     todo.length && `still to do: ${todo.join('; ')}`,
     files.length && `files changed so far: ${files.join(', ')}`,
-    lastTest?.status === 'failed' && `the tests are failing right now (${clipped(commandOf(lastTest), 40)})`,
+    lastTest && !testPassed(lastTest) && `the tests are failing right now (${clipped(commandOf(lastTest), 40)})`,
   ].filter(Boolean);
   const sentences = parts.map((x) => x[0].toUpperCase() + x.slice(1));
   return `/compact ${sentences.length ? `${sentences.join('. ')}.` : 'Keep the current goal and the files changed so far.'}`;
@@ -581,7 +683,7 @@ export function crossRecap(entries, { session, label, since = Date.now() - 2 * 3
     const status = ['working', 'thinking', 'speaking', 'waiting'].includes(state) ? 'working now' : `last active ${agoText(last)}`;
     const parts = [];
     if (files.length) parts.push(`changed ${files.slice(0, 5).map((p) => relativeish(p, label)).join(', ')}${files.length > 5 ? ` and ${files.length - 5} more` : ''}`);
-    if (test) parts.push(test.status === 'failed' ? `its last test run failed (${words(commandOf(test), 40)})` : 'its tests passed');
+    if (test) parts.push(!testPassed(test) ? `its last test run failed (${words(commandOf(test), 40)})` : 'its tests passed');
     if (asked) parts.push(`it was asked: "${words(asked, 80)}"`);
     lines.push(`- ${agent} (session ${String(id).slice(-4)}, ${status}): ${parts.join('; ')}.`);
     if (lines.length >= max) break;
@@ -614,9 +716,11 @@ function words(text, n) {
 /** A turn's story: chapters, flags for the whole turn, and the plan. */
 export function story(turn, sessionSteps = turn.steps) {
   const chs = chapters(turn.steps);
+  // Once it's finished: did it test what it changed? (While it works, it may still.)
+  const tested = turn.end ? testFlag(turn.steps) : null;
   return {
     chapters: chs,
-    flags: chs.flatMap((c) => c.flags).filter((f, i, all) => all.findIndex((g) => g.text === f.text) === i),
+    flags: [...(tested ? [tested] : []), ...chs.flatMap((c) => c.flags)].filter((f, i, all) => all.findIndex((g) => g.text === f.text) === i),
     plan: planOf(sessionSteps),
   };
 }
