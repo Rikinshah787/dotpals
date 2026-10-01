@@ -8,7 +8,8 @@
 //   peek    you're hovering that strip: a small island peeks out. Stay a moment
 //           and it opens; move away and it hides again.
 //   bar     agents are working: a slim island with their pals and the current step.
-//           Hover it briefly, or click, to open.
+//           Hover it briefly, or click, to open. Minimized (tucked), it hides instead,
+//           like when nothing's running: alerts still show, the top edge still peeks.
 //   open    the big view. An alert (an agent needs you, finished or failed) opens it
 //           by itself. Opened by you, it closes 8 s after the pointer leaves it, or
 //           after a minute with no mouse activity while the pointer rests on it (a
@@ -39,6 +40,7 @@ export function initialState() {
     hoverAt: 0,       // when it got there
     armed: true,      // hovering may open it (false after a close, until the pointer leaves)
     peekUntil: 0,     // a peek you left stays until then
+    tucked: false,    // minimized: no bar while agents work (alerts and peeks still show)
     open: null,       // opened by you: { by: 'hover' | 'peek' | 'click', at, activeAt, leftAt }
     alerts: [],       // [{ id, kind: 'need' | 'done' | 'error', session, at, shownAt, snoozed }]
   };
@@ -63,7 +65,7 @@ export function shownAlert(s) {
 }
 
 /** Hidden or bar, when nothing is open. */
-const restMode = (s) => (s.running > 0 && !s.away ? 'bar' : 'hidden');
+const restMode = (s) => (s.running > 0 && !s.away && !s.tucked ? 'bar' : 'hidden');
 
 /**
  * What to show right now:
@@ -97,6 +99,7 @@ export function derive(s, now, T = TIMING) {
  *                                      the island; restless: it moved a fair way (restarts a peek's dwell)
  *   { type: 'click' }                  a click on the island: opens it
  *   { type: 'close' }                  Esc, or a close button: closes, sets needs-you alerts aside
+ *   { type: 'tuck', on }               minimize (on) or bring back the bar; minimizing also closes it
  *   { type: 'alert', id, kind, session }   an alert to show (ignored if already queued)
  *   { type: 'resolve', id }            an alert is over (answered, the agent moved on)
  *   { type: 'resolve', session, kind? }   every alert of a session (of one kind)
@@ -146,6 +149,10 @@ export function reduce(prev, ev, now, T = TIMING) {
       s.open = null;
       s.alerts = s.alerts.filter((a) => !isNews(a)).map((a) => (a.snoozed ? a : { ...a, snoozed: true }));
       s.peekUntil = 0;
+      break;
+    case 'tuck':
+      s.tucked = !!ev.on;
+      if (s.tucked) { s.open = null; s.peekUntil = 0; }
       break;
     case 'alert':
       if (ev.id != null && !s.alerts.some((a) => a.id === ev.id)) {

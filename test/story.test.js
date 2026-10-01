@@ -174,3 +174,31 @@ test('crossRecap: what the other agents in this project did', async () => {
   assert.doesNotMatch(r.text, /3333|4444|mine|cart\.js/); // only looked around / another project / itself
   assert.equal(crossRecap(entries, { session: 'mine-1111', label: 'nothing-here' }), null);
 });
+
+test('retries: a failed step is linked to the next try at the same thing', async () => {
+  const { retries, chapters } = await import('../bridge/ui/story.js');
+  const a = edit('src/app.js'); a.status = 'failed';
+  const b = read('src/app.js');
+  const c = edit('src/app.js');                       // the retry: worked
+  const d = run('npm run e2e', 'failed');
+  const e = run('npm run e2e', 'failed');              // retried, still failing
+  const f = edit('src/other.js');
+  const { chains, retryOf } = retries([a, b, c, d, e, f]);
+  assert.equal(chains.get(a.id).outcome, 'fixed');
+  assert.deepEqual(chains.get(a.id).attempts.map((x) => x.id), [a.id, c.id]);
+  assert.equal(retryOf.get(c.id), a.id);
+  assert.equal(chains.get(d.id).outcome, 'failing');
+  assert.equal(retryOf.get(e.id), d.id);
+  assert.equal(retryOf.has(f.id), false);
+  const chs = chapters([a, b, c, f]);
+  assert.match(chs[0].detail, /1 edit failed, fixed on the next try/);
+  const runs = chapters([run('node build.js', 'failed'), run('node build.js', 'failed'), run('node build.js')]);
+  assert.match(runs[0].detail, /1 command failed, fixed on try 3/);
+});
+
+test('retries: a command that keeps failing says so plainly', async () => {
+  const { chapters } = await import('../bridge/ui/story.js');
+  const chs = chapters([run('npm run e2e', 'failed'), run('npm run e2e', 'failed'), run('npm run e2e', 'failed')]);
+  assert.match(chs[0].detail, /still failing after 3 tries/);
+  assert.doesNotMatch(chs[0].detail, /1 failed · 1 still failing/);
+});

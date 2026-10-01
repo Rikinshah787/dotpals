@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-30
+
+### Added
+
+- **Retries**: when a step fails and the agent tries the same thing again (the same file, command or tool call), dotpals links the tries. In the pal's Tools tab and the dashboard's Log, a failed step says **fixed on try 2** or **still failing after 3 tries**, a retry says which try it was, and opening either shows every try with its result. You can click a try to jump to it. The story says it too: "1 edit failed, fixed on the next try". `retries()` in `bridge/ui/story.js`.
+- **Search by ID** on the dashboard: paste a step's ID (the agent's own tool-call ID, e.g. `toolu_…`) and it opens that session's Log on that step. Each step shows its ID.
+- **Minimize the notch**: a **–** button in the open notch hides the slim bar while agents work, so the top of your screen stays clear. It's remembered. When an agent needs you, the notch still opens by itself, and hovering the top edge still brings it up. Click the button again (now a small bar icon) to keep the bar on screen.
+
+### Fixed
+
+- In small mode, the round bar's buttons (⤢, ×, the session chips) could stop taking clicks: the window stayed see-through after Windows stopped telling the page where the mouse was. The app now decides itself, from the real cursor position. It also works on Linux now.
+- The notch's pal button now switches the pal on and off: it brings the small pal back, waving, when it's hidden, and puts it away when it's on screen. Before, it did nothing while the pal was already showing. The icon shows which one it'll do (eyes open: on screen).
+
 ## [0.9.0] - 2026-09-30
 
 ### Added
@@ -183,7 +196,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/rikinshah787/dotpals/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/rikinshah787/dotpals/compare/v0.7.0...v0.8.0

@@ -211,8 +211,8 @@ if (!app.requestSingleInstanceLock()) {
 
     // Closing hides it; the tray icon or the shortcut brings it back.
     // Hiding the pal hands over to the notch (and showing it takes over again).
-    win.on('hide', syncNotch);
-    win.on('show', syncNotch);
+    win.on('hide', () => { syncNotch(); tellNotchPal(); });
+    win.on('show', () => { syncNotch(); tellNotchPal(); });
 
     win.on('close', (e) => {
       if (quitting) return;
@@ -259,6 +259,7 @@ if (!app.requestSingleInstanceLock()) {
     notch.on('show', applyNotchKeys);
     notch.on('hide', applyNotchKeys);
     notch.webContents.on('did-start-loading', () => { notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
+    notch.webContents.on('did-finish-load', tellNotchPal);
     notch.webContents.on('render-process-gone', () => { notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
     notch.on('closed', () => { notch = null; notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
     notch.loadURL(`${bridge}/bridge/notch.html`).catch(() => notch?.loadFile(notchPage));
@@ -374,6 +375,7 @@ if (!app.requestSingleInstanceLock()) {
       feed(win, p);
       feed(notch, p);
       syncNotchMouse(p);
+      syncPalMouse(p);
     }, 33);
     setInterval(() => {
       if (notch && !notch.isDestroyed() && notch.isVisible()) notch.webContents.send('notch:idle', powerMonitor.getSystemIdleTime());
@@ -399,7 +401,9 @@ if (!app.requestSingleInstanceLock()) {
     const [w, h] = win.getSize();
     const next = compact ? SIZE.compact : { ...SIZE.full, height: prefs.height ?? SIZE.full.height };
     prefs.compact = !!compact;
-    if (!compact) win.setIgnoreMouseEvents(false);
+    if (!compact) palAreas = null;
+    palSolid = null; // re-apply for the new mode
+    syncPalMouse(screen.getCursorScreenPoint());
     win.setResizable(true);
     win.setBounds({ x: x + w - next.width, y: y + h - next.height, ...next });
     win.setResizable(!compact);
@@ -408,14 +412,50 @@ if (!app.requestSingleInstanceLock()) {
     savePrefs();
   });
   ipcMain.handle('window:is-compact', () => !!prefs.compact);
-  // Click-through for the transparent parts of the small window. Windows and macOS keep
-  // sending mouse moves while it's on, so the page can turn it off over the pal again;
-  // Linux can't, so there the window just stays solid.
-  ipcMain.on('window:ignore-mouse', (_, on) => {
-    if (!win || process.platform === 'linux') return;
-    win.setIgnoreMouseEvents(!!on && !!prefs.compact, { forward: true });
+  // Click-through for the transparent parts of the small window. The page sends the
+  // areas that should take clicks (the round bar, a request card, the pals and their
+  // bubbles); the app checks the real cursor against them ~30 times a second (see the
+  // cursor loop) and lets clicks through everywhere else. The app decides, not the page:
+  // a page can't see the mouse while clicks pass through it, so it could get stuck
+  // see-through and its buttons would stop working.
+  let palAreas = null; // [[left, top, width, height], …] in CSS px, or null: all solid
+  let palSolid = null; // what the window is set to now (null: unknown)
+  ipcMain.on('window:solid-areas', (event, rects) => {
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+    palAreas = Array.isArray(rects)
+      ? rects.filter((r) => Array.isArray(r) && r.length === 4 && r.every(Number.isFinite)).slice(0, 40)
+      : null;
+    syncPalMouse(screen.getCursorScreenPoint());
   });
+  function syncPalMouse(p) {
+    if (!win || win.isDestroyed()) return;
+    let solid = true;
+    if (prefs.compact && palAreas && win.isVisible() && !drag) {
+      const b = win.getContentBounds();
+      const zoom = win.webContents.getZoomFactor() || 1;
+      const x = (p.x - b.x) / zoom;
+      const y = (p.y - b.y) / zoom;
+      solid = palAreas.some(([l, t, w, h]) => x >= l - 3 && x <= l + w + 3 && y >= t - 3 && y <= t + h + 3);
+    }
+    if (solid === palSolid) return;
+    palSolid = solid;
+    try { win.setIgnoreMouseEvents(!solid, { forward: true }); } catch {}
+  }
   ipcMain.on('window:show', show);
+  // The notch's pal button: bring the pal back as just the pal (small mode), waving so
+  // you spot it; or, when it's already on screen, put it away (the notch keeps watching).
+  const palShown = () => !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized();
+  function showMini() {
+    show();
+    win?.webContents.send('window:set-compact', true);
+    win?.webContents.send('window:greet');
+  }
+  function tellNotchPal() {
+    if (notch && !notch.isDestroyed()) notch.webContents.send('notch:pal', palShown());
+  }
+  ipcMain.on('window:show-mini', showMini);
+  ipcMain.on('window:toggle-mini', () => (palShown() ? win.hide() : showMini()));
+  ipcMain.handle('window:pal-shown', () => palShown());
   ipcMain.on('clipboard:write', (_, text) => { if (typeof text === 'string') clipboard.writeText(text); });
 
   // Desktop notifications (the page decides when: see notify() in bridge/index.html).

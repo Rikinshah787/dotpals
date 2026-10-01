@@ -28,6 +28,26 @@ test('hidden with nothing running, a bar while agents work, hidden again when yo
   assert.equal(mode(s, 4000), 'hidden');
 });
 
+test('minimized, the bar hides while agents work; alerts and the top-edge peek still show', () => {
+  let s = run([[0, { type: 'agents', running: 1 }], [10, { type: 'click' }]]);
+  assert.equal(mode(s, 10), 'open');
+  s = reduce(s, { type: 'tuck', on: true }, 20); // minimizing also closes it
+  assert.equal(mode(s, 20), 'hidden');
+  s = reduce(s, outside, 30);
+  s = reduce(s, inside, 40); // the top edge still peeks, and opens after a dwell
+  assert.equal(mode(s, 40), 'peek');
+  s = reduce(s, tick, 40 + T.peekOpen);
+  assert.equal(mode(s, 40 + T.peekOpen), 'open');
+  s = reduce(s, { type: 'close' }, 1000);
+  s = reduce(s, { type: 'alert', id: 'a', kind: 'need', session: 'x' }, 1100);
+  assert.equal(mode(s, 1100), 'open'); // someone needs you: it still shows
+  s = reduce(s, { type: 'resolve', id: 'a' }, 1200);
+  s = reduce(s, outside, 1300);
+  assert.equal(mode(s, 1300), 'hidden');
+  s = reduce(s, { type: 'tuck', on: false }, 1400);
+  assert.equal(mode(s, 1400), 'bar');
+});
+
 test('hovering the hidden strip peeks at once, opens after a dwell, and hides again if you leave', () => {
   let s = run([[0, inside]]);
   assert.equal(mode(s, 0), 'peek');

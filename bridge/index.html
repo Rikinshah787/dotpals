@@ -255,6 +255,19 @@
     .sessions button .x { display: grid; place-items: center; width: 16px; height: 16px; margin: 0 -4px 0 2px; border-radius: 50%; color: var(--faint); font-size: 13px; line-height: 1; }
     .sessions button .x:hover { background: #33333c; color: var(--text); }
 
+    /* Retries: a failed step's outcome, and which try a step was. */
+    .rbadge { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 5px; white-space: nowrap; }
+    .rbadge.fixed { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+    .rbadge.failing { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+    .rbadge.trying { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+    .rbadge.of { color: var(--muted); background: var(--raise); }
+    .attempts { display: grid; gap: 3px; }
+    .attempts button { display: grid; grid-template-columns: 52px 18px 1fr; gap: 6px; align-items: baseline; text-align: left; padding: 3px 8px; font-size: 11.5px; background: var(--sunk); }
+    .attempts button .ok { color: var(--ok); } .attempts button .bad { color: var(--bad); } .attempts button .run { color: var(--warn); }
+    .attempts button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+    .item.flash > .head { animation: flash 1.2s ease-out; }
+    @keyframes flash { from { background: color-mix(in srgb, var(--k-read) 25%, transparent); } }
+
     .counts { display: flex; gap: 4px; }
     .counts b { font: 600 10px/18px var(--mono); padding: 0 5px; border-radius: 5px; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); }
 
@@ -384,7 +397,7 @@
 
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
-    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote } from '../bridge/ui/story.js';
+    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries } from '../bridge/ui/story.js';
     import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnMarkdown, turnTime } from '../bridge/ui/recap.js';
 
     const $ = (id) => document.getElementById(id);
@@ -932,6 +945,7 @@
       renderEntry(item);
       item.el.hidden = !shown(entry.session);
       if (entry.files?.length) renderFiles();
+      scheduleRetries();
       refreshCounts();
       scheduleRecap();
       if (stick) feed.scrollTop = feed.scrollHeight;
@@ -988,8 +1002,71 @@
       li.replaceChildren(head, ...(openIds.has(e.id) ? [renderBody(e)] : []));
     }
 
+    // -- retries --------------------------------------------------------------------
+    // A failed step and the agent's later tries at the same thing (see retries() in
+    // bridge/ui/story.js): failed steps say how it ended, retries say which try they were.
+    let retryState = { chains: new Map(), retryOf: new Map() };
+    let retryTimer;
+    function scheduleRetries() {
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        const next = retries([...entries.values()].map((i) => i.entry));
+        const touched = new Set([...retryState.chains.keys(), ...retryState.retryOf.keys(), ...next.chains.keys(), ...next.retryOf.keys()]);
+        retryState = next;
+        for (const id of touched) { const item = entries.get(id); if (item) renderEntry(item); }
+      }, 200);
+    }
+    function retryBadge(e) {
+      const chain = retryState.chains.get(e.id);
+      if (chain && chain.attempts.length > 1) {
+        const tries = chain.attempts.length;
+        const b = el('span', `rbadge ${chain.outcome}`, chain.outcome === 'fixed' ? `fixed on try ${tries}` : chain.outcome === 'trying' ? `trying again (${tries})` : `still failing after ${tries} tries`);
+        b.title = 'The agent tried this again; open the step to see each try';
+        return b;
+      }
+      const first = retryState.retryOf.get(e.id);
+      if (first) {
+        const index = retryState.chains.get(first)?.attempts.findIndex((x) => x.id === e.id) ?? -1;
+        const b = el('span', 'rbadge of', `try ${index + 1}`);
+        b.title = 'A retry of a step that failed just before; open it to see the tries';
+        return b;
+      }
+      return null;
+    }
+    /** Open a step in the Tools list and scroll to it. */
+    function showStep(id) {
+      const item = entries.get(id);
+      if (!item) return;
+      document.getElementById('tab-feed').click();
+      if (feed.dataset.show !== 'all' && item.el.offsetParent === null) { feed.dataset.show = 'all'; renderFilters?.([...entries.values()].map((i) => i.entry).filter((e) => e.tool && shown(e.session))); }
+      openIds.add(id);
+      renderEntry(item);
+      item.el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      item.el.classList.remove('flash');
+      void item.el.offsetWidth;
+      item.el.classList.add('flash');
+    }
+    function attemptsList(e) {
+      const first = retryState.chains.has(e.id) ? e.id : retryState.retryOf.get(e.id);
+      const chain = first && retryState.chains.get(first);
+      if (!chain || chain.attempts.length < 2) return null;
+      const box = el('div', 'attempts');
+      chain.attempts.forEach((a, i) => {
+        const b = el('button');
+        b.type = 'button';
+        const mark = a.status === 'failed' ? el('span', 'bad', '✕') : a.status === 'ok' ? el('span', 'ok', '✓') : el('span', 'run', '…');
+        b.append(el('span', '', `try ${i + 1}`), mark, el('span', '', a.status === 'failed' ? (a.error || 'failed') : a.status === 'ok' ? 'worked' : 'running'));
+        if (a.id === e.id) b.disabled = true;
+        else b.onclick = (ev) => { ev.stopPropagation(); showStep(a.id); };
+        box.append(b);
+      });
+      return box;
+    }
+
     function renderMeta(e) {
       const meta = el('span', 'meta');
+      const rb = retryBadge(e);
+      if (rb) meta.append(rb);
       if (e.status === 'running') {
         meta.append(el('span', 'elapsed', e.startedAt ? secs(Math.max(0, Date.now() - e.startedAt)) : ''), el('span', 'spin'));
       } else if (e.status === 'waiting') {
@@ -1007,6 +1084,8 @@
 
     function renderBody(e) {
       const body = el('div', 'body');
+      const tries = attemptsList(e);
+      if (tries) body.append(el('div', 'label', 'tries'), tries);
       const facts = el('div', 'facts');
       const fact = (name, value) => { if (!value) return; const f = el('span'); f.append(`${name} `, el('b', '', value)); facts.append(f); };
       fact('tool', e.tool);
@@ -1585,23 +1664,37 @@
       openFull = () => setCompact(false);
 
       // Click-through: in small mode the window is mostly transparent, and those pixels
-      // shouldn't block your editor. Over empty space the window lets the mouse through
-      // (while still telling us where it is); over the pal or the bar it doesn't.
-      let through = false;
-      const passThrough = (on) => { if (on !== through) { through = on; desktop.setIgnoreMouse?.(on); } };
-      const solid = (e) => {
-        const path = e.composedPath();
-        if (path.some((n) => n.classList?.contains('bar') || n.classList?.contains('dp-bubble') || n.classList?.contains('asks'))) return true;
-        // Inside a pal, its drawn shapes count; the transparent box around them doesn't.
-        const hit = path[0];
-        return path.some((n) => n.tagName === 'DOT-PAL') && hit instanceof SVGElement && hit.tagName !== 'svg';
-      };
-      addEventListener('mousemove', (e) => {
-        if (!document.body.classList.contains('compact') || document.body.classList.contains('dragging')) return passThrough(false);
-        passThrough(!solid(e));
-      });
+      // shouldn't block your editor. We tell the app which areas take clicks (the round
+      // bar, a request card, each pal and its bubble); it checks the real cursor against
+      // them and lets clicks through everywhere else (see syncPalMouse in desktop/main.js).
+      let lastAreas = '';
+      function sendSolidAreas() {
+        if (!document.body.classList.contains('compact')) {
+          if (lastAreas !== 'all') { lastAreas = 'all'; desktop.setSolidAreas?.(null); }
+          return;
+        }
+        const rects = [];
+        const add = (node) => {
+          if (!node) return;
+          const r = node.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) rects.push([Math.floor(r.left), Math.floor(r.top), Math.ceil(r.width), Math.ceil(r.height)]);
+        };
+        add(document.querySelector('.bar'));
+        for (const card of document.querySelectorAll('.asks .ask')) add(card);
+        for (const slot of slots.values()) {
+          if (slot.el.hidden) continue;
+          add(slot.pal);
+          add(slot.pal.shadowRoot?.querySelector('.dp-bubble.dp-show'));
+        }
+        const key = JSON.stringify(rects);
+        if (key !== lastAreas) { lastAreas = key; desktop.setSolidAreas?.(rects); }
+      }
+      setInterval(sendSolidAreas, 150);
+      const passThrough = () => sendSolidAreas();
       $('compact').onclick = () => setCompact(!document.body.classList.contains('compact'));
       desktop.onSetCompact?.(setCompact);
+      // Brought back from the notch: every pal on show waves, so you spot where it is.
+      desktop.onGreet?.(() => { for (const { el: box, pal } of slots.values()) if (!box.hidden) pal.greet(); });
 
       // Drag the window by the pal itself. Moving less than a few pixels is a
       // click (the pal plays its tap animation); more than that moves the window.

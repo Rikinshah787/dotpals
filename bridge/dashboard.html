@@ -155,6 +155,15 @@
     .log .tag { font: 600 10px/18px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); border-radius: 5px; padding: 0 6px; display: inline-block; min-width: 46px; text-align: center; }
     .log td.st { white-space: nowrap; }
     .st .ok { color: var(--ok); } .st .bad { color: var(--bad); } .st .wait { color: var(--warn); }
+    .rbadge { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 5px; white-space: nowrap; }
+    .rbadge.fixed { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+    .rbadge.failing { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+    .rbadge.trying { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+    .rbadge.of { color: var(--muted); background: var(--raise); }
+    .tries { display: grid; gap: 3px; }
+    .tries div { display: grid; grid-template-columns: 52px 16px 1fr auto; gap: 8px; align-items: baseline; font-size: 12px; }
+    .tries .id { font: 11px var(--mono); color: var(--faint); }
+    tr.hit td { background: color-mix(in srgb, var(--k-read) 12%, transparent); }
     .k-read { --k: var(--k-read); } .k-edit { --k: var(--k-edit); } .k-write, .k-delete { --k: var(--k-write); } .k-run { --k: var(--k-run); }
     .k-search { --k: var(--k-search); } .k-web { --k: var(--k-web); } .k-agent { --k: var(--k-agent); } .k-mcp { --k: var(--k-mcp); }
     .k-skill { --k: var(--k-skill); } .k-plan, .k-tool, .k-compact, .k-prompt, .k-done, .k-error { --k: var(--k-other); }
@@ -501,7 +510,7 @@
       buildTurns, facts, sentence, plain, turnMarkdown, recapMarkdown, summarizeSessions, turnTime,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
-    import { overlaps, story } from '/bridge/ui/story.js';
+    import { overlaps, retries, story } from '/bridge/ui/story.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -904,7 +913,9 @@
     $('f-agent').onchange = () => renderSessions();
     $('f-when').onchange = () => renderSessions();
 
-    const matches = (s, q) => !q || s.entries.some((e) => [e.title, e.detail, e.summary, e.body?.command, ...(e.files ?? []).map((f) => f.path)].some((v) => v && String(v).toLowerCase().includes(q)));
+    const matches = (s, q) => !q || s.entries.some((e) => [e.title, e.detail, e.summary, e.body?.command, e.id, ...(e.files ?? []).map((f) => f.path)].some((v) => v && String(v).toLowerCase().includes(q)));
+    /** The search box holds a step's ID: the agent's tool-call ID, e.g. toolu_01ABC… or call_… */
+    const idQuery = () => { const q = $('q').value.trim().toLowerCase(); return q.length >= 6 && !/\s/.test(q) ? q : ''; };
 
     function renderSessions() {
       const all = summarizeSessions([...entries.values()]);
@@ -964,6 +975,10 @@
       };
       head.append(title, md, exp);
 
+      // Searching for a step's ID opens the Log on that step.
+      const idq = idQuery();
+      if (idq && s.entries.some((e) => String(e.id).toLowerCase().includes(idq)) && detailTab !== 'log' && renderDetail.lastId !== idq) detailTab = 'log';
+      renderDetail.lastId = idq;
       const tabs = el('div', 'tabs');
       tabs.setAttribute('role', 'tablist');
       for (const [key, label] of [['requests', `Requests (${s.requests})`], ['files', `Files (${s.facts.touched + s.facts.read.length})`], ['log', `Log (${s.entries.length})`]]) {
@@ -1078,6 +1093,8 @@
 
     function logTable(list, describe) {
       const table = el('table', 'log');
+      const { chains, retryOf } = retries(list);
+      const idq = idQuery();
       const head = el('tr');
       head.append(el('th', '', 'Time'), el('th', '', 'Kind'), el('th', '', 'What'), el('th', '', 'Result'));
       table.append(head);
@@ -1087,23 +1104,41 @@
         const st = el('td', 'st');
         const mark = e.status === 'ok' ? el('span', 'ok', '✓') : e.status === 'failed' ? el('span', 'bad', '✕') : e.status === 'waiting' ? el('span', 'wait', 'needs OK') : el('span', 'faint', e.status === 'running' ? '…' : '');
         st.append(mark, e.ms != null ? ` ${secs(e.ms)}` : '');
+        // Retries: how a failed step ended, or which try a step was.
+        const chain = chains.get(e.id);
+        if (chain && chain.attempts.length > 1) st.append(el('span', `rbadge ${chain.outcome}`, chain.outcome === 'fixed' ? `fixed on try ${chain.attempts.length}` : chain.outcome === 'trying' ? 'trying again' : `still failing after ${chain.attempts.length} tries`));
+        else if (retryOf.has(e.id)) st.append(el('span', 'rbadge of', `try ${(chains.get(retryOf.get(e.id))?.attempts.findIndex((x) => x.id === e.id) ?? 0) + 1}`));
+        const hit = idq && String(e.id).toLowerCase().includes(idq);
+        if (hit) { tr.classList.add('hit'); openRows.add(e.id); }
         const what = el('td', 'wide'); what.append(el('div', 'clip', describe(e)));
         if (e.detail) what.append(el('div', 'faint mono clip', e.detail));
         tr.append(el('td', 'faint', shortTime(e.at)), (() => { const td = el('td'); td.append(el('span', 'tag', e.kind)); return td; })(), what, st);
-        const toggle = () => { openRows.has(e.id) ? openRows.delete(e.id) : openRows.add(e.id); tr.after(...(openRows.has(e.id) ? [bodyRow(e)] : [])); if (!openRows.has(e.id)) tr.nextElementSibling?.classList.contains('body-row') && tr.nextElementSibling.remove(); };
+        const toggle = () => { openRows.has(e.id) ? openRows.delete(e.id) : openRows.add(e.id); tr.after(...(openRows.has(e.id) ? [bodyRow(e, chains.get(e.id) ?? chains.get(retryOf.get(e.id)))] : [])); if (!openRows.has(e.id)) tr.nextElementSibling?.classList.contains('body-row') && tr.nextElementSibling.remove(); };
         tr.onclick = toggle;
         tr.onkeydown = (ev) => { if (ev.key === 'Enter') toggle(); };
         table.append(tr);
-        if (openRows.has(e.id)) table.append(bodyRow(e));
+        if (openRows.has(e.id)) table.append(bodyRow(e, chains.get(e.id) ?? chains.get(retryOf.get(e.id))));
       }
       return table;
     }
 
-    function bodyRow(e) {
+    function bodyRow(e, chain) {
       const tr = el('tr', 'body-row');
       const td = el('td'); td.colSpan = 4;
       const body = el('div', 'body');
       if (e.tool) body.append(el('div', 'faint', `tool ${e.tool} · ${when(e.at)}`));
+      // Its ID (search for it to come back here), and the tries when the agent retried it.
+      body.append(el('div', 'faint mono', `id ${String(e.id).split(':').pop()}`));
+      if (chain && chain.attempts.length > 1) {
+        const tries = el('div', 'tries');
+        chain.attempts.forEach((a, i) => {
+          const row = el('div');
+          row.append(el('span', 'faint', `try ${i + 1}`), el('span', a.status === 'failed' ? 'bad' : a.status === 'ok' ? 'ok' : 'faint', a.status === 'failed' ? '✕' : a.status === 'ok' ? '✓' : '…'),
+            el('span', 'clip', a.status === 'failed' ? (a.error || 'failed') : a.status === 'ok' ? 'worked' : 'running'), el('span', 'id', String(a.id).split(':').pop()));
+          tries.append(row);
+        });
+        body.append(el('div', 'label', 'tries'), tries);
+      }
       for (const f of e.files ?? []) { const a = el('a', '', `${f.change} · ${f.path}`); a.href = fileUrl(f.path); body.append(a); }
       if (e.error) body.append(el('div', 'bad', e.error));
       if (e.summary) body.append(el('div', 'label', 'summary'), el('pre', 'code', plain(e.summary)));

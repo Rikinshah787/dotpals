@@ -134,6 +134,7 @@
     .icon { width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
     .icon:hover { background: var(--card-hover); color: var(--text); }
     .icon svg { width: 15px; height: 15px; }
+    .icon.pal[aria-pressed="true"] { color: #f5c84b; } /* the pal is on screen */
     .body { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 12px; padding-right: var(--col, 0px); }
     /* The agent in focus: its pal, big. */
     .who { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding-top: 4px; min-width: 0; }
@@ -412,7 +413,8 @@
     const pendingAsk = (session) => [...asks.values()].find((a) => a.session === session) ?? null;
 
     // -- the state machine (bridge/ui/notch-state.js) -----------------------------------
-    let machine = initialState();
+    // Starts minimized if you left it that way (see tuckButton).
+    let machine = { ...initialState(), tucked: (() => { try { return localStorage.getItem('dotpals.notch.tucked') === '1'; } catch { return false; } })() };
     let wakeTimer = 0;
     let lastSig = '';
     const sigOf = (v) => `${v.mode}|${v.alert?.id ?? ''}|${v.by ?? ''}|${v.countdown?.start ?? ''}|${v.queued}|${machine.hover}`;
@@ -867,6 +869,9 @@
     const ICONS = {
       pal: '<circle cx="8" cy="9" r="5"/><circle cx="6.3" cy="8.5" r=".6" fill="currentColor"/><circle cx="9.7" cy="8.5" r=".6" fill="currentColor"/>',
       dash: '<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>',
+      palAway: '<circle cx="8" cy="9" r="5"/><path d="M5.6 9h1.4M9 9h1.4"/>', // eyes shut: the pal is put away
+      tuck: '<path d="M4 8h8"/>', // minimize
+      untuck: '<rect x="3" y="5.5" width="10" height="5" rx="2.5"/>', // bring the bar back
       close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
     };
     function icon(label, path, fn) {
@@ -875,6 +880,55 @@
       b.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
       return b;
     }
+
+    // The pal button switches the pal on and off: it brings the small pal back (waving)
+    // when it's hidden and puts it away when it's on screen. It shows which one it'll do.
+    let palOn = null;
+    let palBtn = null;
+    function palButton() {
+      palBtn = icon('Show the pal', ICONS.pal, () => {
+        activity();
+        if (desktop?.togglePal) desktop.togglePal();
+        else desktop?.showMini?.();
+      });
+      palBtn.classList.add('pal');
+      syncPalButton();
+      return palBtn;
+    }
+    function syncPalButton() {
+      if (!palBtn) return;
+      const label = palOn ? 'Hide the pal' : 'Show the pal';
+      palBtn.title = label;
+      palBtn.setAttribute('aria-label', label);
+      palBtn.setAttribute('aria-pressed', String(!!palOn));
+      palBtn.querySelector('svg').innerHTML = palOn ? ICONS.pal : ICONS.palAway;
+    }
+    const setPalOn = (on) => { palOn = !!on; syncPalButton(); };
+
+    // Minimize: no bar at the top while agents work (it's remembered). Someone needing
+    // you still pops it open, and hovering the top edge still peeks.
+    let tucked = machine.tucked;
+    let tuckBtn = null;
+    function tuckButton() {
+      tuckBtn = icon('Minimize', ICONS.tuck, () => {
+        tucked = !tucked;
+        try { localStorage.setItem('dotpals.notch.tucked', tucked ? '1' : '0'); } catch {}
+        syncTuckButton();
+        send({ type: 'tuck', on: tucked });
+      });
+      syncTuckButton();
+      return tuckBtn;
+    }
+    function syncTuckButton() {
+      if (!tuckBtn) return;
+      const label = tucked ? 'Keep the bar on screen while agents work' : 'Minimize: hide the bar while agents work (hover the top edge to see it)';
+      tuckBtn.title = label;
+      tuckBtn.setAttribute('aria-label', tucked ? 'Keep the bar on screen' : 'Minimize');
+      tuckBtn.setAttribute('aria-pressed', String(tucked));
+      tuckBtn.querySelector('svg').innerHTML = tucked ? ICONS.untuck : ICONS.tuck;
+    }
+    desktop?.palShown?.().then(setPalOn, () => {});
+    desktop?.onPalShown?.(setPalOn);
 
     function fillOpen(node, v, agents, s, kind, tab) {
       node.style.setProperty('--col', agents.length > 1 ? '44px' : '0px');
@@ -909,8 +963,9 @@
           const box = el('span', 'icons');
           box.style.display = 'flex';
           box.append(
-            icon('Show the pal', ICONS.pal, () => desktop?.show?.()),
+            palButton(),
             icon('Dashboard', ICONS.dash, () => desktop?.openDashboard?.()),
+            tuckButton(),
             icon('Close (Esc)', ICONS.close, () => send({ type: 'close' })),
           );
           return box;

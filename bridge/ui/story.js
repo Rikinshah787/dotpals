@@ -167,7 +167,7 @@ function describe({ type, steps }) {
         : `${verb} ${plural(files.length, 'file')}${created.length && created.length < files.length ? ` (${created.length} new)` : created.length ? ' (all new)' : ''}`;
       ch.detail = files.length === 1 ? (files[0].times > 1 ? `${files[0].times} edits` : '') : list(files.map((f) => baseName(f.path)));
       ch.files = files;
-      if (failed) ch.detail = [ch.detail, `${plural(failed, 'edit')} didn’t apply`].filter(Boolean).join(' · ');
+      if (failed) ch.detail = [ch.detail, failureNote(steps, 'edit') || `${plural(failed, 'edit')} didn’t apply`].filter(Boolean).join(' · ');
       break;
     }
     case 'test': {
@@ -225,7 +225,7 @@ function describe({ type, steps }) {
     case 'run': {
       const names = [...new Set(cmds.map((e) => firstWord(commandOf(e))).filter(Boolean))];
       ch.title = cmds.length === 1 ? `${live ? 'Running' : 'Ran'} ${quote(cmds[0].title || commandOf(cmds[0]))}` : `${live ? 'Running' : 'Ran'} ${plural(cmds.length, 'command')}`;
-      ch.detail = [cmds.length > 1 ? list(names, 4) : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
+      ch.detail = [cmds.length > 1 ? list(names, 4) : '', failed ? failureNote(cmds, 'command') || `${failed} failed` : ''].filter(Boolean).join(' · ');
       if (failed && cmds.at(-1)?.status === 'failed') ch.status = 'failed';
       else if (!live) ch.status = 'ok';
       break;
@@ -319,6 +319,69 @@ export function flags(steps, { before = false } = {}) {
     }
   }
   return out;
+}
+
+// -- retries: a failed step and the agent's next tries at the same thing ---------------
+
+/** What a step was trying to do, to spot the next try at it: the same file, the same command or the same tool call. */
+function target(e) {
+  // Changing a file and reading it are different things: a read isn't a retry of an edit.
+  const changed = (e.files ?? []).find((f) => f.change !== 'read')?.path;
+  const file = changed ?? e.files?.[0]?.path;
+  if (file) return `${changed ? 'change' : 'read'}:${String(file).replace(/\\/g, '/').toLowerCase()}`;
+  if (e.kind === 'run') return `cmd:${commandOf(e).trim().replace(/\s+/g, ' ').slice(0, 200)}`;
+  return e.tool ? `tool:${e.tool}:${e.title ?? ''}` : null;
+}
+
+/**
+ * Link each failed step to the agent's later tries at the same thing (the same file,
+ * the same command, the same tool call), within the next 25 steps and 15 minutes:
+ *   Map(failed step id → { attempts: [failed, …tries], outcome: 'fixed' | 'failing' | 'trying' })
+ * plus `retryOf`: Map(step id → the failed step it retried). It's a good guess, not a
+ * certainty: agents don't say "this is a retry", so a later step at the same target counts.
+ */
+export function retries(steps) {
+  const list = [...steps].filter((e) => !['prompt', 'done', 'error', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
+  const chains = new Map();
+  const retryOf = new Map();
+  for (let i = 0; i < list.length; i++) {
+    const first = list[i];
+    if (first.status !== 'failed' || retryOf.has(first.id)) continue;
+    const key = target(first);
+    if (!key) continue;
+    const attempts = [first];
+    for (let j = i + 1; j < list.length && j <= i + 25; j++) {
+      const e = list[j];
+      if (e.at - attempts.at(-1).at > 15 * 60_000) break;
+      if (e.session !== first.session || target(e) !== key) continue;
+      attempts.push(e);
+      retryOf.set(e.id, first.id);
+      if (e.status !== 'failed') break; // fixed (or still running): the chain ends here
+    }
+    const last = attempts.at(-1);
+    const outcome = last === first ? 'failing' : last.status === 'failed' ? 'failing' : running(last) ? 'trying' : 'fixed';
+    chains.set(first.id, { attempts, outcome });
+  }
+  return { chains, retryOf };
+}
+
+/** "1 edit failed, fixed on the next try" / "2 failed, both fixed" / "1 still failing", for a chapter. */
+function failureNote(steps, noun) {
+  const { chains } = retries(steps);
+  const firsts = [...chains.values()];
+  if (!firsts.length) return '';
+  const total = firsts.length;
+  const fixed = firsts.filter((c) => c.outcome === 'fixed');
+  const failing = firsts.filter((c) => c.outcome === 'failing').length;
+  if (fixed.length === total) {
+    if (total === 1) return `1 ${noun} failed, fixed on ${fixed[0].attempts.length === 2 ? 'the next try' : `try ${fixed[0].attempts.length}`}`;
+    return `${total} failed, ${total === 2 ? 'both' : 'all'} fixed`;
+  }
+  if (total === 1 && failing === 1) {
+    const tries = firsts[0].attempts.length;
+    return tries > 1 ? `still failing after ${tries} tries` : `1 ${noun} failed`;
+  }
+  return [`${total} failed${fixed.length ? `, ${fixed.length} fixed` : ''}`, failing ? `${failing} still failing` : ''].filter(Boolean).join(' · ');
 }
 
 // -- the agent's own plan ----------------------------------------------------------

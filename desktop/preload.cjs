@@ -24,12 +24,27 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   dragStart: (x, y) => ipcRenderer.send('window:drag-start', x, y),
   dragTo: () => ipcRenderer.send('window:drag-to'),
   dragEnd: () => ipcRenderer.send('window:drag-end'),
-  /** Let clicks through the transparent parts of the window (small mode). */
-  setIgnoreMouse: (on) => ipcRenderer.send('window:ignore-mouse', !!on),
+  /** Small mode: the areas that take clicks, [[left, top, width, height], …] (null: all of it). */
+  setSolidAreas: (rects) => ipcRenderer.send('window:solid-areas', rects),
   setCompact: (compact) => ipcRenderer.invoke('window:compact', compact),
   isCompact: () => ipcRenderer.invoke('window:is-compact'),
   close: () => ipcRenderer.send('window:close'),
   show: () => ipcRenderer.send('window:show'),
+  /** Show the pal in small mode (just the pal). */
+  showMini: () => ipcRenderer.send('window:show-mini'),
+  /** The notch's pal button: show the pal (small) when it's hidden, hide it when it's showing. */
+  togglePal: () => ipcRenderer.send('window:toggle-mini'),
+  palShown: () => ipcRenderer.invoke('window:pal-shown'),
+  /** onPalShown(shown): the pal window appeared or went away. */
+  onPalShown(callback) {
+    ipcRenderer.removeAllListeners('notch:pal');
+    ipcRenderer.on('notch:pal', (_, shown) => callback(shown));
+  },
+  /** onGreet(): wave hello (the pal was just brought back). */
+  onGreet(callback) {
+    ipcRenderer.removeAllListeners('window:greet');
+    ipcRenderer.on('window:greet', () => callback());
+  },
   openDashboard: () => ipcRenderer.send('dashboard:open'),
   getOpenAtLogin: () => ipcRenderer.invoke('login:get'),
   setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),
