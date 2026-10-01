@@ -362,6 +362,7 @@
     import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, simple, stepType, story, testLine, toolkit, turnMarkdown, whyStopped } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
+    import { continueMenu } from './ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -514,10 +515,19 @@
           view.key = ''; // rebuild with the new pals
         }
         schedule();
+      } else if (type === 'conflict') {
+        onConflict(data);
       } else if (type === 'reset') {
         steps.clear();
         schedule();
       }
+    }
+
+    // Two agents, one file (bridge/guard.js): an alert on the agent that's editing now.
+    function onConflict(c) {
+      if (!c?.id || !c.session) return;
+      send({ type: 'alert', id: `clash:${c.id}`, kind: 'clash', session: c.session, text: c.text });
+      schedule();
     }
 
     function flash(state) {
@@ -584,6 +594,7 @@
         if (v.alert.kind === 'need') return pendingAsk(s.id) ? 'approval' : 'waiting';
         if (v.alert.kind === 'done') return 'done';
         if (v.alert.kind === 'error') return 'error';
+        if (v.alert.kind === 'clash') return 'clash';
       }
       if (pendingAsk(s.id)) return 'approval';
       if (s.state === 'waiting') return 'waiting';
@@ -997,7 +1008,7 @@
 
     // The big pal of the agent in focus, with its name and state.
     const bigPals = new Map();
-    const TONE = { approval: 'var(--warn)', waiting: 'var(--warn)', done: 'var(--ok)', error: 'var(--bad)' };
+    const TONE = { approval: 'var(--warn)', waiting: 'var(--warn)', done: 'var(--ok)', error: 'var(--bad)', clash: 'var(--warn)' };
     function fillWho(box, s, kind) {
       const id = s?.id ?? 'you';
       let pal = bigPals.get(id);
@@ -1055,6 +1066,9 @@
       } else if (kind === 'error') {
         const t = buildTurns(stepsOf(s)).at(-1);
         items.push({ key: `err|${s.id}|${t?.end?.id}|${t?.steps.length}|${s.text ?? ''}`, make: () => errorCard(s, t) });
+      } else if (kind === 'clash') {
+        const a = shown.v?.alert;
+        items.push({ key: `clash|${a?.id}`, make: () => clashCard(s, a) });
       } else if (kind === 'working') {
         items.push(workItem(s));
         items.push(metaItem(s));
@@ -1300,6 +1314,21 @@
       return card;
     }
 
+    /** Two agents, one file: who's editing what, and who changed it a moment ago. */
+    function clashCard(s, a) {
+      const card = el('div', 'card tone-need');
+      const head = el('div', 'card-head');
+      const mark = el('span', 'mark', '!');
+      mark.style.color = 'var(--warn)';
+      head.append(mark, el('b', '', 'Two agents, one file'), el('span', 'grow'));
+      card.append(head, el('p', 'said', a?.text ?? 'Another agent just changed this file.'));
+      card.append(el('p', 'asked', 'Check they don’t undo each other’s work. Claude Code asks first (Settings → Two agents, one file); other agents can only be told after.'));
+      const actions = el('div', 'actions');
+      actions.append(button('btn', 'Story', () => chooseTab('story')), button('btn', 'OK', () => send({ type: 'close' })));
+      card.append(actions);
+      return card;
+    }
+
     /** Everyone's plan limits, compact: "● Claude  5-hour ▓▓░ 42%  Week ▓░░ 18%". */
     function usageItem() {
       const rows = usage.filter((u) => u.limits?.length);
@@ -1375,6 +1404,7 @@
           }
           return seg;
         } },
+        { key: `handoff|${s.id}`, make: () => continueMenu(s.id, { copy: (text) => (desktop?.copy ? desktop.copy(text) : navigator.clipboard?.writeText(text)), inline: true }) },
         todayItem(s, turns, rev),
         tests && { key: `tests|${tests.level}|${tests.text}`, make: () => { const n = el('div', `note ${tests.level}`, tests.text); n.title = 'Only tests the agent ran count: dotpals can’t see tests you run yourself, or CI.'; return n; } },
         plan && { key: `plan|${plan.done}/${plan.total}|${plan.items.map((p) => p.status[0] + p.text).join('|')}`, make: () => planBlock(s, plan) },

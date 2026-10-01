@@ -179,6 +179,22 @@ test('done opens it for a few seconds, then it closes by itself', () => {
   assert.equal(mode(s, T.errorFor), 'hidden');
 });
 
+test('a clash (two agents, one file) is news with its own text, shown a little longer', () => {
+  let s = run([[0, { type: 'agents', running: 2 }], [0, { type: 'alert', id: 'clash:1', kind: 'clash', session: 'b', text: 'Codex is editing billing.ts, which Claude (shop) changed 2 min ago' }]]);
+  const v = derive(s, 0);
+  assert.equal(v.mode, 'open');
+  assert.equal(v.alert.kind, 'clash');
+  assert.equal(v.alert.text, 'Codex is editing billing.ts, which Claude (shop) changed 2 min ago');
+  assert.deepEqual(v.countdown, { start: 0, end: T.clashFor });
+  s = reduce(s, tick, T.errorFor);
+  assert.equal(mode(s, T.errorFor), 'open');
+  s = reduce(s, tick, T.clashFor);
+  assert.equal(s.alerts.length, 0);
+  // Behind someone who needs you, like other news.
+  s = run([[0, { type: 'alert', id: 'clash:2', kind: 'clash', session: 'b' }], [0, { type: 'alert', id: 'w', kind: 'need', session: 'a' }]]);
+  assert.equal(shownAlert(s).id, 'w');
+});
+
 test('moving over a done alert keeps it open like one you opened', () => {
   let s = run([[0, { type: 'alert', id: 'd', kind: 'done', session: 'a' }], [1000, inside], [1500, inside]]);
   assert.equal(derive(s, 1500).by, 'hover');

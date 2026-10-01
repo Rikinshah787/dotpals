@@ -22,6 +22,7 @@
 //                            approval: a permission request to answer (or that it's settled)
 //                            helpers:  a session's helper agents (subagents)
 //                            laya:     Laya on this computer: { installed, running, phase, message, line, error }
+//                            conflict: an agent is changing a file another active session just changed (see guard.js)
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
@@ -39,6 +40,11 @@
 //   GET  /api/checker/laya             → Laya's status (also in /api/config, as checker.laya)
 //   POST /api/checker/laya/setup       install Laya (once) and start it; answers at once, progress as `laya` events
 //   POST /api/checker/laya/start|stop|uninstall
+//   POST /hook?guard=1   Claude Code's PreToolUse for a file change (bridge/guard-hook.js): another
+//                        session changed that file a moment ago? → "ask" or "deny", else {}
+//   GET  /api/handoff/agents       → { agents: [{ id, name }] } the agents a session can be handed to
+//   POST /api/handoff { session, agent }   write the hand-off note and open that agent in a new
+//                        terminal, in the session's own folder; agent "copy": just the note
 //   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
@@ -59,6 +65,9 @@ import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
 import { checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
+import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, guardReply, pathKey, who } from './guard.js';
+import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
+import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -72,12 +81,13 @@ const DAY = 86_400_000;
  * Activity history on disk (~/.dotpals/history.json), so the Summary, Files and
  * dashboard survive restarts. Keeps `historyDays` (default 7), at most 5000 entries.
  */
-function createHistory(activity, getConfig) {
+function createHistory(activity, getConfig, meta = { get: () => ({}), set: () => {} }) {
   const file = () => join(home(), 'history.json');
   const keep = () => getConfig().historyDays * DAY;
   if (getConfig().history) {
     try {
-      const { entries = [] } = JSON.parse(readFileSync(file(), 'utf8'));
+      const { entries = [], sessions = {} } = JSON.parse(readFileSync(file(), 'utf8'));
+      meta.set(sessions);
       for (const e of entries) {
         if (!e?.id || !e.session || Date.now() - e.at > keep()) continue;
         // Anything still running when the bridge stopped won't finish now.
@@ -98,7 +108,9 @@ function createHistory(activity, getConfig) {
         writing = writing.then(async () => {
           try {
             await mkdir(home(), { recursive: true });
-            await writeFile(`${file()}.tmp`, JSON.stringify({ version: 1, entries }));
+            const ids = new Set(entries.map((e) => e.session));
+            const sessions = Object.fromEntries(Object.entries(meta.get()).filter(([id]) => ids.has(id)));
+            await writeFile(`${file()}.tmp`, JSON.stringify({ version: 1, entries, sessions }));
             await rename(`${file()}.tmp`, file());
           } catch {}
         });
@@ -122,7 +134,7 @@ function createHistory(activity, getConfig) {
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {} } = {}) {
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
@@ -131,7 +143,21 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const hooked = new Set();    // Claude sessions that send hook events
   const lastSeen = {};        // harness → time of its last event
   let config = loadConfig();
-  const history = createHistory(activity, () => config);
+  // Each session's project folder (where it started) and, for a helper with a session of its
+  // own, the session that started it: for the hand-off's terminal and the conflict guard.
+  // Only ever from the agents' own events and logs, never from an API request. Kept in history.
+  const sessionMeta = new Map(); // session → { cwd?, parent? }
+  function noteSession(session, cwd, parent) {
+    if (!session || (!cwd && !parent)) return;
+    const m = sessionMeta.get(session) ?? {};
+    if (typeof cwd === 'string' && cwd && !m.cwd) m.cwd = cwd;
+    if (typeof parent === 'string' && parent && parent !== session) m.parent = parent;
+    sessionMeta.set(session, m);
+  }
+  const history = createHistory(activity, () => config, {
+    get: () => Object.fromEntries(sessionMeta),
+    set: (saved) => { for (const [id, m] of Object.entries(saved ?? {})) noteSession(id, m?.cwd, m?.parent); },
+  });
   const startedAt = Date.now();
 
   function send(event, data) {
@@ -240,10 +266,82 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       heard(entry.session, entry.at);
       if (entry.kind === 'agent') helperFromEntry(entry);
       if (entry.harness) lastSeen[entry.harness] = Math.max(lastSeen[entry.harness] ?? 0, entry.at ?? 0);
+      if (Date.now() - (entry.at ?? 0) < 60_000) asleep.delete(entry.session);
       maybeCheck(entry);
+      checkConflicts(entry);
       any = true;
     }
     if (any) history.save();
+  }
+
+  // -- Two agents, one file (bridge/guard.js) ------------------------------------------
+  // An agent changing a file another active session changed in the last few minutes
+  // (Settings: conflictGuard, conflictMinutes). Every agent: a `conflict` event, which the
+  // notch shows as an alert and the pal as a notification, once per file and pair of
+  // sessions per 10 minutes. Claude Code, before the edit: its PreToolUse hook
+  // (bridge/guard-hook.js → POST /hook?guard=1) gets "ask" or "deny" (see guardEdit).
+  const asleep = new Set(); // sessions put to sleep (quiet, dismissed or ended), until heard from again
+  const conflictAlerts = createAlerts();
+  const told = new Map(); // file|pair|that change → when Claude was paused for it (once is enough)
+  function conflictOf(session, path, cwd, at = Date.now()) {
+    const states = new Map([...sessions].map(([id, u]) => [id, u.state]));
+    for (const id of asleep) states.set(id, 'sleeping');
+    const cwds = new Map([...sessionMeta].map(([id, m]) => [id, m.cwd]));
+    const parents = new Map([...sessionMeta].map(([id, m]) => [id, m.parent]));
+    return findConflict(activity.all(), { session, path, cwd, at, within: (config.conflictMinutes ?? 10) * 60_000, states, cwds, parents });
+  }
+  function raiseConflict(by, conflict, guard) {
+    if (!conflictAlerts.ok({ path: conflict.path, cwd: sessionMeta.get(conflict.session)?.cwd, a: by.session, b: conflict.session })) return;
+    send('conflict', {
+      id: randomUUID(), at: Date.now(), path: conflict.path,
+      session: by.session, harness: by.harness, label: by.label,
+      other: { session: conflict.session, harness: conflict.harness, label: conflict.label, at: conflict.at },
+      text: alertText(by, conflict), ...(guard ? { guard } : {}),
+    });
+  }
+  /** Any agent's change that's happening now: alert if another active session just changed the same file. */
+  function checkConflicts(entry) {
+    if (config.conflictGuard === 'off' || !entry.session || entry.guard || entry.status === 'failed' || entry.status === 'stopped') return;
+    if (Date.now() - (entry.at ?? 0) > 2 * 60_000) return; // not history read at startup
+    for (const f of entry.files ?? []) {
+      if (!['edit', 'write', 'delete'].includes(f.change)) continue;
+      const conflict = conflictOf(entry.session, f.path, sessionMeta.get(entry.session)?.cwd, entry.at);
+      if (conflict) raiseConflict(entry, conflict);
+    }
+  }
+  /**
+   * Claude Code is about to change a file (PreToolUse for Edit, Write, MultiEdit,
+   * NotebookEdit). On a conflict: 'ask' → Claude Code asks you, with the reason; 'tell' →
+   * the edit is denied and Claude reads why, so it re-reads the file first. Once per
+   * change of the other session's: the next try goes ahead. The decision is kept on the
+   * edit (`guard`), so the story can say "Paused: Codex changed this file 2 minutes ago".
+   */
+  function guardEdit(event) {
+    const mode = config.conflictGuard;
+    const tool = event.tool_name;
+    const path = event.tool_input?.file_path || event.tool_input?.notebook_path;
+    if ((mode !== 'ask' && mode !== 'tell') || !FILE_TOOLS.has(tool) || typeof path !== 'string' || !path) return null;
+    const session = String(event.session_id);
+    noteSession(session, event.cwd);
+    const conflict = conflictOf(session, path, event.cwd);
+    if (!conflict) return null;
+    const key = `${pathKey(path, event.cwd)}|${session}|${conflict.session}|${conflict.at}`;
+    if (told.has(key)) return null;
+    told.set(key, Date.now());
+    if (told.size > 500) told.delete(told.keys().next().value);
+    const reply = guardReply(conflict, mode);
+    const now = Date.now();
+    const id = event.tool_use_id ? `${session}:${event.tool_use_id}` : `${session}:t:${now}`;
+    const label = folderName(event.cwd);
+    const guard = { mode, text: `Paused: ${who(conflict)} changed this file ${ago(conflict.at, now)}`, other: { session: conflict.session, harness: conflict.harness, label: conflict.label, at: conflict.at } };
+    // 'tell' stops the edit for good (it failed, as far as the story goes); 'ask' waits for you.
+    publish([activity.upsert({
+      ...(activity.get(id) ? {} : { session, label, harness: 'claude', at: now, tool, ...describeTool(tool, event.tool_input ?? {}, event.cwd), startedAt: now }),
+      id, guard,
+      ...(mode === 'tell' ? { status: 'failed', error: `dotpals stopped this edit: ${guardReason(conflict, now)}` } : { status: 'running' }),
+    })]);
+    raiseConflict({ session, harness: 'claude', label }, conflict, mode);
+    return reply;
   }
 
   // -- Double-check unclear test results (bridge/checker.js; off unless you turn it on) --
@@ -309,8 +407,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const update = { session, harness, label, ...next, at };
     if (harness && !test) lastSeen[harness] = Math.max(lastSeen[harness] ?? 0, at);
     if (!test && next.state !== 'sleeping') heard(session, at);
-    if (next.state === 'sleeping') { sessions.delete(session); contexts.delete(session); helpers.delete(session); }
-    else sessions.set(session, update);
+    if (next.state === 'sleeping') { sessions.delete(session); contexts.delete(session); helpers.delete(session); if (!test) asleep.add(session); }
+    else { sessions.set(session, update); asleep.delete(session); }
     send(null, update);
     return update;
   }
@@ -326,6 +424,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const session = String(event.session_id);
     const label = folderName(event.cwd);
     hooked.add(session);
+    noteSession(session, event.cwd);
     // First time we hear from a session: load its history from the transcript.
     if (event.transcript_path && !backfilled.has(session)) {
       backfilled.add(session);
@@ -406,6 +505,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       context: (session, label, ctx) => setContext(session, 'claude', label, ctx),
       sizeOf: claudeContextSize,
       skip: (session) => hooked.has(session),
+      cwd: (session, cwd) => noteSession(session, cwd),
     });
   }
 
@@ -415,6 +515,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const session = String(event.session_id ?? event.session ?? 'default');
     const harness = event.harness ? clip(event.harness, 30) : undefined;
     const label = event.label ?? folderName(event.cwd);
+    noteSession(session, typeof event.cwd === 'string' ? event.cwd : undefined);
     const items = Array.isArray(event.activity) ? event.activity : event.activity ? [event.activity] : [];
     let n = 0;
     publish(items.map((a) => {
@@ -454,6 +555,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     // A test from the dashboard: it arrived, which is all we wanted to know.
     if (session && tests.has(session)) { tests.get(session)(true); activity.forget(session); return null; }
     if (!enabled(id)) return null;
+    const cwd = [event.cwd, event.workspace_roots?.[0], event.directory].find((x) => typeof x === 'string' && x);
+    if (session) noteSession(session, cwd);
     publish(entries);
     if (session) lastSeen[id] = Math.max(lastSeen[id] ?? 0, Date.now());
     return state && session ? setState(session, id, label, state) : null;
@@ -478,6 +581,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         emit: publish,
         state: (session, label, next, at) => setState(session, a.id, label, next, at),
         context: (session, label, ctx) => setContext(session, a.id, label, ctx),
+        cwd: (session, cwd, parent) => noteSession(session, cwd, parent),
       }));
     }
   }
@@ -594,6 +698,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }
     if (req.method === 'GET' && path === '/api/approvals') return json(res, 200, { approvals: [...approvals.values()].map(approvalView) });
     if (req.method === 'GET' && path === '/api/usage') return json(res, 200, await usage());
+    if (req.method === 'GET' && path === '/api/handoff/agents') return json(res, 200, { agents: installedAgents({ has: handoffOptions.has ?? onPath }) });
 
     // Changes need a custom header: browsers won't send it cross-site without
     // asking first (and we never say yes), so other websites can't change settings.
@@ -678,6 +783,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       send('config', withLaya());
       return json(res, 200, { ok: true, laya: removed });
     }
+    if (path === '/api/handoff') return handoff(req, res);
     const answer = /^\/api\/approvals\/([\w-]{8,64})$/.exec(path);
     if (answer) {
       const item = approvals.get(answer[1]);
@@ -699,6 +805,35 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     return json(res, 404, { error: 'not found' });
   }
 
+  // -- Hand-off: continue a session in another agent (bridge/handoff.js) -------------------
+  // { session, agent: 'codex' | 'claude' | 'gemini' } writes the note and opens that agent in
+  // a new terminal, in the folder the session itself worked in (never one from the request).
+  // { agent: 'copy' } only returns the note. Failures still return the note, to copy instead.
+  async function handoff(req, res) {
+    // Starts a program: only this bridge's own pages (or no page at all) may ask.
+    const origin = req.headers.origin;
+    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+    const agent = body?.agent;
+    if (agent !== 'copy' && !Object.hasOwn(HANDOFF_AGENTS, agent)) return json(res, 400, { error: `agent must be one of: ${Object.keys(HANDOFF_AGENTS).join(', ')}, copy` });
+    const session = typeof body?.session === 'string' ? body.session : '';
+    if (!session || !activity.has(session)) return json(res, 404, { error: 'dotpals has no record of that session' });
+    const cwd = sessionMeta.get(session)?.cwd;
+    const note = handoffNote(activity.all(), { session, cwd });
+    if (agent === 'copy') return json(res, 200, { ok: true, note });
+    const has = handoffOptions.has ?? onPath;
+    const name = HANDOFF_AGENTS[agent].name;
+    if (!has(HANDOFF_AGENTS[agent].command)) return json(res, 400, { error: `${name} isn’t installed here (not found on PATH). Use Copy instead.`, note });
+    if (!(handoffOptions.isFolder ?? isFolder)(cwd)) return json(res, 409, { error: 'dotpals doesn’t know this session’s project folder (or it’s gone). Use Copy instead.', note });
+    let file;
+    try { file = await saveNote(note); } catch (err) { return json(res, 500, { error: `Couldn’t save the note: ${err.message}`, note }); }
+    const command = launchCommand({ platform: handoffOptions.platform ?? process.platform, agent, dir: cwd, prompt: handoffPrompt(file), has });
+    if (command.error) return json(res, 409, { error: command.error, note, file });
+    try { await (handoffOptions.launch ?? launch)(command); } catch (err) { return json(res, 500, { error: `Couldn’t open a terminal: ${err.message}. Use Copy instead.`, note, file }); }
+    return json(res, 200, { ok: true, agent, name, dir: cwd, file, note });
+  }
+
   // Only answer to our own name: stops "DNS rebinding" pages from reading your activity.
   const allowedHost = (host = '') => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
 
@@ -714,9 +849,14 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       let reply = null;
       try {
         const event = JSON.parse(body || '{}');
-        const update = await handleEvent(event, url.searchParams.get('agent'));
-        if (update) print(`${new Date().toLocaleTimeString()}  ${update.label ?? update.session.slice(0, 8)}  ${update.state}${update.text ? `  "${update.text}"` : ''}`);
-        if (url.pathname === '/hook' && !url.searchParams.get('agent') && event.hook_event_name === 'PermissionRequest' && event.session_id) reply = await askApproval(event, req);
+        if (url.pathname === '/hook' && url.searchParams.get('guard') === '1') {
+          // bridge/guard-hook.js: only the conflict check (bridge/hook.js reports the activity).
+          if (event.hook_event_name === 'PreToolUse' && event.session_id && enabled('claude')) reply = guardEdit(event);
+        } else {
+          const update = await handleEvent(event, url.searchParams.get('agent'));
+          if (update) print(`${new Date().toLocaleTimeString()}  ${update.label ?? update.session.slice(0, 8)}  ${update.state}${update.text ? `  "${update.text}"` : ''}`);
+          if (url.pathname === '/hook' && !url.searchParams.get('agent') && event.hook_event_name === 'PermissionRequest' && event.session_id) reply = await askApproval(event, req);
+        }
       } catch (err) {
         console.warn('bad event:', err.message);
       }

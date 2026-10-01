@@ -28,6 +28,11 @@ export const DEFAULTS = {
   approvals: false,     // answer Claude Code's permission prompts from the pal (off unless you turn it on)
   approvalWait: 30,     // seconds to wait for an answer there before Claude asks in the terminal
   shareRecap: false,    // tell each Claude Code session what your other agents did in the same project
+  // Two agents, one file (bridge/guard.js): when an agent is about to change a file another
+  // active session changed in the last `conflictMinutes`, 'ask' (Claude Code asks you first),
+  // 'tell' (Claude is told to re-read the file) or 'off'. Other agents only get an alert.
+  conflictGuard: 'ask',
+  conflictMinutes: 10,
   agents: {},           // per integration on/off, e.g. { cursor: false } (see bridge/adapters/index.js)
   custom: null,         // your own pal: { name, shape, eyes, top, color, fur }
   storyView: 'simple',  // how requests read by default: 'simple' (one sentence) or 'detailed' (the chapters)
@@ -50,6 +55,9 @@ function clean(input = {}) {
   if (Number.isInteger(wait) && wait >= 10 && wait <= 120) out.approvalWait = wait;
   if (CHARACTERS.includes(input.character)) out.character = input.character;
   if (input.storyView === 'simple' || input.storyView === 'detailed') out.storyView = input.storyView;
+  if (['ask', 'tell', 'off'].includes(input.conflictGuard)) out.conflictGuard = input.conflictGuard;
+  const minutes = Number(input.conflictMinutes);
+  if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 60) out.conflictMinutes = minutes;
   // { cursor: false, … }: only known ids, only true/false. "codex" is the older `codex` switch.
   if (input.agents && typeof input.agents === 'object' && !Array.isArray(input.agents)) {
     const agents = {};

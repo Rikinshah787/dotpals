@@ -100,10 +100,11 @@ const outputText = (output) =>
 const looksFailed = (text) => /exit(?:ed)?(?: with)? code:? ?-?[1-9]\d*|^\s*(error|fatal)\b/im.test(text) && !/exit(?:ed)?(?: with)? code:? ?0\b/i.test(text);
 
 /**
- * Follow Codex's logs. Calls `emit(entries)` for activity and
- * `state(session, label, { state, text }, at)` for the pal.
+ * Follow Codex's logs. Calls `emit(entries)` for activity,
+ * `state(session, label, { state, text }, at)` for the pal, and `cwd(session, folder, parent?)`
+ * when a session's project folder (and, for a helper, the session that started it) is known.
  */
-export function watchCodex(log, { emit, state, context = () => {}, dir = join(homedir(), '.codex', 'sessions'), interval = 1000 } = {}) {
+export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd = () => {}, dir = join(homedir(), '.codex', 'sessions'), interval = 1000 } = {}) {
   const files = new Map(); // path → { offset, session, label, cwd, partial }
   let stopped = false;
 
@@ -137,6 +138,9 @@ export function watchCodex(log, { emit, state, context = () => {}, dir = join(ho
       file.session = `codex:${p.id ?? p.session_id}`;
       file.cwd = p.cwd;
       file.label = folderName(p.cwd);
+      // A helper Codex started (spawn_agent) logs its parent; it counts as that session's.
+      const parent = p.source?.subagent?.thread_spawn?.parent_thread_id;
+      noteCwd(file.session, p.cwd, parent ? `codex:${parent}` : undefined);
       return;
     }
     if (o.type === 'turn_context' && p.cwd) {

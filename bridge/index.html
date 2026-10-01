@@ -390,6 +390,7 @@
       <b id="title">dotpals</b>
       <span class="status" id="status">connecting…</span>
       <span class="mini" id="mini" role="group" aria-label="Sessions"></span>
+      <span id="handoff"></span>
       <select id="first" title="First pal"></select>
       <button id="sound" class="icon" type="button" title="Sounds on" aria-label="Sounds on" aria-pressed="true">
         <svg class="on" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10L4.5 10H2zM11 5.5a3.5 3.5 0 0 1 0 5M13 3.5a6 6 0 0 1 0 9"/></svg>
@@ -427,6 +428,7 @@
     import { DotPal, registerCustom } from '../src/index.js';
     import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown, readiness, readinessLine, whyStopped } from '../bridge/ui/story.js';
     import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from '../bridge/ui/recap.js';
+    import { continueMenu } from '../bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -681,6 +683,26 @@
       placePill();
       const s = sessions.get(picked);
       $('title').textContent = s ? sessionName(s) : picked === 'all' ? 'All sessions' : 'dotpals';
+      renderHandoff();
+    }
+
+    // -- hand-off: "Continue in ▾" another agent, for the session on show ----------------
+    let handoffFor = null;
+    function renderHandoff() {
+      const id = sameOrigin && picked && picked !== 'all' && sessions.has(picked) ? picked : null;
+      if (id === handoffFor) return;
+      handoffFor = id;
+      $('handoff').replaceChildren(...(id ? [continueMenu(id, { copy: (text) => (desktop?.copy ? desktop.copy(text) : navigator.clipboard?.writeText(text)) })] : []));
+    }
+
+    // -- two agents, one file (bridge/guard.js) ----------------------------------------
+    // An agent is changing a file another active session changed a moment ago: its pal
+    // says so, and a desktop notification tells you (once per file and pair, per 10 min).
+    function applyConflict(c) {
+      if (!c?.text || !fresh(c.at)) return;
+      slots.get(c.session)?.pal.say?.(c.text, { duration: 6000 });
+      sound.play('waiting');
+      desktop?.notify?.('Two agents, one file', `${c.text}. Check they don’t undo each other’s work.`);
     }
 
     function pick(session, byUser) {
@@ -1102,6 +1124,8 @@
       const meta = el('span', 'meta');
       const rb = retryBadge(e);
       if (rb) meta.append(rb);
+      // dotpals paused it: another agent had just changed the file (bridge/guard.js).
+      if (e.guard) meta.append(Object.assign(el('span', 'wait', 'paused'), { title: e.guard.text }));
       // A checker (Jev, Laya) looked at this test run: "Jev ✕ 78%".
       const ck = checkOf(e);
       if (ck) {
@@ -1759,6 +1783,7 @@
       : type === 'context' ? applyContext(data)
       : type === 'approval' ? applyApproval(data)
       : type === 'helpers' ? applyHelpers(data)
+      : type === 'conflict' ? applyConflict(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
       : applyState(data);
@@ -1866,6 +1891,7 @@
       source.addEventListener('context', (e) => onEvent({ type: 'context', data: JSON.parse(e.data) }));
       source.addEventListener('approval', (e) => onEvent({ type: 'approval', data: JSON.parse(e.data) }));
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
+      source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
     }
 
