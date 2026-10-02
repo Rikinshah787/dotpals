@@ -288,7 +288,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     for (const id of asleep) states.set(id, 'sleeping');
     const cwds = new Map([...sessionMeta].map(([id, m]) => [id, m.cwd]));
     const parents = new Map([...sessionMeta].map(([id, m]) => [id, m.parent]));
-    return findConflict(activity.all(), { session, path, cwd, at, within: (config.conflictMinutes ?? 10) * 60_000, states, cwds, parents });
+    // Any order will do: no copy, no sort of the whole log on the guard's 1.5 s path.
+    return findConflict(activity.each(), { session, path, cwd, at, within: (config.conflictMinutes ?? 10) * 60_000, states, cwds, parents });
   }
   function raiseConflict(by, conflict, guard) {
     if (!conflictAlerts.ok({ path: conflict.path, cwd: sessionMeta.get(conflict.session)?.cwd, a: by.session, b: conflict.session })) return;
@@ -303,6 +304,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   function checkConflicts(entry) {
     if (config.conflictGuard === 'off' || !entry.session || entry.guard || entry.status === 'failed' || entry.status === 'stopped') return;
     if (Date.now() - (entry.at ?? 0) > 2 * 60_000) return; // not history read at startup
+    // A follow-up that only changes a status (running → ok) was checked when the edit started.
+    if (entry.status === 'ok' && entry.startedAt) return;
     for (const f of entry.files ?? []) {
       if (!['edit', 'write', 'delete'].includes(f.change)) continue;
       const conflict = conflictOf(entry.session, f.path, sessionMeta.get(entry.session)?.cwd, entry.at);

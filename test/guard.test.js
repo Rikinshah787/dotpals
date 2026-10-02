@@ -50,7 +50,7 @@ test('findConflict: own session, its helpers, reads, failures, paused edits and 
   none([edit('codex:1', path, at - MIN, { status: 'failed' })]);
   none([edit('codex:1', path, at - MIN, { status: 'running', guard: { mode: 'tell' } })]);
   none([edit('codex:1', path, at - 11 * MIN)]); // outside the 10 minutes
-  assert.ok(findConflict([edit('codex:1', path, at - 11 * MIN)], { session: 'claude:1', path, at, within: 15 * MIN }));
+  assert.ok(findConflict([edit('codex:1', path, at - 11 * MIN)], { session: 'claude:1', path, at, within: 15 * MIN, states: new Map([['codex:1', 'working']]) }));
   none([edit('codex:1', '/w/shop/other.ts', at - MIN)]);
   // A change under way counts.
   assert.ok(findConflict([edit('codex:1', path, at - MIN, { status: 'running' })], { session: 'claude:1', path, at }));
@@ -63,7 +63,13 @@ test('findConflict: the other session must still be active', () => {
   assert.equal(findConflict(entries, { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'sleeping']]) }), null);
   // Working now, or active within the window: active.
   assert.ok(findConflict(entries, { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'working']]) }));
-  assert.ok(findConflict(entries, { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'done']]) }));
+  assert.ok(findConflict(entries, { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'done']]) })); // done 2 min ago: still at it
+  // Finished its turn 8 minutes ago, and idle since: it changed the file, but it isn't editing it now.
+  assert.equal(findConflict([edit('codex:1', path, NOW - 8 * MIN)], { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'idle']]) }), null);
+  // Relative paths with ".." resolve the same with or without a folder.
+  assert.equal(pathKey('src/../lib/a.js'), 'lib/a.js');
+  assert.equal(pathKey('a/../../b'), '../b');
+  assert.equal(pathKey('/x/../../y'), '/y');
   // The newest change wins.
   const two = [...entries, edit('gemini:1', path, NOW - MIN, { harness: 'gemini', label: 'web' })];
   assert.equal(findConflict(two, { session: 'claude:1', path, at: NOW }).session, 'gemini:1');

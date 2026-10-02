@@ -27,8 +27,6 @@ const RISKY = [
   [/\b(taskkill|Stop-Process|kill\s+-9|pkill|killall)\b/i, 'force-stopped programs', 'force-stops programs'],
   [/\bnpm\s+publish\b/i, 'published a package', 'publishes a package', 'info'],
 ];
-// Folders that are fine to delete: temp and scratch space, build output, installed packages.
-const THROWAWAY = /(\$TEMP|%TEMP%|\$env:TEMP|[\\/]te?mp[\\/]|AppData[\\/]Local[\\/]Temp|[\\/]scratchpad\b|\bnode_modules\b|(?:^|[\s"'\\/])(?:dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)(?:[\s"'\\/]|$))/i;
 const SECRET = /(^|[\\/])(\.env(\.[\w-]+)?|\.npmrc|\.pypirc|id_(rsa|ed25519)|credentials?(\.json)?|secrets?\.[\w]+|[\w-]*\.(pem|key|p12|pfx))$/i;
 
 const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
@@ -43,22 +41,32 @@ function runsTests(cmd) {
 }
 
 /**
- * The commands a command line actually runs, each from its start: text written into a
- * file (a heredoc's body) and inline scripts (`node -e "…"`, `python -c "…"`) are left
- * out, so a command that only mentions `git push` or `rm -rf` in a file it writes doesn't
- * count as doing it. Split at && || ; | and new lines; prefixes like `timeout 150`,
- * `FOO=1`, `npx` and `./node_modules/.bin/` are dropped.
+ * The commands a command line actually runs, each from its start. Text written into a
+ * file (a heredoc's body) and code in another language (`node -e "…"`, `python -c "…"`)
+ * are left out, so writing a test that mentions `git push` or `rm -rf` doesn't count as
+ * doing it. A script handed to a shell (`bash -c "…"`, `powershell -Command "…"`,
+ * `cmd /c …`) is a command too, and is read as one. Split at && || ; | -exec and new
+ * lines; wrappers and prefixes like `sudo`, `xargs`, `timeout 150`, `FOO=1`, `npx` and
+ * `./node_modules/.bin/` are looked through.
  */
 export function parts(cmd) {
+  const unquote = (q) => q.slice(1, -1).replace(/\\(["\\])/g, '$1');
   const text = String(cmd)
     .replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '') // heredoc bodies
-    .replace(/(\s-(?:e|c|p|-eval|Command|EncodedCommand))\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, '$1 ""'); // inline scripts
+    // A shell's script is commands: bash -c "rm -rf x" → rm -rf x
+    .replace(/\b(?:bash|sh|zsh|dash|fish|pwsh|powershell)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:c|Command)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (_, q) => `;${unquote(q)};`)
+    .replace(/\bcmd(?:\.exe)?\s+\/[ck]\s+/gi, ';')
+    // Code in another language isn't a shell command: node -e "…", python -c "…"
+    .replace(/\b(?:node|deno|bun|python3?|py|ruby|perl|php)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:e|c|p|r|-eval)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (m, q) => m.slice(0, m.length - q.length) + '""')
+    .replace(/\s-exec(?:dir)?\s+/g, ';'); // find … -exec rm -rf {} \;
   return text.split(/\n|&&|\|\||[;|]/).map((part) => {
     let s = part.trim();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       s = s
         .replace(/^&\s*/, '') // PowerShell's call operator
         .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
+        .replace(/^(?:sudo|doas)(?:\s+-\S+)*\s+/i, '')
+        .replace(/^(?:xargs|nohup|exec|command|env)(?:\s+-\S+)*\s+/i, '')
         .replace(/^(?:timeout(?:\s+-\S+)*\s+\d+[smhd]?|time|nice|npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run)\s+/i, '')
         .replace(/^["']?[^\s"']*[\\/](?=[\w.-]+["']?(\s|$))/, ''); // ./node_modules/.bin/jest
     }
@@ -67,6 +75,15 @@ export function parts(cmd) {
 }
 /** Whether a command runs something matching `re` (from the start of one of its parts). */
 const runs = (cmd, re) => parts(cmd).some((s) => s.search(re) === 0);
+
+// A path that's fine to delete: temp and scratch space, build output, installed packages.
+const THROWAWAY_PATH = /(\$TEMP|%TEMP%|\$env:TEMP|(^|[\\/])te?mp([\\/]|$)|AppData[\\/]Local[\\/]Temp|(^|[\\/])scratchpad([\\/]|$)|(^|[\\/])(node_modules|dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)([\\/]|$))/i;
+/** Whether a delete command (rm, rmdir, del, Remove-Item) only deletes throwaway paths: every target must be one. */
+function deletesOnlyThrowaway(part) {
+  const tokens = part.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  const targets = tokens.slice(1).filter((t) => !/^-/.test(t) && !/^\/[a-z]$/i.test(t)).map((t) => t.replace(/^["']|["']$/g, ''));
+  return targets.length > 0 && targets.every((t) => THROWAWAY_PATH.test(t));
+}
 
 // Output that looks like something broke, or like everything went fine, when there's
 // no summary to count from.
@@ -476,10 +493,10 @@ export function flags(steps, { before = false } = {}) {
       // A command it ran (not text it wrote into a file); a pipe into a shell and SQL
       // (often inside `psql -c "…"`) and force-stops (inside a PowerShell pipeline) are looked
       // for across the whole line, minus any text written into a file.
-      const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[6][0];
+      const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[5][0] || re === RISKY[6][0];
       if (anywhere ? !re.test(cmd.replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '')) : !ran.some((p) => p.search(re) === 0)) continue;
       // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
-      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every((p) => THROWAWAY.test(p))) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
+      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every(deletesOnlyThrowaway)) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
       add(level, text[0].toUpperCase() + text.slice(1), e);
     }

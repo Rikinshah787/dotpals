@@ -444,3 +444,17 @@ test('readiness: ready to merge only when tests ran after the last change, passe
   const commit = readiness({ steps: [edit('src/a.js'), ok(), edit('src/a.js'), run('git commit -m x')], end: done });
   assert.ok(commit.problems.includes('Committed without a passing test run after the last change'));
 });
+
+test('risky commands are still caught inside shells, behind sudo/xargs/-exec, and in mixed deletes (from code review)', () => {
+  const warns = (c) => flags([run(c)]).filter((f) => f.level === 'warn').map((f) => f.text);
+  for (const c of ['bash -c "rm -rf ~/project"', 'powershell -Command "Remove-Item -Recurse -Force C:/repo"', 'sudo rm -rf /var/lib/app',
+    "find . -name '*.js' -exec rm -rf {} \;", 'ls | xargs rm -rf', 'cmd /c rmdir /s /q src', 'rm -rf dist src', 'rm -rf node_modules ~/work/app']) {
+    assert.ok(warns(c).includes('Deleted files with a recursive delete'), c);
+  }
+  assert.ok(warns("sh -c 'git push --force'").includes('Force-pushed to git'));
+  assert.ok(warns('sudo git push --force').includes('Force-pushed to git'));
+  // Only deletes where every target is throwaway are quiet; mentions in files or other languages don't count.
+  assert.deepEqual(flags([run('rm -rf dist node_modules')]).map((f) => f.level), ['info']);
+  assert.deepEqual(flags([run("cat >> t.js <<'EOF'\nrm -rf src\nEOF")]), []);
+  assert.deepEqual(flags([run('node -e "require(\'fs\').rmSync(\'x\')" && echo "git push --force"')]), []);
+});

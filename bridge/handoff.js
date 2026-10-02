@@ -44,8 +44,11 @@ export function installedAgents({ has = onPath, now = Date.now() } = {}) {
 
 // -- the command that opens a terminal -----------------------------------------------
 
-/** A folder for a terminal to start in: no trailing slash (a quoted `C:\dir\"` breaks Windows' quoting). */
-const tidyDir = (dir) => { const d = String(dir).replace(/[\\/]+$/, ''); return /^[a-z]:$/i.test(d) ? `${d}\\` : d || '/'; };
+/**
+ * A folder for a terminal to start in, never ending in a backslash: a quoted `"C:\dir\"`
+ * breaks Windows' quoting (the `\"` reads as a literal quote). A drive's root is `C:\.`.
+ */
+const tidyDir = (dir) => { const d = String(dir).replace(/[\\/]+$/, ''); return /^[a-z]:$/i.test(d) ? `${d}\\.` : d || '/'; };
 /** POSIX shell single quotes. */
 const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 /** An AppleScript string. */

@@ -34,7 +34,18 @@ export function findElectron() {
  */
 export function installedRoot() {
   const dir = join(shared, 'app');
-  return existsSync(join(dir, 'desktop', 'main.js')) ? dir : null;
+  if (!existsSync(join(dir, 'desktop', 'main.js'))) return null;
+  // Only when it's at least as new as this copy: an older install (setup not rerun after
+  // the plugin updated) would start a bridge without what this copy's hooks expect.
+  return compareVersions(versionOf(dir), versionOf(root)) >= 0 ? dir : null;
+}
+const versionOf = (dir) => { try { return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version ?? '0.0.0'; } catch { return '0.0.0'; } };
+/** -1, 0 or 1, for versions like "0.9.3" (pre-release tags are ignored). */
+export function compareVersions(a, b) {
+  const pa = String(a).split(/[.-]/).slice(0, 3).map((n) => Number(n) || 0);
+  const pb = String(b).split(/[.-]/).slice(0, 3).map((n) => Number(n) || 0);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] > pb[i] ? 1 : -1;
+  return 0;
 }
 
 /**

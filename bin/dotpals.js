@@ -15,7 +15,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findElectron, installElectron } from '../desktop/launch.js';
-import { home, loadConfig, saveConfig } from '../bridge/config.js';
+import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
@@ -221,7 +221,9 @@ async function preferences(flags) {
       const key = (await rl.question('  TypeSafe API key (hidden, Enter to skip): ')).trim();
       hidden = false;
       process.stdout.write('\n');
-      if (key) patch.checker.jevKey = key;
+      // Only a key that looks like one is kept (the dashboard refuses the same ones).
+      if (key && validKey(key)) patch.checker.jevKey = validKey(key);
+      else if (key) warn('That doesn’t look like a TypeSafe key (8 or more characters, no spaces), so it wasn’t saved. Add it later in Dashboard → Settings.');
       else console.log(`  ${dim('No key yet: add it later in Dashboard → Settings, or set TYPESAFE_API_KEY.')}`);
     }
     if (mode === 'local') answers.laya = await yn('Set up Laya now (Python environment and model, a few GB)?', true);

@@ -10,6 +10,8 @@
 export const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const CHANGES = new Set(['edit', 'write', 'delete']);
 const ACTIVE = new Set(['working', 'thinking', 'speaking', 'waiting']);
+/** How recently a session must have done something to count as still at it, when its state isn't working or waiting. */
+const ACTIVE_RECENT = 3 * 60_000;
 
 /**
  * One spelling per file: forward slashes, `.` and `..` worked out, lower case (Windows
@@ -24,8 +26,15 @@ export function pathKey(path, cwd) {
   const parts = [];
   for (const part of p.split('/')) {
     if (part === '.' || (part === '' && parts.length)) continue;
-    if (part === '..' && parts.length > 1) parts.pop();
-    else parts.push(part);
+    if (part === '..') {
+      // Up a folder, but never above the root ("/", "C:"); a relative path keeps leading "..".
+      const last = parts.at(-1);
+      const root = parts.length === 1 && (last === '' || /^[a-z]:$/i.test(last));
+      if (parts.length && last !== '..' && !root) parts.pop();
+      else if (!absolute) parts.push('..');
+      continue;
+    }
+    parts.push(part);
   }
   return parts.join('/').toLowerCase();
 }
@@ -73,7 +82,9 @@ export function findConflict(entries, { session, path, cwd, at = Date.now(), wit
   if (!found) return null;
   const state = states.get(found.session);
   if (state === 'sleeping') return null;
-  const active = ACTIVE.has(state) || (lastAt.get(found.session) ?? 0) >= at - within;
+  // Still at it: working, thinking or waiting right now, or busy within the last few
+  // minutes (a session that finished its turn a while ago isn't "editing" any more).
+  const active = ACTIVE.has(state) || (lastAt.get(found.session) ?? 0) >= at - ACTIVE_RECENT;
   return active ? found : null;
 }
 
