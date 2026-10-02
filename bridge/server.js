@@ -69,7 +69,6 @@ import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, gu
 import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
-import { startTracing, stopTracing, traceRequest } from './tracing.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } })();
@@ -841,12 +840,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // Only answer to our own name: stops "DNS rebinding" pages from reading your activity.
   const allowedHost = (host = '') => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
 
-  // Sentry tracing, when you've turned it on (`dotpals sentry <dsn>`; see bridge/tracing.js).
-  startTracing({ version }).then((on) => on && print('tracing        → Sentry (dotpals sentry off to stop)'))
-    .catch((err) => print(err.code === 'SENTRY_MISSING' ? 'Sentry tracing is on, but @sentry/node isn’t installed: run dotpals sentry <dsn> again.' : `Sentry tracing couldn’t start: ${err.message}`));
-
-  const server = createServer((req, res) => traceRequest(req, res, () => handle(req, res)));
-  async function handle(req, res) {
+  const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
 
     if (req.method === 'POST' && (url.pathname === '/hook' || url.pathname === '/event')) {
@@ -906,12 +900,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     } catch {
       res.writeHead(404).end();
     }
-  }
+  });
   // Keep idle connections open longer than a client does (Node's fetch drops its own after
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); stopTracing(); });
+  server.on('close', () => { stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });

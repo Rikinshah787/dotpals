@@ -15,7 +15,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findElectron, installElectron } from '../desktop/launch.js';
-import { home, loadConfig, saveConfig, saveSentry, sentrySettings, validDsn, validKey } from '../bridge/config.js';
+import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
@@ -365,34 +365,6 @@ async function laya(flags) {
   finish(s.running ? { ...s, message: 'Laya is set up and answers on this computer' } : s);
 }
 
-/**
- * `dotpals sentry <dsn> [--rate 0.2]`: error and performance tracing for your copy, sent to
- * your own Sentry project (bridge/tracing.js). `dotpals sentry off` stops it; no argument
- * says whether it's on. Takes effect the next time dotpals starts.
- */
-async function sentry(args) {
-  const i = args.indexOf('--rate');
-  const rate = i >= 0 ? Number(args[i + 1]) : undefined;
-  // The DSN (or "off"): the argument that isn't a flag or --rate's value.
-  const [arg] = args.filter((a, j) => !a.startsWith('--') && !(i >= 0 && j === i + 1));
-  if (!arg) {
-    const s = sentrySettings();
-    console.log(s.dsn ? `Sentry tracing is on (${Math.round(s.tracesSampleRate * 100)}% of requests traced). Turn it off: dotpals sentry off` : 'Sentry tracing is off. Turn it on with your project’s DSN: dotpals sentry <dsn>');
-    return;
-  }
-  if (arg === 'off') { saveSentry({ off: true }); console.log('Sentry tracing is off. Restart dotpals for it to take effect.'); return; }
-  if (!validDsn(arg)) { console.log('That doesn’t look like a Sentry DSN (https://<key>@<host>/<project id>; Sentry → Project settings → Client Keys).'); process.exitCode = 1; return; }
-  if (rate !== undefined && !(rate >= 0.01 && rate <= 1)) { console.log('--rate is the share of requests to trace, from 0.01 to 1.'); process.exitCode = 1; return; }
-  const { installPackage } = await import('../bridge/checker.js');
-  const { SENTRY_PACKAGE } = await import('../bridge/tracing.js');
-  console.log(`Installing ${SENTRY_PACKAGE}…`);
-  const r = await installPackage(SENTRY_PACKAGE);
-  if (!r.ok) { console.log(`Couldn’t install it: ${r.error}. Nothing was changed.`); process.exitCode = 1; return; }
-  const s = saveSentry({ dsn: arg, ...(rate !== undefined ? { tracesSampleRate: rate } : {}) });
-  console.log(`Sentry tracing is on: ${Math.round(s.tracesSampleRate * 100)}% of the bridge's requests are traced, and errors are reported.
-It sends routes, timings and stack traces, never what your agents did. Restart dotpals for it to take effect.`);
-}
-
 const [command = 'help', ...rest] = process.argv.slice(2);
 const flags = new Set(rest);
 switch (command) {
@@ -415,7 +387,6 @@ switch (command) {
     break;
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge()); break;
   case 'laya': await laya(flags); break;
-  case 'sentry': await sentry(rest); break;
   default:
     console.log(`dotpals ${version}
 
@@ -430,7 +401,5 @@ switch (command) {
   statusline  let Claude Code share its usage limits with dotpals (--off to undo)
   laya        set up Laya, the free checker for unclear test results that runs
               on this computer (needs Python 3.10+; --remove to delete it)
-  sentry      send errors and traces to your own Sentry project (off unless
-              you give it a DSN: dotpals sentry <dsn> [--rate 0.2]; off to stop)
   bridge      run only the bridge, no window`);
 }
