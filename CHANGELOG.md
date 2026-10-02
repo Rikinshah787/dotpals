@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hand-off notes are saved readable by you only.
   - "Copied ✓" showed even when the clipboard refused. The menu now says it couldn't copy.
   - A pre-release install (`0.9.3-rc.1`) no longer counts as up to date with the release.
+  - Hand-off on Windows starts the agent from its full path on PATH. `cmd` looks in the current folder first, so a project with its own `codex.cmd` could have run instead.
+  - A request still running no longer reads "Cut off before it finished" in the dashboard, a copied recap or a hand-off note.
+  - `xargs -n 1 rm -rf`, `sudo -u root rm -rf …` and `timeout -s KILL 30 …`: a wrapper option's value no longer hides the command, so the warning shows.
 - **Four wrong lines in the copied recap**, found by checking a real one against what happened:
   - Tests piped into another command (`npm test | grep fail`) were "passed (exit code only)", but the exit code was grep's. They're now ❔ unclear, unless the output has counts.
   - "Changed system permissions" came from the word `sudo` inside a `node -e "…"` script. Code in another language no longer triggers the whole-line rules; `bash -c "…"` still does.
