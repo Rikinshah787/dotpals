@@ -1155,13 +1155,17 @@
       wrap.style.cssText = 'display:grid;gap:12px';
       const turns = s.turns.filter((t) => t.prompt || t.steps.length).reverse();
       if (!turns.length) return el('div', 'none', 'No requests recorded.');
+      // No agent state here: the newest request, with activity in the last 5 minutes, may still be running.
+      const newest = turns[0];
+      const lastAt = (t) => Math.max(t.at, ...t.steps.map((e) => e.at ?? 0));
       for (const t of turns) {
+        const live = !t.end && t === newest && Date.now() - lastAt(t) < 5 * 60_000;
         const card = el('div', `turn ${harnessClass(t.harness)}`);
         card.id = `turn-${t.id}`;
         if (t.prompt) { const ask = el('div', 'ask'); ask.append(el('small', '', `You asked · ${when(t.at)}`), el('p', '', t.prompt.title)); card.append(ask); }
         // Simple: one plain sentence and the warnings that matter. Detailed: what the agent
         // said, the chapters (small steps folded) and every flag.
-        const easy = storyView() === 'simple' && !openRows.has(t.id) ? simple(t, { live: false }) : null;
+        const easy = storyView() === 'simple' && !openRows.has(t.id) ? simple(t, { live }) : null;
         if (easy) {
           const line = el('p', `simple ${easy.status}`);
           line.append(el('span', 'mark', { ok: '✓', failed: '✕', unclear: '?', running: '…', stopped: '■' }[easy.status] ?? '•'), el('span', '', easy.text));
@@ -1181,11 +1185,11 @@
             card.append(list);
           }
         }
-        const review = reviewBlock(t, { live: false });
+        const review = reviewBlock(t, { live });
         if (review) card.append(review);
         const foot = el('footer');
         foot.append(t.end ? el('span', t.end.kind === 'done' ? 'ok' : 'bad', t.end.kind === 'done' ? `✓ Done${turnTime(t) ? ` in ${secs(turnTime(t))}` : ''}` : '✕ Stopped with an error') : el('span', '', 'In progress or interrupted'));
-        const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t));
+        const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t, { live }));
         const steps = el('button', '', openRows.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`); steps.type = 'button';
         steps.onclick = () => { openRows.has(t.id) ? openRows.delete(t.id) : openRows.add(t.id); renderDetail(s); };
         foot.append(c, ...(t.steps.length ? [steps] : []));
