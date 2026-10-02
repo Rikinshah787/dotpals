@@ -26,7 +26,6 @@ Found by checking real requests by hand for the accuracy set:
 
 ### Added
 
-- **Sentry tracing, opt-in.** `dotpals sentry <dsn> [--rate 0.2]` installs `@sentry/node` and sends the bridge's unhandled errors and a span per request ("POST /hook", "GET /api/sessions/:id", with status and time) to your own Sentry project; `dotpals sentry off` stops it. Nothing is sent without a DSN. It never sends what your agents did: request bodies, query strings, headers, console output (which carries prompts), local variables and child processes are left out, every event is scrubbed again before it leaves, and the computer's name becomes "dotpals". Only the command line can set the DSN.
 - **Ready to merge?** Each finished request that changed code gets a verdict: "✅ Ready to merge" when tests ran after the last change and passed, nothing is left failing and nothing risky happened; otherwise "⚠ Not ready to merge" with the reasons ("No tests ran", "Changed b.js after the last test run", "Tests are failing", "Changed .env", "Committed without a passing test run"). In the pal, the notch, the dashboard and the copied recap.
 - **Why it stopped**, in plain words: "Stopped trying: `npm test` still failed after 3 tries", "Said it was done, but the tests are failing", "Finished with a question for you", "Stopped with an error: …", "Cut off before it finished", "Waiting for you".
 - **Failing test names**, next to the counts: "1 failed, 47 passed: test_locked_failure_does_not_block_requested_work" (in the chapter, the Simple sentence and the recap). Retries of the same failure are one line in the recap.
@@ -55,13 +54,12 @@ Found by checking real requests by hand for the accuracy set:
 
 ### Fixed
 
-- **From the pull request's reviews** (Copilot, CodeRabbit, Sentry):
+- **From the pull request's reviews** (Copilot, CodeRabbit and Sentry's Seer review bot):
   - "Ready to merge" when one test target failed and a different one passed. A test or build that failed and never passed now blocks it ("`npm run test:unit` failed and wasn't fixed").
   - A retry that failed by its counts (exit code 0) got its own ❌ line in the recap. It now folds into the first one.
   - "Changed system permissions" or "Force-stopped programs" for a `grep "sudo"` or `grep "Stop-Process"`. Quoted text no longer counts for these two.
   - Hand-off notes are saved readable by you only.
   - "Copied ✓" showed even when the clipboard refused. The menu now says it couldn't copy.
-  - Sentry span names use only the bridge's own routes, so no session name or other path text is sent. DSNs must use HTTPS (plain http only to this computer). `dotpals sentry --rate x <dsn>` no longer takes `x` for the DSN.
   - A pre-release install (`0.9.3-rc.1`) no longer counts as up to date with the release.
 - **Four wrong lines in the copied recap**, found by checking a real one against what happened:
   - Tests piped into another command (`npm test | grep fail`) were "passed (exit code only)", but the exit code was grep's. They're now ❔ unclear, unless the output has counts.

@@ -82,11 +82,11 @@
       <article class="doc">
 <p class="eyebrow-doc">More</p>
 <h1>Privacy and security</h1>
-<p class="lead">dotpals runs entirely on your computer. It reads what your agents already write locally, keeps a history in a plain JSON file, and sends nothing anywhere, unless you turn on one of the two optional features that do: <a href="#test-checker">double-checking unclear test results with TypeSafe</a>, or sending errors and request timings to your own Sentry project (<code>dotpals sentry &lt;dsn&gt;</code>).</p>
+<p class="lead">dotpals runs entirely on your computer. It reads what your agents already write locally, keeps a history in a plain JSON file, and sends nothing anywhere, unless you turn on the one optional cloud feature: <a href="#test-checker">double-checking unclear test results with TypeSafe</a>.</p>
 
 <h2 id="nothing-leaves">Nothing leaves your computer</h2>
 <ul>
-  <li><strong>No telemetry, no analytics, no account.</strong> dotpals makes no network calls of its own, except to TypeSafe if you choose <a href="#test-checker">Cloud (Jev)</a> to double-check test results, and to your own Sentry project if you run <code>dotpals sentry &lt;dsn&gt;</code> (errors and request timings, never what your agents did). Both are off by default. The pal, the notch and the dashboard load nothing from the internet.</li>
+  <li><strong>No telemetry, no analytics, no account.</strong> dotpals makes no network calls of its own, except to TypeSafe if you choose <a href="#test-checker">Cloud (Jev)</a> to double-check test results (off by default). The pal, the notch and the dashboard load nothing from the internet.</li>
   <li><strong>The bridge listens only on <code>127.0.0.1</code></strong>, so other machines on your network can't connect to it.</li>
   <li><strong>Usage limits</strong> are read from files on your computer (Codex's logs, and what Claude Code gives its status line), never fetched.</li>
   <li>The only downloads are the ones you start: installing dotpals from GitHub with npx, and Electron and the optional TypeSafe SDK from npm during setup. If you click <strong>Set up Laya</strong> (or run <code>dotpals laya</code>), pip downloads Laya, PyTorch and their parts from PyPI, and Laya downloads its model from Hugging Face the first time it starts (with Hugging Face's telemetry turned off). Nothing about you or your code is sent to set it up.</li>

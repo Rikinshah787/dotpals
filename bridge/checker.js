@@ -113,17 +113,12 @@ export const APP_DIR = fileURLToPath(new URL('..', import.meta.url)).replace(/[\
  * A fixed command, no user input: npm install @typesafe-ai/sdk, without touching
  * package.json. Resolves { ok, error? }.
  */
-export function installSdk(options = {}) {
-  return installPackage('@typesafe-ai/sdk@^0.6.0', options).then((r) => { sdk = null; return r; }); // then try loading it again
-}
-
-/**
- * npm install one package (a fixed spec from dotpals' own code, never user input) into the
- * folder dotpals runs from, without touching package.json. Resolves { ok, error? }.
- */
-export function installPackage(spec, { run = spawnNpm, dir = sdkHome(), timeoutMs = 120_000 } = {}) {
-  return run(['install', '--no-save', '--no-audit', '--no-fund', '--no-package-lock', spec], { cwd: dir, timeoutMs })
-    .then((r) => (r.code === 0 ? { ok: true } : { ok: false, error: /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|network/i.test(r.output) ? 'npm couldn’t reach the internet' : 'npm couldn’t install it' }));
+export function installSdk({ run = spawnNpm, dir = sdkHome(), timeoutMs = 120_000 } = {}) {
+  return run(['install', '--no-save', '--no-audit', '--no-fund', '--no-package-lock', '@typesafe-ai/sdk@^0.6.0'], { cwd: dir, timeoutMs })
+    .then((r) => {
+      sdk = null; // try loading it again
+      return r.code === 0 ? { ok: true } : { ok: false, error: /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|network/i.test(r.output) ? 'npm couldn’t reach the internet' : 'npm couldn’t install it' };
+    });
 }
 function spawnNpm(args, { cwd, timeoutMs }) {
   return new Promise((resolve) => {
