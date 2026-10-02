@@ -76,6 +76,7 @@ const version = (() => { try { return JSON.parse(readFileSync(join(root, 'packag
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.png': 'image/png' };
 const KINDS = new Set(['prompt', 'read', 'edit', 'write', 'run', 'search', 'web', 'agent', 'mcp', 'skill', 'plan', 'tool', 'done', 'error', 'compact']);
 const STATUSES = new Set(['running', 'waiting', 'ok', 'failed', 'stopped', 'info']);
+const CHANGES = new Set(['read', 'edit', 'write', 'delete']);
 const DAY = 86_400_000;
 
 /**
@@ -568,9 +569,14 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const known = activity.get(id);
       // Long output keeps its start and its end (where test summaries are).
       const body = a.body && typeof a.body === 'object' && typeof a.body.output === 'string' ? { ...a.body, output: clipEnds(a.body.output, 3000) } : a.body;
+      // Only well-formed files: everything downstream reads `file.path` and `file.change`.
+      const files = Array.isArray(a.files)
+        ? a.files.filter((f) => f && typeof f === 'object' && typeof f.path === 'string' && f.path).map((f) => ({ path: f.path.slice(0, 1000), change: CHANGES.has(f.change) ? f.change : 'edit' }))
+        : undefined;
       return activity.upsert({
         ...a,
         body,
+        files,
         check: undefined, // only the bridge's own checker says this
         git: undefined, // and only the bridge says what git saw
 

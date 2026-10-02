@@ -898,14 +898,16 @@ export function contextEntries(entries) {
     for (const entry of [prompts[0], ...prompts.slice(-4)]) if (entry) kept.add(entry);
     const plan = list.findLastIndex((entry) => Array.isArray(entry.plan));
     for (const entry of list.slice(Math.max(0, plan))) if (entry.plan || entry.task) kept.add(entry);
-    for (const predicate of [
-      (entry) => entry.kind === 'run' && stepType(entry) === 'test',
-      (entry) => entry.kind === 'run' && runs(commandOf(entry), COMMIT),
-      (entry) => entry.kind === 'done' || entry.kind === 'error',
-    ]) {
-      const entry = list.findLast(predicate);
-      if (entry) kept.add(entry);
-    }
+    // The latest test run, the latest commit that went through, the test run before that
+    // commit (what testState() reads "the commit was tested" from), and the latest ending.
+    const isTest = (entry) => entry.kind === 'run' && stepType(entry) === 'test' && !running(entry);
+    const commit = list.findLast((entry) => entry.kind === 'run' && runs(commandOf(entry), COMMIT) && entry.status !== 'failed' && !running(entry));
+    for (const entry of [
+      list.findLast(isTest),
+      commit,
+      commit && list.findLast((entry) => isTest(entry) && entry.at < commit.at),
+      list.findLast((entry) => entry.kind === 'done' || entry.kind === 'error'),
+    ]) if (entry) kept.add(entry);
     const paths = new Set();
     for (let index = list.length - 1; index >= 0 && paths.size < 30; index--) {
       const entry = list[index];
@@ -936,12 +938,13 @@ export function compactNote(entries) {
   const goal = prompts.at(-1)?.title;
   const plan = planOf(list);
   const todo = plan?.items.filter((p) => p.status !== 'completed').slice(0, 4).map((p) => clipped(p.text, 60)) ?? [];
+  // The files changed, newest first: by file tools, and by commands (`sed -i`, scripts) too.
   const files = [];
   for (const e of list.slice().reverse()) {
     if (e.status === 'failed') continue;
-    for (const f of e.files ?? []) {
-      if (!['edit', 'write', 'delete'].includes(f.change)) continue;
-      const name = String(f.path).replace(/\\/g, '/');
+    const changed = [...(e.files ?? []).filter((f) => ['edit', 'write', 'delete'].includes(f.change)).map((f) => f.path), ...commandEdits(e)];
+    for (const path of changed) {
+      const name = String(path).replace(/\\/g, '/');
       if (!files.includes(name)) files.push(name);
       if (files.length >= 8) break;
     }

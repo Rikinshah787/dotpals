@@ -627,3 +627,18 @@ test('trimming a session with many task entries keeps the plan right and bounded
   const small = [task({ op: 'create', text: 'Only' }), ...Array.from({ length: 5 }, (_, i) => read(`f${i}.js`))];
   assert.deepEqual(trimActivity(small, 3, contextEntries).filter((e) => e.plan), []);
 });
+
+test('review fixes on retention: the tested commit survives, and sed edits reach the compact note', async () => {
+  const { contextEntries, compactNote, testState } = await import('../bridge/ui/story.js');
+  const { trimActivity } = await import('../bridge/activity.js');
+  const out = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });
+  // Tests, a commit, a failed commit attempt, then another test and lots of look-ups: after
+  // trimming, testState still says the commit was tested.
+  const list = [edit('src/a.js'), out('npm test', 'Tests: 4 passed'), run('git commit -m one'), run('git commit -m two', 'failed'), out('npm test', 'Tests: 4 passed'),
+    ...Array.from({ length: 40 }, (_, i) => read(`f${i}.js`))];
+  assert.equal(testState(list).commit.tested, true);
+  const kept = trimActivity(list, 12, contextEntries);
+  assert.equal(testState(kept).commit?.tested, true, kept.map((e) => e.title).join(' | '));
+  // A file changed only by sed shows in the note's paths.
+  assert.match(compactNote([run("sed -i 's/a/b/' src/config.js"), out('npm test', 'Tests: 4 passed')]), /src\/config\.js/);
+});
