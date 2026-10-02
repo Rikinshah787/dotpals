@@ -32,10 +32,18 @@ const UNTRACED = /^\/(events|favicon\.ico)$|^\/(src|bridge|desktop)\/|^\/(dashbo
 
 let sentry = null; // the SDK, once started
 
-/** A route without what's specific to one request: ids and long tokens become ":id". */
+/** A request's route for a span name: one of the bridge's own routes, or a placeholder. */
 export function routeOf(pathname) {
-  return String(pathname).split('/').map((seg) => (/^[0-9a-f-]{8,}$/i.test(seg) || /^[\w-]{24,}$/.test(seg) || /^\d+$/.test(seg) ? ':id' : seg)).join('/');
+  const p = String(pathname).replace(/\/+$/, '') || '/';
+  if (ROUTES.has(p)) return p;
+  if (/^\/api\/sessions\/[^/]+\/dismiss$/.test(p)) return '/api/sessions/:id/dismiss';
+  // Anything else is named by its kind only, never by what's in it (a session name, an email…).
+  return p.startsWith('/api/') ? '/api/:other' : '/:other';
 }
+// The bridge's routes (bridge/server.js), the only path text a span name may carry.
+const ROUTES = new Set(['/', '/dashboard', '/hook', '/event', '/events', '/count', '/api/activity', '/api/agents', '/api/approvals',
+  '/api/checker/jev/install', '/api/checker/laya', '/api/checker/test', '/api/config', '/api/handoff', '/api/handoff/agents',
+  '/api/history/clear', '/api/recap', '/api/status', '/api/usage']);
 
 /** An event as it may leave this computer: no request data, no user, no breadcrumbs from logs. */
 export function scrub(event) {

@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **From the pull request's reviews** (Copilot, CodeRabbit, Sentry):
+  - "Ready to merge" when one test target failed and a different one passed. A test or build that failed and never passed now blocks it ("`npm run test:unit` failed and wasn't fixed").
+  - A retry that failed by its counts (exit code 0) got its own ❌ line in the recap. It now folds into the first one.
+  - "Changed system permissions" or "Force-stopped programs" for a `grep "sudo"` or `grep "Stop-Process"`. Quoted text no longer counts for these two.
+  - Hand-off notes are saved readable by you only.
+  - "Copied ✓" showed even when the clipboard refused. The menu now says it couldn't copy.
+  - Sentry span names use only the bridge's own routes, so no session name or other path text is sent. DSNs must use HTTPS (plain http only to this computer). `dotpals sentry --rate x <dsn>` no longer takes `x` for the DSN.
+  - A pre-release install (`0.9.3-rc.1`) no longer counts as up to date with the release.
 - **Four wrong lines in the copied recap**, found by checking a real one against what happened:
   - Tests piped into another command (`npm test | grep fail`) were "passed (exit code only)", but the exit code was grep's. They're now ❔ unclear, unless the output has counts.
   - "Changed system permissions" came from the word `sudo` inside a `node -e "…"` script. Code in another language no longer triggers the whole-line rules; `bash -c "…"` still does.

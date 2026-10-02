@@ -111,7 +111,9 @@ function cleanChecker(input, before = {}) {
 export function validDsn(dsn) {
   try {
     const url = new URL(String(dsn ?? '').trim());
-    return /^https?:$/.test(url.protocol) && url.username && /^\/(.+\/)?\d+$/.test(url.pathname) ? url.href.replace(/\/$/, '') : null;
+    // HTTPS only: errors and timings shouldn't cross a network in the clear. Plain http only to this computer.
+    const secure = url.protocol === 'https:' || (url.protocol === 'http:' && /^(127\.0\.0\.1|localhost|\[::1\])$/i.test(url.hostname));
+    return secure && url.username && /^\/(.+\/)?\d+$/.test(url.pathname) ? url.href.replace(/\/$/, '') : null;
   } catch { return null; }
 }
 /** How many requests get a span: 0.01 to 1. */

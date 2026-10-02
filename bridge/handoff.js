@@ -111,6 +111,6 @@ export async function saveNote(note) {
   const dir = join(home(), 'handoff');
   await mkdir(dir, { recursive: true });
   const file = join(dir, `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}-${randomBytes(3).toString('hex')}.md`);
-  await writeFile(file, note);
+  await writeFile(file, note, { mode: 0o600 }); // it holds prompts, paths and test output: yours only
   return file;
 }

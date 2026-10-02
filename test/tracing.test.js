@@ -43,6 +43,8 @@ test('a DSN is only set from the command line, kept through the dashboard’s sa
   assert.equal(validDsn(DSN), DSN);
   assert.equal(validDsn('https://sentry.io/4507'), null); // no key
   assert.equal(validDsn('not a url'), null);
+  assert.equal(validDsn('http://abc123@sentry.example.com/4507'), null); // not over plain http
+  assert.equal(validDsn('http://abc123@127.0.0.1:9000/7'), 'http://abc123@127.0.0.1:9000/7'); // except to this computer
   assert.equal(loadConfig().sentry.on, false);
   saveConfig({ sentry: { dsn: DSN }, fromCli: true }); // a page can't turn it on
   assert.equal(sentrySettings().dsn, null);
@@ -75,14 +77,16 @@ test('each request is a span named by its route; the live stream and the pal’s
   const sentry = fakeSentry();
   await startTracing({ settings: { dsn: DSN, tracesSampleRate: 1 }, load: async () => sentry });
   await traceRequest({ method: 'POST', url: '/hook?guard=1' }, { statusCode: 200 }, async () => {});
-  await traceRequest({ method: 'GET', url: '/api/sessions/964bd41c-7ea1-4bb9-9d2f-382892dce22c' }, { statusCode: 500 }, async () => {});
+  await traceRequest({ method: 'GET', url: '/api/sessions/shop/dismiss' }, { statusCode: 500 }, async () => {});
   await traceRequest({ method: 'GET', url: '/events' }, { statusCode: 200 }, async () => {});
   await traceRequest({ method: 'GET', url: '/bridge/ui/story.js' }, { statusCode: 200 }, async () => {});
-  assert.deepEqual(sentry.spans.map((s) => s.name), ['POST /hook', 'GET /api/sessions/:id']);
+  assert.deepEqual(sentry.spans.map((s) => s.name), ['POST /hook', 'GET /api/sessions/:id/dismiss']);
   assert.equal(sentry.spans[0].attributes['http.response.status_code'], 200);
   assert.equal(sentry.spans[1].status.code, 2);
   await stopTracing();
   assert.equal(routeOf('/api/handoff/agents'), '/api/handoff/agents');
+  assert.equal(routeOf('/api/sessions/alice@example.com/x'), '/api/:other'); // nothing from the path but its kind
+  assert.equal(routeOf('/someone/secret'), '/:other');
 });
 
 test('an event leaves without request data, user or log lines, and without the computer’s name', () => {

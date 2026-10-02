@@ -40,12 +40,16 @@ export function installedRoot() {
   return compareVersions(versionOf(dir), versionOf(root)) >= 0 ? dir : null;
 }
 const versionOf = (dir) => { try { return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version ?? '0.0.0'; } catch { return '0.0.0'; } };
-/** -1, 0 or 1, for versions like "0.9.3" (pre-release tags are ignored). */
+/** -1, 0 or 1, for versions like "0.9.3". A pre-release ("0.9.3-rc.1") comes before its release. */
 export function compareVersions(a, b) {
-  const pa = String(a).split(/[.-]/).slice(0, 3).map((n) => Number(n) || 0);
-  const pb = String(b).split(/[.-]/).slice(0, 3).map((n) => Number(n) || 0);
-  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] > pb[i] ? 1 : -1;
-  return 0;
+  const [ca, pre1 = ''] = String(a).split(/-(.*)/s);
+  const [cb, pre2 = ''] = String(b).split(/-(.*)/s);
+  const pa = ca.split('.').slice(0, 3).map((n) => Number(n) || 0);
+  const pb = cb.split('.').slice(0, 3).map((n) => Number(n) || 0);
+  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0) ? 1 : -1;
+  if (pre1 === pre2) return 0;
+  if (!pre1 || !pre2) return pre1 ? -1 : 1; // the release is newer than its pre-release
+  return pre1.localeCompare(pre2, 'en', { numeric: true }) < 0 ? -1 : 1;
 }
 
 /**

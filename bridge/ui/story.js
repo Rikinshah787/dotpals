@@ -511,13 +511,16 @@ export function flags(steps, { before = false } = {}) {
     const cmd = commandOf(e);
     const ran = parts(cmd);
     const script = scriptText(cmd);
+    // Without quoted text: a "sudo" or "Stop-Process" in a grep pattern or a message isn't one being run.
+    const unquoted = script.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
     for (const [re, did, will, level = 'warn'] of RISKY) {
       // A command it ran (not text it wrote into a file); a pipe into a shell and SQL
       // (often inside `psql -c "…"`) and force-stops (inside a PowerShell pipeline) are looked
       // for across the whole line, minus text written into a file and code in another
       // language (a "sudo" inside node -e "…" is a string, not a command).
       const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[5][0] || re === RISKY[6][0];
-      if (anywhere ? !re.test(script) : !ran.some((p) => p.search(re) === 0)) continue;
+      const where = re === RISKY[5][0] || re === RISKY[6][0] ? unquoted : script;
+      if (anywhere ? !re.test(where) : !ran.some((p) => p.search(re) === 0)) continue;
       // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
       if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every(deletesOnlyThrowaway)) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
@@ -999,7 +1002,7 @@ export function turnMarkdown(t) {
   const notRun = [];
   const { chains, retryOf } = retries(t.steps);
   // A failed retry is part of the first failure's line ("still failing after 3 tries"), not a line of its own.
-  const repeat = (e) => e.status === 'failed' && retryOf.has(e.id);
+  const repeat = (e) => failedStep(e) && retryOf.has(e.id);
   const tries = (e) => {
     const c = chains.get(e.id);
     if (!c || c.attempts.length < 2) return '';
@@ -1115,8 +1118,12 @@ export function readiness(turn) {
     checks.push({ ok: tested.state !== 'stale', text: tested.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
     checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
   }
-  const stuck = leftFailing(turn.steps);
-  checks.push({ ok: !stuck.length, text: stuck.length ? `${whatOf(stuck.at(-1).attempts[0])} still fails after ${stuck.at(-1).attempts.length} tries` : 'No failures left behind' });
+  // Left failing: anything tried again and again, and a test or build that failed once and
+  // never passed (a failing `npm run test:unit` isn't fixed by a passing `npm run lint`).
+  const stuck = [...retries(turn.steps).chains.values()].filter((c) => c.outcome === 'failing'
+    && (c.attempts.length > 1 || ['test', 'build'].includes(stepType(c.attempts[0]))));
+  const worst = stuck.at(-1);
+  checks.push({ ok: !stuck.length, text: !worst ? 'No failures left behind' : worst.attempts.length > 1 ? `${whatOf(worst.attempts[0])} still fails after ${worst.attempts.length} tries` : `${whatOf(worst.attempts[0])} failed and wasn’t fixed` });
   const risky = flags(turn.steps).filter((f) => f.level === 'warn');
   checks.push({ ok: !risky.length, text: risky.length ? risky[0].text : 'Nothing risky' });
   if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
