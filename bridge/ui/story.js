@@ -869,6 +869,22 @@ export function overlaps(entries, since = Date.now() - 2 * 3600_000, { within = 
 
 // -- compacting ------------------------------------------------------------------------
 
+/**
+ * Claude Code keeps its plan as tasks, one entry per TaskCreate/TaskUpdate, and planOf()
+ * numbers tasks by their position, so dropping an early task entry corrupts the plan. Before
+ * a session is trimmed, its task history is folded: the plan as replayed so far is written
+ * onto the newest task entry as a `plan` array (the form TodoWrite, Codex and Gemini use).
+ * planOf() starts over from an array, so the older task entries are then free to go.
+ * Changes the entries in place; only called when a session is over its limit.
+ */
+export function foldTasks(list) {
+  const last = list.findLastIndex((entry) => Array.isArray(entry.plan));
+  const tasks = list.slice(last + 1).filter((entry) => entry.task);
+  if (tasks.length < 2) return;
+  const plan = planOf(list);
+  if (plan) tasks.at(-1).plan = plan.items;
+}
+
 export function contextEntries(entries) {
   const sessions = new Map();
   for (const entry of entries) {
@@ -877,6 +893,7 @@ export function contextEntries(entries) {
   }
   const kept = new Set();
   for (const list of sessions.values()) {
+    foldTasks(list);
     const prompts = list.filter((entry) => entry.kind === 'prompt');
     for (const entry of [prompts[0], ...prompts.slice(-4)]) if (entry) kept.add(entry);
     const plan = list.findLastIndex((entry) => Array.isArray(entry.plan));

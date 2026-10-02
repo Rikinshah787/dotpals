@@ -102,7 +102,7 @@ Merging rules (`createActivityLog().upsert`):
 - A final status (`ok`, `failed`) never regresses. This matters because hooks run as separate processes, so a tool's result can arrive before its start.
 - Each session's entries are kept in time order, even when history is backfilled late.
 - `settle(session)` marks the session's `running` and `waiting` entries as `stopped` when a turn ends.
-- The bridge keeps at most 1500 entries per session in memory. On overflow it removes older unprotected steps first, retaining the original prompt, the latest four prompts, the newest plan and its task updates, the latest test, commit and turn ending, and changes to up to 30 recent file paths (`contextEntries` in `story.js`). If protected entries alone exceed the cap, the oldest of those are removed too. This is bounded context retention, not a complete archive.
+- The bridge keeps at most 1500 entries per session in memory. On overflow it removes older unprotected steps first, retaining the original prompt, the latest four prompts, the newest plan and its task updates, the latest test, commit and turn ending, and changes to up to 30 recent file paths (`contextEntries` in `story.js`). Claude Code's plan arrives as one task entry per TaskCreate/TaskUpdate, numbered by position, so before trimming, the task history is folded into a `plan` array on the newest task entry (`foldTasks`); the older task entries then need no protection and the plan still reads right. If protected entries alone exceed the cap, the oldest of those are removed too. This is bounded context retention, not a complete archive.
 
 Viewers group entries into **requests** (`buildTurns` in `recap.js`): a `prompt`, the steps after it, and the `done` or `error` entry that ended it.
 

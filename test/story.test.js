@@ -602,3 +602,28 @@ test('review fixes: a request still running isn’t "cut off"; wrapper options w
   assert.deepEqual(parts('timeout -s KILL 30 npm test'), ['npm test']);
   assert.ok(flags([run('printf x | xargs -n 1 rm -rf')]).some((f) => f.text === 'Deleted files with a recursive delete'));
 });
+
+test('trimming a session with many task entries keeps the plan right and bounded (from review)', async () => {
+  const { contextEntries, planOf } = await import('../bridge/ui/story.js');
+  const { trimActivity } = await import('../bridge/activity.js');
+  const task = (t) => step('plan', { task: t });
+  const list = [
+    task({ op: 'create', text: 'A' }), task({ op: 'create', text: 'B' }), task({ op: 'update', id: '2', status: 'completed' }),
+    ...Array.from({ length: 400 }, (_, i) => task({ op: 'update', id: '1', status: i % 2 ? 'in_progress' : 'pending' })),
+    ...Array.from({ length: 50 }, (_, i) => edit(`src/x${i}.js`)),
+    ...Array.from({ length: 20 }, () => run('npm run build')),
+  ];
+  const before = planOf(list).items.map((p) => `${p.text}:${p.status}`);
+  // Room to spare: some old task entries stay (they're just the oldest unprotected), and the plan still reads right.
+  const roomy = trimActivity(list, 100, contextEntries);
+  assert.equal(roomy.length, 100);
+  assert.deepEqual(planOf(roomy).items.map((p) => `${p.text}:${p.status}`), before); // positional ids survive the fold
+  // Tight: every old task entry goes, recent edits and builds all stay, the plan is intact.
+  const tight = trimActivity(list, 71, contextEntries);
+  assert.equal(tight.filter((e) => e.task).length, 1, 'old task entries are no longer protected');
+  assert.equal(tight.filter((e) => e.kind === 'run').length, 20, 'recent work keeps its place');
+  assert.deepEqual(planOf(tight).items.map((p) => `${p.text}:${p.status}`), before);
+  // Few task entries: nothing to fold, nothing changes.
+  const small = [task({ op: 'create', text: 'Only' }), ...Array.from({ length: 5 }, (_, i) => read(`f${i}.js`))];
+  assert.deepEqual(trimActivity(small, 3, contextEntries).filter((e) => e.plan), []);
+});
