@@ -90,10 +90,24 @@ const runs = (cmd, re) => parts(cmd).some((s) => s.search(re) === 0);
 // A path that's fine to delete: temp and scratch space, build output, installed packages.
 const THROWAWAY_PATH = /(\$TEMP|%TEMP%|\$env:TEMP|(^|[\\/])te?mp([\\/]|$)|AppData[\\/]Local[\\/]Temp|(^|[\\/])scratchpad([\\/]|$)|(^|[\\/])(node_modules|dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)([\\/]|$))/i;
 /** Whether a delete command (rm, rmdir, del, Remove-Item) only deletes throwaway paths: every target must be one. */
-function deletesOnlyThrowaway(part) {
+function deletesOnlyThrowaway(part, vars = {}) {
   const tokens = part.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-  const targets = tokens.slice(1).filter((t) => !/^-/.test(t) && !/^\/[a-z]$/i.test(t)).map((t) => t.replace(/^["']|["']$/g, ''));
+  const targets = tokens.slice(1).filter((t) => !/^-/.test(t) && !/^\/[a-z]$/i.test(t))
+    .map((t) => t.replace(/^["']|["']$/g, '').replace(/\$\{?([A-Za-z_]\w*)\}?/g, (m, name) => vars[name] ?? m));
   return targets.length > 0 && targets.every((t) => THROWAWAY_PATH.test(t));
+}
+
+/**
+ * Shell variables a command sets, for the paths a delete names: T=$(mktemp -d) is a temp
+ * folder ("$TEMP/mktemp"), S="$TEMP/x" is what it says. Only from the same command.
+ */
+function shellVars(cmd) {
+  const vars = {};
+  for (const m of String(cmd).matchAll(/(?:^|[\s;&|(])(?:export\s+|local\s+)?([A-Za-z_]\w*)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)/g)) {
+    const value = m[2].replace(/^["']|["']$/g, '');
+    vars[m[1]] = /^\$\(\s*mktemp\b/.test(value) ? '$TEMP/mktemp' : value;
+  }
+  return vars;
 }
 
 // Output that looks like something broke, or like everything went fine, when there's
@@ -525,7 +539,7 @@ export function flags(steps, { before = false } = {}) {
       const where = re === RISKY[5][0] || re === RISKY[6][0] ? unquoted : script;
       if (anywhere ? !re.test(where) : !ran.some((p) => p.search(re) === 0)) continue;
       // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
-      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every(deletesOnlyThrowaway)) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
+      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every((p) => deletesOnlyThrowaway(p, shellVars(cmd)))) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
       add(level, text[0].toUpperCase() + text.slice(1), e);
     }
@@ -565,6 +579,12 @@ function target(e) {
 // A test run fails by its results, not only its exit code (`npm test; echo done` exits 0).
 const testedAs = (e) => (e.kind === 'run' && stepType(e) === 'test' && !running(e) ? testVerdict(e).state : null);
 const failedStep = (e) => e.status === 'failed' || testedAs(e) === 'failed';
+/** Whether a test run runs every test: no file, folder or name filter after the runner (`npm test`, `pytest -q`). */
+const wholeSuite = (e) => parts(commandOf(e)).filter((p) => TEST.test(p)).some((p) => {
+  if (/^(npm|pnpm|yarn|bun)\s+(run\s+)?test:/.test(p)) return false; // `npm run test:unit` is one part of it
+  const words = p.replace(/\s+\d?>>?&?\s*\S+/g, '').split(/\s+/).slice(1);
+  return !words.some((w) => /[\\/]|\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|cs)$/i.test(w) || /^(-k|-t|--grep|--test-name-pattern|--testNamePattern|--filter|-run)(=|$)/.test(w));
+});
 
 export function retries(steps) {
   const list = [...steps].filter((e) => !['prompt', 'done', 'error', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
@@ -585,6 +605,13 @@ export function retries(steps) {
       attempts.push(e);
       retryOf.set(e.id, first.id);
       if (!failedStep(e)) break; // fixed (or still running): the chain ends here
+    }
+    // Failing tests are also fixed by a later run of the whole suite that passes
+    // (`node --test test/a.test.js` fails, then `npm test` passes).
+    if (testedAs(first) && failedStep(attempts.at(-1))) {
+      const at = list.indexOf(attempts.at(-1));
+      const suite = list.slice(at + 1, at + 61).find((e) => e.session === first.session && e.at - attempts.at(-1).at <= 15 * 60_000 && testedAs(e) === 'passed' && wholeSuite(e));
+      if (suite) { attempts.push(suite); retryOf.set(suite.id, first.id); }
     }
     const last = attempts.at(-1);
     const outcome = last === first ? 'failing' : failedStep(last) ? 'failing' : running(last) ? 'trying' : 'fixed';
@@ -632,6 +659,7 @@ export function testState(steps) {
   const tests = list.filter((e) => e.kind === 'run' && stepType(e) === 'test');
   const edits = [];
   for (const e of list) {
+    for (const path of commandEdits(e)) edits.push({ at: e.at, path });
     if (stepType(e) !== 'change' || outside(e) || e.status === 'failed') continue;
     for (const f of e.files ?? []) if (f.change !== 'read' && !NOT_CODE.test(String(f.path))) edits.push({ at: e.at, path: f.path });
   }
@@ -651,6 +679,35 @@ export function testState(steps) {
     commit = { at: c.at, tested: !!before && testPassed(before) === true && !edits.some((x) => x.at > before.at && x.at < c.at) };
   }
   return { state, last, verdict, since, commit };
+}
+
+// A source file's name: what a command that writes files is taken to change.
+const CODE_FILE = /^[^\s"'`$<>|;&]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|kt|swift|cs|c|cc|cpp|h|hpp|css|scss|html?|vue|svelte|sh|ps1|ya?ml|toml|json|sql)$/i;
+
+/**
+ * The code files a command wrote, as far as its text shows: `sed -i … file`, `> file`,
+ * `>> file`, `tee file`, and scripts (node -e, python heredocs) that call writeFileSync /
+ * open(…, 'w') / write_text on a path they name. Never temp, scratch or build paths. When
+ * git saw the request (gitTruth), that's the better answer; this is for when it didn't.
+ */
+export function commandEdits(e) {
+  if (e.kind !== 'run' || e.status === 'failed' || running(e)) return [];
+  const cmd = commandOf(e);
+  const found = new Set();
+  const vars = shellVars(cmd);
+  const words = (p) => (p.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, '').replace(/\$\{?([A-Za-z_]\w*)\}?/g, (m, n) => vars[n] ?? m));
+  for (const p of parts(cmd)) {
+    if (/^(sed|perl)\b/.test(p) && /\s-\w*i/.test(p)) words(p).slice(1).forEach((w) => found.add(w));
+    if (/^tee\b/.test(p)) words(p).slice(1).forEach((w) => found.add(w));
+    for (const m of p.matchAll(/(?:^|[^0-9&>])>>?\s*("[^"]*"|'[^']*'|[^\s;&|]+)/g)) found.add(words(m[1])[0] ?? '');
+  }
+  // Scripts: a write call's path, given as text or through a variable set in the script.
+  const text = String(cmd);
+  const named = (x) => (/^['"`]/.test(x) ? x.slice(1, -1) : text.match(new RegExp(`\\b${x.replace(/[^\w$]/g, '')}\\s*=\\s*(?:Path\\()?['"\`]([^'"\`]+)['"\`]`))?.[1]);
+  for (const m of text.matchAll(/\b(?:writeFileSync|writeFile|appendFileSync)\(\s*('[^']*'|"[^"]*"|`[^`]*`|[\w$]+)/g)) found.add(named(m[1]) ?? '');
+  for (const m of text.matchAll(/\bopen\(\s*('[^']*'|"[^"]*"|\w+)\s*,\s*['"][wa]/g)) found.add(named(m[1]) ?? '');
+  for (const m of text.matchAll(/(?:Path\(\s*('[^']*'|"[^"]*")\s*\)|\b(\w+))\.write_text\(/g)) found.add(named(m[1] ?? m[2]) ?? '');
+  return [...found].filter((f) => CODE_FILE.test(f) && !NOT_CODE.test(f) && !THROWAWAY_PATH.test(f));
 }
 
 /** "passed", "failed" or "were unclear", for a sentence about the last run. */
@@ -1054,9 +1111,23 @@ export function turnMarkdown(t, { live } = {}) {
   if (why) lines.push(`_Why it stopped: ${why.text}._`, '');
   const outsidePaths = new Set(t.steps.filter(outside).flatMap((e) => e.files.map((x) => String(x.path).toLowerCase())));
   const elsewhere = (x) => outsidePaths.has(String(x.path).toLowerCase());
-  for (const [label, list] of [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]]) {
+  // What changed: git's word when the bridge saw the repository before and after (it also
+  // sees what commands changed); otherwise what the file tools said.
+  const truth = gitTruth(t);
+  const lists = truth && !truth.tooMany
+    ? [['Changed', truth.files.filter((x) => x.change === 'edit')], ['Wrote', truth.files.filter((x) => x.change === 'write')], ['Deleted', truth.files.filter((x) => x.change === 'delete')]]
+    : [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]];
+  for (const [label, list] of lists) {
     const mine = list.filter((x) => !elsewhere(x));
-    if (mine.length) lines.push(`- ${label}: ${fileList(mine.map((x) => x.path))}`);
+    if (mine.length) lines.push(`- ${label}: ${fileList(mine.map((x) => x.path))}${truth && !truth.tooMany && truth.more && label === 'Changed' ? ` and ${truth.more} more` : ''}`);
+  }
+  if (truth && !truth.tooMany && truth.byCommand.length) lines.push(`- Changed by commands, not file tools: ${fileList(truth.byCommand.map((x) => x.path))}`);
+  if (truth) {
+    const note = gitLine({ ...truth, byCommand: [] }).replace(/^Git: [^·]*(· )?/, '');
+    if (truth.tooMany) lines.push('- Git: too many changed files to compare');
+    else if (!truth.files.length) lines.push(`- ${gitLine(truth)}`);
+    if (note) lines.push(`- ⚠ ${note[0].toUpperCase()}${note.slice(1)}`);
+    lines.push('- _Files checked against git_');
   }
   const scratch = [...f.changed, ...f.wrote, ...f.deleted].filter(elsewhere).length;
   if (scratch) lines.push(`- Also touched ${plural(scratch, 'file')} outside the project (scratch or temp)`);
@@ -1088,8 +1159,8 @@ const lastTestVerdict = (steps) => {
 /** Failures the agent tried again and never fixed. */
 const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) => c.outcome === 'failing' && c.attempts.length > 1);
 /** Whether a request changed code (not docs, images or lockfiles, not scratch files outside the project). */
-const changedCode = (steps) => steps.some((e) => stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
-  && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path))));
+const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
+  && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
 
 /**
  * Why a request ended, in plain words: { kind, text }, or null while the agent is still
@@ -1108,8 +1179,41 @@ export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
   if (gaveUp) return { kind: 'gave-up', text: `Stopped trying: ${whatOf(gaveUp.attempts[0])} still failed after ${gaveUp.attempts.length} tries` };
   if (lastTestVerdict(turn.steps)?.state === 'failed') return { kind: 'failing', text: 'Said it was done, but the tests are failing' };
   const said = String(turn.end.summary ?? '').trim().split('\n').filter(Boolean).at(-1) ?? '';
-  if (/\?\s*\**\s*$/.test(said)) return { kind: 'question', text: 'Finished with a question for you' };
+  // A question in its last two sentences ("Shall I keep going? That's the X and the Y.").
+  const sentences = said.split(/(?<=[.!?]\**)\s+/).filter(Boolean).slice(-2);
+  if (sentences.some((s) => /\?\s*\**\s*$/.test(s))) return { kind: 'question', text: 'Finished with a question for you' };
   return { kind: 'done', text: 'Finished: the agent said it was done' };
+}
+
+/**
+ * What git says a finished request changed (the bridge compares the repository before and
+ * after it: bridge/ground.js), next to what its tool calls said:
+ *   { files: [{ path, change, byTool }], byCommand: [files no file tool touched],
+ *     undone: [project files a tool changed that git shows unchanged], committed, others, more, tooMany }
+ * or null when there's no snapshot (not a git repository, or read from a transcript later).
+ * Git's paths are relative to the repository; a tool's may be absolute, so a tool's path
+ * counts as the same file when it ends with git's.
+ */
+export function gitTruth(turn) {
+  const g = turn.end?.git;
+  if (!g || !Array.isArray(g.files)) return null;
+  const norm = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+  const toolPaths = [...new Set(turn.steps.filter((e) => e.status !== 'failed' && !outside(e)).flatMap((e) => (e.files ?? []).filter((f) => f.change !== 'read').map((f) => norm(f.path))))];
+  const same = (tool, git) => tool === git || tool.endsWith(`/${git}`);
+  const files = g.files.map((f) => ({ ...f, byTool: toolPaths.some((t) => same(t, norm(f.path))) }));
+  const undone = g.tooMany ? [] : toolPaths.filter((t) => !files.some((f) => same(t, norm(f.path))));
+  return { files, byCommand: files.filter((f) => !f.byTool), undone, committed: !!g.committed, others: g.others ?? [], more: g.more ?? 0, tooMany: !!g.tooMany };
+}
+
+/** One line for a card: "Git: 5 files changed, 2 of them by commands · Codex was also working here", or ''. */
+export function gitLine(truth) {
+  if (!truth) return '';
+  if (truth.tooMany) return 'Git: too many changed files to compare';
+  const n = truth.files.length + truth.more;
+  const parts = [n ? `Git: ${plural(n, 'file')} changed${truth.byCommand.length ? `, ${truth.byCommand.length === n ? (n === 1 ? 'by a command' : 'all by commands') : `${truth.byCommand.length} of them by commands`}` : ''}` : 'Git: no files changed'];
+  if (!n && truth.undone.length) parts[0] += `, though it edited ${plural(truth.undone.length, 'file')} (undone, or ignored by git)`;
+  if (truth.others.length) parts.push(`${truth.others.map((o) => harnessName(o.harness)).join(', ')} ${truth.others.length === 1 ? 'was' : 'were'} also working here, so some may be theirs`);
+  return parts.join(' · ');
 }
 
 /**
@@ -1118,15 +1222,27 @@ export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
  * Only tests the agent ran count: dotpals can't see the ones you run yourself, or CI.
  */
 export function readiness(turn) {
-  if (!turn.end || turn.end.kind !== 'done' || !changedCode(turn.steps)) return null;
+  // Code changed: through a file tool, or (git says) through a command.
+  const truth = gitTruth(turn);
+  const byGit = truth?.files.some((f) => !NOT_CODE.test(f.path));
+  if (!turn.end || turn.end.kind !== 'done' || !(changedCode(turn.steps) || byGit)) return null;
   const tested = testState(turn.steps);
   const last = lastTestVerdict(turn.steps);
   const ran = !!last && tested?.state !== 'untested';
+  const norm = (path) => String(path).replace(/\\/g, '/').toLowerCase();
+  const same = (a, b) => a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+  const commandPaths = turn.steps.flatMap(commandEdits).map(norm);
+  // Code git saw changed that no file tool or readable command accounts for: it can't be
+  // placed before or after the tests, unless no command ran after the last test run (then
+  // it can only have happened before it).
+  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at) : true;
+  const gitUntimed = after && truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
+    && !commandPaths.some((path) => same(path, norm(f.path))));
   const checks = [
     { ok: ran, text: ran ? 'Tests ran' : 'No tests ran' },
   ];
   if (ran) {
-    checks.push({ ok: tested.state !== 'stale', text: tested.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
+    checks.push({ ok: tested?.state !== 'stale' && !gitUntimed, text: gitUntimed ? 'Code changed by a command after the tests may not be tested (git saw it, the steps don’t show when)' : tested?.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
     checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
   }
   // Left failing: anything tried again and again, and a test or build that failed once and

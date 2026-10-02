@@ -72,7 +72,8 @@
     "float": "node desktop/launch.js",
     "test": "node --test --test-timeout=300000",
     "setup": "node bin/dotpals.js setup",
-    "dashboard": "node bin/dotpals.js dashboard"
+    "dashboard": "node bin/dotpals.js dashboard",
+    "accuracy": "node scripts/accuracy.mjs"
   },
   "optionalDependencies": {
     "@typesafe-ai/sdk": "^0.6.0"

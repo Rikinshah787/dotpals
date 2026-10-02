@@ -72,7 +72,7 @@ export function describeTool(name = '', input = {}, cwd) {
     case 'Write':
       return { kind: 'write', title: rel(file), files: [{ path: file, change: 'write' }], body: { patch: toPatch('', input.content) } };
     case 'Bash': case 'PowerShell':
-      return { kind: 'run', title: clip(input.description || input.command, 80), detail: clip(input.command, 160), body: { command: clipText(input.command, 3000) } };
+      return { kind: 'run', title: clip(input.description || input.command, 80), detail: clip(input.command, 160), body: { command: clipEnds(input.command, 4000) } };
     case 'Grep':
       return { kind: 'search', title: clip(input.pattern, 80), detail: [input.glob || input.type, rel(input.path)].filter(Boolean).join(' in ') };
     case 'Glob':

@@ -69,6 +69,7 @@ import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, gu
 import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
+import { createGround } from './ground.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } })();
@@ -269,6 +270,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (Date.now() - (entry.at ?? 0) < 60_000) asleep.delete(entry.session);
       maybeCheck(entry);
       checkConflicts(entry);
+      groundTruth(entry);
       any = true;
     }
     if (any) history.save();
@@ -361,6 +363,44 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (check && !activity.get(entry.id)?.check) publish([activity.upsert({ id: entry.id, check })]);
       if (check?.by) noteHealth(check.by, check.error ? { ok: false, error: check.error } : { ok: true, ms: check.ms });
     }, () => {});
+  }
+
+  // -- What git says changed (bridge/ground.js) -----------------------------------------------
+  // A snapshot of the session's repository when a request starts, compared when it ends:
+  // the files it really changed, also through commands. Goes on the request's `done` entry
+  // as `git`: { files, more, committed, tooMany?, others }, `others` being the other
+  // sessions that were active in the same repository meanwhile (their changes show too).
+  // Only live requests: there's no "before" for one read from a transcript later.
+  const ground = createGround();
+  const groundPrompt = new Map(); // session → the prompt its snapshot is for
+  const normDir = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  function othersIn(root, session, since) {
+    const r = normDir(root);
+    const seen = new Map();
+    for (const e of activity.each()) {
+      if (e.session === session || e.at < since || seen.has(e.session)) continue;
+      const m = sessionMeta.get(e.session);
+      if (m?.parent === session) continue; // its own helper
+      const d = normDir(m?.cwd);
+      if (d && (d === r || d.startsWith(`${r}/`) || r.startsWith(`${d}/`))) seen.set(e.session, { session: e.session, harness: e.harness, label: e.label });
+    }
+    return [...seen.values()];
+  }
+  function groundTruth(entry) {
+    if (Date.now() - (entry.at ?? 0) > 60_000) return;
+    const cwd = sessionMeta.get(entry.session)?.cwd;
+    if (!cwd) return;
+    if (entry.kind === 'prompt' && groundPrompt.get(entry.session) !== entry.id) {
+      groundPrompt.set(entry.session, entry.id);
+      ground.start(entry.session, cwd, entry.at);
+    } else if ((entry.kind === 'done' || entry.kind === 'error') && !entry.git && ground.has(entry.session)) {
+      ground.finish(entry.session, cwd).then((changes) => {
+        if (!changes || activity.get(entry.id)?.git) return;
+        const git = { files: changes.files.slice(0, 300), more: Math.max(0, changes.files.length - 300), committed: changes.committed, others: othersIn(changes.root, entry.session, changes.since) };
+        if (changes.tooMany) git.tooMany = true;
+        publish([activity.upsert({ id: entry.id, git })]);
+      }, () => {});
+    }
   }
 
   // -- Is the checker working? -------------------------------------------------------------
@@ -532,6 +572,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         ...a,
         body,
         check: undefined, // only the bridge's own checker says this
+        git: undefined, // and only the bridge says what git saw
 
         id, session,
         harness: harness ?? known?.harness,

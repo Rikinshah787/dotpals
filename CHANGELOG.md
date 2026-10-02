@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **How accurate is it?** 21 real requests and 145 claims, checked by hand against what happened (`test/accuracy/cases`). `npm run accuracy` prints the score and every wrong claim: 94.5% right, 4 wrong, 4 unsure, no false "risky" warnings. The tests fail if a claim that's right turns wrong. `scripts/accuracy-capture.mjs` turns your own requests into cases: one project's sessions only, prompts left out, paths, keys and emails removed.
+- **Code changed through commands counts as a change.** `sed -i`, `> file`, `>> file`, `tee` and scripts that write a file they name (`writeFileSync`, `open(…, 'w')`, `write_text`) now get a "Ready to merge?" verdict and count for "tests ran after the last change", in folders without git too.
+- **Git checks what really changed.** When a request starts, dotpals notes the state of the project's git repository; when it ends, it compares. The recap's Changed / Wrote / Deleted lists now come from git, so files changed by commands (`sed -i`, `node -e`, a code generator, a formatter) and commits show up too, marked "Changed by commands, not file tools". A request that changed code only through a command still gets a "Ready to merge?" verdict. When another agent was working in the same repository meanwhile, the card says some changes may be theirs; when the agent edited files but git shows nothing changed, it says so. Only file names and times are read, nothing is written, and it works for every agent.
+
+### Fixed
+
+Found by checking real requests by hand for the accuracy set:
+
+- **Long commands lost their end**, so a test run at the end of a long command (`node fix.js && npm test`) wasn't seen. Every agent's commands now keep their start and their end.
+- **"Deleted files with a recursive delete" for a temp folder in a variable**: `T=$(mktemp -d); …; rm -rf "$T"` and `rm -rf "$S/x"` with `S` set to a temp path are now a quiet note.
+- **"Stopped trying" when the tests were fixed**: a failing single test file followed by a full test run that passes (`npm test`) now counts as fixed.
+- **A question before a last sentence** ("Shall I keep going? That's the X and the Y.") now reads as "Finished with a question for you".
+
 ## [0.9.3] - 2026-10-01
 
 ### Added

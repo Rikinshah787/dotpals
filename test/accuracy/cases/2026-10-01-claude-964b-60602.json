@@ -1,0 +1,48 @@
+{
+ "name": "2026-10-01-claude-964b-60602",
+ "source": "real",
+ "labeled": true,
+ "note": "A test file edited through a python script, then tests passed.",
+ "truth": {
+  "tests": {
+   "e2": "passed"
+  },
+  "risky": [],
+  "retries": {},
+  "ready": true,
+  "stopped": "done"
+ },
+ "turn": {
+  "harness": "claude",
+  "prompt": {
+   "id": "e1",
+   "kind": "prompt",
+   "title": "(not kept)",
+   "status": "info",
+   "at": 1790853560602
+  },
+  "steps": [
+   {
+    "id": "e2",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Update shape expectations and rerun tests",
+    "status": "ok",
+    "at": 1790853560887,
+    "ms": 5676,
+    "body": {
+     "command": "sed -n 45,52p test/config.test.js && python - <<'EOF'\nimport re\np='C:/Dot/test/config.test.js'\ns=open(p,encoding='utf-8').read()\ns=s.replace(\"{ mode: 'off', localUrl: 'http://[REDACTED:ip]:8000', keySet: false\",\"{ mode: 'off', localUrl: 'http://[REDACTED:ip]:8000', layaManaged: false, keySet: false\")\ns=s.replace(\"{ mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', keySet: true\",\"{ mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', layaManaged: false, keySet: true\")\nopen(p,'w',encoding='utf-8').write(s)\np='C:/Dot/test/server.test.js'\ns=open(p,encoding='utf-8').read()\na=\"  assert.deepEqual(JSON.parse(saved.text).checker, { mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });\"\nassert a in s\ns=s.replace(a,\"\"\"  const { laya, ...checker } = JSON.parse(saved.text).checker;\n  assert.deepEqual(checker, { mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', layaManaged: false, keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });\n  assert.deepEqual([laya.installed, laya.running, laya.phase], [false, false, 'idle']);\"\"\")\nopen(p,'w',encoding='utf-8').write(s)\nEOF\nnpm test 2>&1 | grep -E \"^ℹ (tests|pass|fail)\"",
+     "output": "test('checker: the key is write-only, an empty key keeps it, removeKey clears it', async () => {\n  const { checkerKey } = await import('../bridge/config.js');\n  const key = ['apikey', '0'.repeat(16), 'f'.repeat(16)].join('_'); // fake, built at run time so secret scanners don't flag it\n  delete process.env.TYPESAFE_API_KEY;\n  assert.deepEqual(loadConfig().checker, { mode: 'off', localUrl: 'http://[REDACTED:ip]:8000', keySet: false, keyLast4: null, keyFrom: null });\n  const config = saveConfig({ checker: { mode: 'cloud', jevKey: `  ${key}\\n` } });\n  assert.deepEqual(config.checker, { mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });\n  assert.ok(!JSON.stringify(config).includes(key));\nℹ tests 125\nℹ pass 125\nℹ fail 0"
+    }
+   }
+  ],
+  "end": {
+   "id": "e3",
+   "kind": "done",
+   "title": "Finished",
+   "status": "ok",
+   "at": 1790853589818,
+   "summary": " only the listed agents can be started.\n\n**Limits:**\n- dotpals can't type into a chat you already have open. It starts a **new** session with the note.\n- How hard the guard can stop an edit depends on the agent: Clau\n… (162 more characters)"
+  }
+ }
+}

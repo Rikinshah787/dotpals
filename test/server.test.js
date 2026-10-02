@@ -570,3 +570,37 @@ test('the checker’s health: a heartbeat when the setting changes, the reason w
     await closeBridge(server);
   }
 });
+
+test('a live request gets what git saw changed, also by commands, on its done entry', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const repo = await mkdtemp(join(tmpdir(), 'dotpals-repo-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'test');
+  writeFileSync(join(repo, 'a.js'), 'a\n');
+  git('add', '.');
+  git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start');
+  const { port, server } = await start();
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+    await rm(repo, { recursive: true, force: true });
+  });
+  const base = { session: 'git-session', harness: 'my-agent', cwd: repo };
+  await post(port, '/event', { ...base, activity: { id: 'p1', kind: 'prompt', title: 'Rename x to y', status: 'info', at: Date.now() } });
+  await new Promise((r) => setTimeout(r, 400)); // the "before" snapshot
+  writeFileSync(join(repo, 'a.js'), 'a, changed by sed\n');
+  writeFileSync(join(repo, 'b.js'), 'b\n');
+  await post(port, '/event', { ...base, activity: { id: 'd1', kind: 'done', title: 'Finished', status: 'ok', at: Date.now() } });
+  let entry;
+  for (let i = 0; i < 40 && !entry?.git; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    const res = await fetch(`http://127.0.0.1:${port}/api/activity`);
+    const body = await res.json();
+    entry = (Array.isArray(body) ? body : body.entries ?? []).find((e) => e.id === 'd1' || e.id?.endsWith(':d1'));
+  }
+  assert.deepEqual(entry?.git?.files, [{ path: 'a.js', change: 'edit' }, { path: 'b.js', change: 'write' }]);
+  assert.equal(entry.git.committed, false);
+  assert.deepEqual(entry.git.others, []);
+});

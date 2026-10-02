@@ -493,6 +493,24 @@ test('a test run that exits 0 but reports failures still starts a retry chain', 
   assert.equal(chains.get(first.id).outcome, 'fixed');
 });
 
+test('commandEdits: the code files a command writes, never temp files, docs or reads', async () => {
+  const { commandEdits, readiness } = await import('../bridge/ui/story.js');
+  const edits = (c) => commandEdits(run(c));
+  assert.deepEqual(edits("sed -i 's/a/b/' src/a.js"), ['src/a.js']);
+  assert.deepEqual(edits("cat >> test/x.test.js <<'EOF'\ntest(1)\nEOF"), ['test/x.test.js']);
+  assert.deepEqual(edits(`node -e "const p = 'src/config.js'; fs.writeFileSync(p, s)"`), ['src/config.js']);
+  assert.deepEqual(edits("python - <<'EOF'\np='test/h.test.js'\nopen(p,'w').write(s)\nEOF"), ['test/h.test.js']);
+  assert.deepEqual(edits(`npm test > "$TEMP/t.out" 2>&1`), []);
+  assert.deepEqual(edits(`node -e "const s = fs.readFileSync('src/a.js'); fs.writeFileSync('/tmp/x.js', s)"`), []);
+  assert.deepEqual(edits('echo hi > README.md'), []);
+  assert.deepEqual(edits('sed -n 5p src/a.js'), []);
+  // Code edited with sed, then tests: "Ready to merge?" is asked, and knows the tests came after.
+  const r = readiness({ steps: [run("sed -i 's/a/b/' src/a.js"), { ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } }], end: { kind: 'done' } });
+  assert.equal(r.ready, true);
+  const stale = readiness({ steps: [{ ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } }, run("sed -i 's/a/b/' src/a.js")], end: { kind: 'done' } });
+  assert.ok(stale.problems.some((p) => /after the last test run/.test(p)));
+});
+
 test('review fixes: a test target left failing blocks merging; a retry that failed by its counts gets one line', async () => {
   const { readiness, turnMarkdown } = await import('../bridge/ui/story.js');
   const out = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });

@@ -1,0 +1,108 @@
+{
+ "name": "2026-10-01-claude-964b-74769",
+ "source": "real",
+ "labeled": true,
+ "note": "Test helper edited with sed, then tests passed.",
+ "truth": {
+  "tests": {
+   "e4": "passed"
+  },
+  "risky": [],
+  "retries": {},
+  "ready": true,
+  "stopped": "done"
+ },
+ "turn": {
+  "harness": "claude",
+  "prompt": {
+   "id": "e1",
+   "kind": "prompt",
+   "title": "(not kept)",
+   "status": "info",
+   "at": 1790889374769
+  },
+  "steps": [
+   {
+    "id": "e2",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Skip fetch-blocked ports in the test port picker",
+    "status": "ok",
+    "at": 1790889390923,
+    "ms": 1973,
+    "body": {
+     "command": "cd /c/Dot; for f in test/server.test.js test/agents.test.js test/context.test.js; do node -e \"\nconst fs=require('fs');const p='$f';let s=fs.readFileSync(p,'utf8');\nconst a='const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port)); usedPorts.add(port); return port; };';\nif(!s.includes(a)) throw new Error(p+' missing');\ns=s.replace(a,'// fetch refuses some ports outright (\\\"bad port\\\": 6000 X11, 6566, 6665-6669 IRC, 6697), like browsers do.\\nconst BLOCKED = new Set([6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697]);\\nconst freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port) || BLOCKED.has(port)); usedPorts.add(port); return port; };');\nfs.writeFileSync(p,s);console.log('ok',p)\"; done; grep -rn \"5190 + Math.floor\" test/*.js | grep -v freshPort | head"
+    }
+   },
+   {
+    "id": "e3",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Ask Node which ports fetch refuses",
+    "status": "ok",
+    "at": 1790889400408,
+    "ms": 2321,
+    "body": {
+     "command": "cd /c/Dot; node --input-type=module -e \"\nconst bad = [];\nawait Promise.all(Array.from({ length: 2001 }, (_, i) => 5190 + i).map(async (port) => {\n  try { await fetch('http://[REDACTED:ip]:' + port + '/', { signal: AbortSignal.timeout(3000) }); } catch (e) { if (/bad port/i.test(String(e.cause?.message ?? e.message))) bad.push(port); }\n}));\nconsole.log('blocked by fetch in 5190-7190:', bad.sort((a, b) => a - b).join(', '));\""
+    }
+   },
+   {
+    "id": "e4",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Add 6679, rerun the server tests 15 times and the suite",
+    "status": "ok",
+    "at": 1790889409774,
+    "ms": 95821,
+    "body": {
+     "command": "cd /c/Dot; sed -i 's/const BLOCKED = new Set(\\[6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697\\]);/const BLOCKED = new Set([6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);/; s/(\\\\\"bad port\\\\\": 6000 X11, 6566, 6665-6669 IRC, 6697)/(\"bad port\": 6000 X11, 6566, 6665-6669 IRC, 6679, 6697)/' test/server.test.js test/agents.test.js test/context.test.js; sed -i 's/6665-6669 IRC, 6697), like browsers do./6665-6669 IRC, 6679, 6697), like browsers do./' test/server.test.js test/agents.test.js test/context.test.js; grep -n \"BLOCKED = \\|bad port\" test/server.test.js; fails=0; for i in $(seq 1 15); do out=$(timeout 120 node --test test/server.test.js 2>&1); if echo \"$out\" | grep -q \"^ℹ fail 0\"; then printf \".\"; else fails=$((fails+1)); printf \"F\"; fi; done; echo; echo \"fails: $fails\"; timeout 200 npm test > \"$TEMP/t.out\" 2>&1; grep -E \"^ℹ (pass|fail)\" \"$TEMP/t.out\"",
+     "output": "22:// fetch refuses some ports outright (\"bad port\": 6000 X11, 6566, 6665-6669 IRC, 6679, 6697), like browsers do.\n23:const BLOCKED = new Set([6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);\n...............\nfails: 0\nℹ pass 144\nℹ fail 0"
+    }
+   },
+   {
+    "id": "e5",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Push the fix and run CI twice",
+    "status": "ok",
+    "at": 1790889523290,
+    "ms": 1847,
+    "body": {
+     "command": "cd /c/Dot; git add test/server.test.js test/agents.test.js test/context.test.js && git commit -q -m \"test: skip the ports fetch refuses (\\\"bad port\\\": 6000, 6566, 6665-6669, 6679, 6697)\n\nThe tests started bridges on random ports from 5190 to 7190. Now and then one\nlanded on a port Node's fetch refuses outright, like browsers do, and the\nfirst request failed with \\\"fetch failed\\\" (cause: bad port).\n\nCo-Authored-By: Claude <[REDACTED:email]>\" && git push -q origin next && sha=$(git rev-parse --short HEAD) && echo \"pushed $sha\" && sleep 20 && ids=$(gh run list --branch next --limit 10 --json databaseId,headSha,workflowName --jq \".[] | select(.headSha | startswith(\\\"$sha\\\")) | select(.workflowName==\\\"CI\\\") | .databaseId\") && echo \"runs:\" $ids && wait_all() { for i in $(seq 1 45); do pending=0; for id in $ids; do st=$(gh run view \"$id\" --json status --jq .status 2>/dev/null); [ \"$st\" != \"completed\" ] && pending=1; done; [ $pending = 0 ] && break; sleep 20; done; for id in $ids; do gh run view \"$id\" --json event,conclusion,jobs --jq '\"\\(.event): \\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'; done; }; wait_all; echo \"=== second pass\"; for id in $ids; do gh run rerun \"$id\" > /dev/null 2>&1; done; sleep 30; wait_all"
+    }
+   },
+   {
+    "id": "e6",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Check what the same-file warning actually does",
+    "status": "ok",
+    "at": 1790889525138,
+    "ms": 1342,
+    "body": {
+     "command": "cd /c/Dot; grep -n \"^export function overlaps\" -B6 bridge/ui/story.js | head -10; s=$(grep -n \"^export function overlaps\" bridge/ui/story.js | cut -d: -f1); sed -n \"$s,$((s+20))p\" bridge/ui/story.js | grep -n \"30\\|session\\|change\" | head -8"
+    }
+   },
+   {
+    "id": "e7",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the two CI passes",
+    "status": "ok",
+    "at": 1790889660287,
+    "ms": 1136,
+    "body": {
+     "command": "cat \"$TEMP/claude/c--Dot/00000000-0000/tasks/brd9rqbqw.output\" | grep -v CRLF"
+    }
+   }
+  ],
+  "end": {
+   "id": "e8",
+   "kind": "done",
+   "title": "Finished",
+   "status": "ok",
+   "at": 1790889665805,
+   "summary": "est helper now skips those ports. dotpals itself always uses port 5175, so users were never affected.\n\n`next` is green, and pull request #6 is ready whenever you say \"ship\". The 5 Dependabot PRs are still waiting for you to merge on GitHub."
+  }
+ }
+}
