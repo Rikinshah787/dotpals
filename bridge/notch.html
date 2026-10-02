@@ -359,7 +359,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from './ui/recap.js';
-    import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, gitTruth, gitLine, simple, stepType, story, testLine, toolkit, turnMarkdown, whyStopped } from './ui/story.js';
+    import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, gitTruth, gitLine, simple, stepType, story, testLine, toolkit, turnMarkdown, recapMarkdown, whyStopped } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
     import { continueMenu } from './ui/handoff-menu.js';
@@ -1433,7 +1433,7 @@
         if (work > 0) stat(work >= 3600000 ? `${Math.floor(work / 3600000)}h ${Math.round((work % 3600000) / 60000)}m` : secs(work).replace(/ \d+s$/, ''), 'of agent work');
         if (!stats.childNodes.length) stats.append('Nothing yet');
         const copy = button('mini-btn', 'Copy today', null, "Copy today's work as Markdown, for a standup or PR");
-        copy.onclick = () => copyText([`## Today with ${harnessName(s.harness)}${s.label ? ` (${s.label})` : ''}`, ...today.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n'), copy);
+        copy.onclick = () => copyText(recapMarkdown(`Today with ${harnessName(s.harness)}${s.label ? ` (${s.label})` : ''}`, today), copy);
         row.append(el('small', '', 'Today'), stats, copy);
         return row;
       } };
@@ -1555,7 +1555,7 @@
       foot.append(el('span', 'grow'));
       if (t.end || t.steps.length) {
         const copy = button('mini-btn', 'Copy', null, 'Copy this as Markdown (for a PR, commit message or standup)');
-        copy.onclick = () => copyText(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t), copy);
+        copy.onclick = () => copyText(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t, { live }), copy);
         foot.append(copy);
       }
       box.append(foot);

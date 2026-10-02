@@ -528,3 +528,19 @@ test('review fixes: sudo or Stop-Process inside a quoted search pattern isn’t 
   assert.deepEqual(flags([run('grep -n "Stop-Process" scripts/a.ps1')]), []);
   assert.ok(flags([run('sudo apt install jq')]).some((f) => f.text === 'Changed system permissions'));
 });
+
+test('review fixes: a request still running isn’t "cut off"; wrapper options with values don’t hide the command', async () => {
+  const { turnMarkdown, recapMarkdown, parts } = await import('../bridge/ui/story.js');
+  const running = { session: 's', at: 2000, steps: [edit('src/a.js')], end: null, harness: 'claude' };
+  assert.doesNotMatch(turnMarkdown(running), /Why it stopped/); // not known: no stop reason
+  assert.doesNotMatch(turnMarkdown(running, { live: true }), /Why it stopped/);
+  assert.match(turnMarkdown(running, { live: false }), /Why it stopped: Cut off/);
+  // In a recap, an end-less request that isn't its session's newest was cut off; the newest may be running.
+  const older = { ...running, at: 1000, prompt: { title: 'first' } };
+  const md = recapMarkdown('Today', [older, { ...running, prompt: { title: 'second' } }]);
+  assert.equal((md.match(/Why it stopped: Cut off/g) ?? []).length, 1);
+  assert.deepEqual(parts('ls | xargs -n 1 rm -rf'), ['ls', 'rm -rf']);
+  assert.deepEqual(parts('sudo -u root rm -rf /var/app'), ['rm -rf /var/app']);
+  assert.deepEqual(parts('timeout -s KILL 30 npm test'), ['npm test']);
+  assert.ok(flags([run('printf x | xargs -n 1 rm -rf')]).some((f) => f.text === 'Deleted files with a recursive delete'));
+});

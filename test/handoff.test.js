@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HANDOFF_AGENTS, handoffPrompt, installedAgents, launchCommand, onPath } from '../bridge/handoff.js';
+import { HANDOFF_AGENTS, findOnPath, handoffPrompt, installedAgents, launchCommand, onPath } from '../bridge/handoff.js';
 import { handoffNote } from '../bridge/ui/handoff.js';
 
 process.env.DOTPALS_CODEX = '0';
@@ -57,14 +57,17 @@ test('handoffNote: the ask, what was done, files, failing tests with evidence, t
 test('launchCommand: Windows Terminal, a console window, macOS Terminal, Linux terminals (built, not run)', () => {
   const prompt = handoffPrompt('C:\\Users\\Me Too\\.dotpals\\handoff\\n1.md');
   assert.equal(prompt, 'Read C:\\Users\\Me Too\\.dotpals\\handoff\\n1.md and continue the work it describes.');
-  const wt = launchCommand({ platform: 'win32', agent: 'codex', dir: 'C:\\work\\my shop\\', prompt, has: (c) => c === 'wt' });
-  assert.deepEqual(wt, { file: 'wt.exe', args: ['-d', '"C:\\work\\my shop"', 'cmd', '/k', 'codex', `"${prompt}"`], options: { windowsVerbatimArguments: true } });
-  const cmd = launchCommand({ platform: 'win32', agent: 'gemini', dir: 'C:\\R&D', prompt, has: () => false });
-  assert.deepEqual(cmd, { file: 'cmd.exe', args: ['/d', '/c', 'start', '""', '/D', '"C:\\R&D"', 'cmd', '/k', 'gemini', '-i', `"${prompt}"`], options: { windowsVerbatimArguments: true } });
+  // The agent's full path from PATH: cmd would look in the project folder first.
+  const find = (c) => `C:\\Program Files\\nodejs\\${c}.cmd`;
+  const wt = launchCommand({ platform: 'win32', agent: 'codex', dir: 'C:\\work\\my shop\\', prompt, has: (c) => c === 'wt', find });
+  assert.deepEqual(wt, { file: 'wt.exe', args: ['-d', '"C:\\work\\my shop"', 'cmd', '/s', '/k', `""C:\\Program Files\\nodejs\\codex.cmd" "${prompt}""`], options: { windowsVerbatimArguments: true } });
+  const cmd = launchCommand({ platform: 'win32', agent: 'gemini', dir: 'C:\\R&D', prompt, has: () => false, find });
+  assert.deepEqual(cmd, { file: 'cmd.exe', args: ['/d', '/c', 'start', '""', '/D', '"C:\\R&D"', 'cmd', '/s', '/k', `""C:\\Program Files\\nodejs\\gemini.cmd" -i "${prompt}""`], options: { windowsVerbatimArguments: true } });
+  assert.ok(launchCommand({ platform: 'win32', agent: 'codex', dir: 'C:\\w', prompt, has: () => true, find: () => null }).error); // not installed
   // Windows Terminal splits at ";": a console window instead. cmd can't keep % or " literal: refused.
-  assert.equal(launchCommand({ platform: 'win32', agent: 'claude', dir: 'C:\\a;b', prompt, has: () => true }).file, 'cmd.exe');
-  assert.ok(launchCommand({ platform: 'win32', agent: 'claude', dir: 'C:\\100%', prompt, has: () => true }).error);
-  assert.ok(launchCommand({ platform: 'win32', agent: 'claude', dir: 'C:\\x', prompt: 'say "hi"', has: () => true }).error);
+  assert.equal(launchCommand({ platform: 'win32', agent: 'claude', dir: 'C:\\a;b', prompt, has: () => true, find }).file, 'cmd.exe');
+  assert.ok(launchCommand({ platform: 'win32', agent: 'claude', dir: 'C:\\100%', prompt, has: () => true, find }).error);
+  assert.ok(launchCommand({ platform: 'win32', agent: 'claude', dir: 'C:\\x', prompt: 'say "hi"', has: () => true, find }).error);
 
   const mac = launchCommand({ platform: 'darwin', agent: 'claude', dir: "/Users/me/Bob's app", prompt: 'Read /Users/me/.dotpals/handoff/n1.md and continue the work it describes.' });
   assert.equal(mac.file, 'osascript');
@@ -89,6 +92,9 @@ test('onPath and installedAgents: what’s installed', () => {
   const exists = (f) => files.has(f.toLowerCase()); // Windows doesn't mind the case
   assert.equal(onPath('codex', { env: { PATH: 'C:\\x;C:\\bin', PATHEXT: '.EXE;.CMD' }, platform: 'win32', exists }), true);
   assert.equal(onPath('claude', { env: { PATH: 'C:\\x;C:\\bin', PATHEXT: '.EXE;.CMD' }, platform: 'win32', exists }), false);
+  // Only absolute folders: a "." or relative PATH entry would find a project's own codex.cmd.
+  assert.equal(findOnPath('codex', { env: { PATH: '.;bin;C:\\bin', PATHEXT: '.CMD' }, platform: 'win32', exists: () => true }), join('C:\\bin', 'codex.CMD'));
+  assert.equal(findOnPath('gemini', { env: { PATH: '.:/usr/bin' }, platform: 'linux', exists: () => true }), join('/usr/bin', 'gemini'));
   assert.deepEqual(installedAgents({ has: (c) => c !== 'claude' }).map((a) => a.id), ['codex', 'gemini']);
   assert.deepEqual(Object.keys(HANDOFF_AGENTS), ['codex', 'claude', 'gemini']);
 });

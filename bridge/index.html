@@ -426,7 +426,7 @@
 
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
-    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown, readiness, readinessLine, gitTruth, gitLine, whyStopped } from '../bridge/ui/story.js';
+    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown, recapMarkdown, readiness, readinessLine, gitTruth, gitLine, whyStopped } from '../bridge/ui/story.js';
     import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from '../bridge/ui/recap.js';
     import { continueMenu } from '../bridge/ui/handoff-menu.js';
 
@@ -1369,7 +1369,7 @@
       copy.title = "Copy today's work as Markdown, for a standup or PR";
       copy.onclick = () => {
         const who = [...new Set(today.map((t) => harnessName(t.harness)))].join(' & ');
-        copyText([`## Today with ${who}`, ...today.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n'), copy);
+        copyText(recapMarkdown(`Today with ${who}`, today), copy);
       };
       li.append(el('small', '', 'Today'), stats, copy);
       return li;
@@ -1492,7 +1492,7 @@
         copy.type = 'button';
         copy.title = 'Copy this as Markdown (for a PR, commit message or standup)';
         // Copies what you're looking at: the simple sentence and warnings, or the full recap.
-        copy.onclick = () => copyText(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t), copy);
+        copy.onclick = () => copyText(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t, { live }), copy);
         footer.append(copy);
       }
       if (t.steps.length) {

@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { home } from './config.js';
 
 /** The agents a session can be handed to: the command, and how it takes a first prompt. */
@@ -26,12 +26,23 @@ export const HANDOFF_AGENTS = {
 /** The prompt the new agent starts with: it only names the note. */
 export const handoffPrompt = (file) => `Read ${file} and continue the work it describes.`;
 
-/** Whether `cmd` is a program on PATH (with Windows' .exe/.cmd/… endings). */
-export function onPath(cmd, { env = process.env, platform = process.platform, exists = existsSync } = {}) {
-  const dirs = String(env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : delimiter).filter(Boolean);
-  const exts = platform === 'win32' ? ['', ...String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
-  return dirs.some((d) => exts.some((x) => { try { return exists(join(d.replace(/^"|"$/g, ''), cmd + x)); } catch { return false; } }));
+/**
+ * The full path of program `cmd` on PATH (with Windows' .exe/.cmd/… endings), or null.
+ * Only absolute PATH folders count: never the current folder, so a project can't put its
+ * own `codex.cmd` in the way.
+ */
+export function findOnPath(cmd, { env = process.env, platform = process.platform, exists = existsSync } = {}) {
+  const win = platform === 'win32';
+  const dirs = String(env.PATH ?? env.Path ?? '').split(win ? ';' : ':').map((d) => d.replace(/^"|"$/g, ''))
+    .filter((d) => (win ? /^([a-z]:[\\/]|\\\\)/i.test(d) : d.startsWith('/')));
+  // On Windows a file without an ending (npm's script for Git Bash) can't be run by cmd.
+  const exts = win ? String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
+  for (const d of dirs) for (const x of exts) { const f = join(d, cmd + x); try { if (exists(f)) return f; } catch {} }
+  return null;
 }
+
+/** Whether `cmd` is a program on PATH. */
+export const onPath = (cmd, options) => findOnPath(cmd, options) !== null;
 
 let cache = null;
 /** The hand-off agents installed here: [{ id, name }]. Looked up at most once a minute. */
@@ -59,8 +70,9 @@ const as = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
  *   { file, args, options } to spawn (no shell), or { error } when it can't be done safely.
  * `has(program)` says what's installed (Windows Terminal, gnome-terminal…).
  *
- *   Windows  Windows Terminal (`wt -d <dir> cmd /k <agent> "<prompt>"`), else a console
- *            window (`cmd /c start "" /D "<dir>" cmd /k <agent> "<prompt>"`). The agent runs
+ *   Windows  Windows Terminal (`wt -d <dir> cmd /s /k ""<agent path>" "<prompt>""`), else a console
+ *            window (`cmd /c start "" /D "<dir>" cmd /s /k …`), with the agent's full path from PATH
+ *            (cmd looks in the current folder first, so a bare name could run a project's file). It runs
  *            under cmd so npm's .cmd shims start; the command line is quoted here, word by
  *            word (windowsVerbatimArguments), and refuses `"`, `%` and line breaks, which
  *            cmd can't keep literal inside quotes.
@@ -68,7 +80,7 @@ const as = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
  *   Linux    gnome-terminal, konsole or x-terminal-emulator, with the agent and prompt as
  *            separate arguments; none found: an error (use Copy instead).
  */
-export function launchCommand({ platform = process.platform, agent, dir, prompt, has = onPath }) {
+export function launchCommand({ platform = process.platform, agent, dir, prompt, has = onPath, find = findOnPath }) {
   const a = Object.hasOwn(HANDOFF_AGENTS, agent) ? HANDOFF_AGENTS[agent] : null;
   if (!a) return { error: 'That agent can’t be started from dotpals.' };
   if (!dir) return { error: 'dotpals doesn’t know this session’s project folder.' };
@@ -76,8 +88,13 @@ export function launchCommand({ platform = process.platform, agent, dir, prompt,
   if (platform === 'win32') {
     const folder = tidyDir(dir);
     if ([folder, prompt].some((s) => /["%\r\n]/.test(s))) return { error: 'The folder or note path has characters a Windows terminal can’t take safely.' };
+    // The agent's own file, found on PATH: cmd would look in the project folder first.
+    const exe = find(a.command, { platform });
+    if (!exe) return { error: `${a.name} isn’t on PATH.` };
+    if (/["%\r\n]/.test(exe)) return { error: 'The agent’s path has characters a Windows terminal can’t take safely.' };
     const q = (s) => `"${s}"`;
-    const run = ['cmd', '/k', a.command, ...a.args(prompt).map((w) => (w.startsWith('-') && !/\s/.test(w) ? w : q(w)))];
+    // cmd /s /k ""C:\path\codex.cmd" "prompt"": /s takes off the outer quotes and runs the rest as it is.
+    const run = ['cmd', '/s', '/k', `"${[q(exe), ...a.args(prompt).map((w) => (w.startsWith('-') && !/\s/.test(w) ? w : q(w)))].join(' ')}"`];
     // Windows Terminal splits its command line at ";", even inside quotes.
     if (has('wt') && ![folder, prompt].some((s) => s.includes(';'))) {
       return { file: 'wt.exe', args: ['-d', q(folder), ...run], options: { windowsVerbatimArguments: true } };

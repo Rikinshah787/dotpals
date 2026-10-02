@@ -56,9 +56,12 @@ export function parts(cmd) {
       s = s
         .replace(/^&\s*/, '') // PowerShell's call operator
         .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
-        .replace(/^(?:sudo|doas)(?:\s+-\S+)*\s+/i, '')
-        .replace(/^(?:xargs|nohup|exec|command|env)(?:\s+-\S+)*\s+/i, '')
-        .replace(/^(?:timeout(?:\s+-\S+)*\s+\d+[smhd]?|time|nice|npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run)\s+/i, '')
+        // Wrappers, with their options, including the ones that take a value (`xargs -n 1 rm -rf`, `sudo -u root …`).
+        .replace(/^(?:sudo|doas)(?:\s+(?:-[ugCphUrtD]\s+\S+|-\S+))*\s+/i, '')
+        .replace(/^xargs(?:\s+(?:-[nIPLdsaE]\s+\S+|-\S+))*\s+/i, '')
+        .replace(/^env(?:\s+(?:-[uCS]\s+\S+|-\S+))*\s+/i, '')
+        .replace(/^(?:nohup|exec|command)(?:\s+-\S+)*\s+/i, '')
+        .replace(/^(?:timeout(?:\s+(?:-[sk]\s+\S+|-\S+))*\s+\d+[smhd]?|time|nice(?:\s+-n\s+\S+|\s+-\S+)*|npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run)\s+/i, '')
         .replace(/^["']?[^\s"']*[\\/](?=[\w.-]+["']?(\s|$))/, ''); // ./node_modules/.bin/jest
     }
     return s;
@@ -1047,7 +1050,7 @@ const fileList = (paths) => paths.map((p) => code(baseName(p))).join(', ');
  * Quick look-ups (ls, grep, git status) aren't listed: a grep that finds nothing isn't
  * a failure.
  */
-export function turnMarkdown(t) {
+export function turnMarkdown(t, { live } = {}) {
   const f = facts(t.steps);
   const lines = [];
   if (t.prompt) lines.push(`### ${t.prompt.title.split('\n')[0]}`, '');
@@ -1102,7 +1105,9 @@ export function turnMarkdown(t) {
   // The reviewer's two questions: ready to merge? and why did it stop?
   const r = readiness(t);
   if (r) lines.push(r.ready ? '**Ready to merge?** Yes: tests ran after the last change and passed, nothing risky.' : `**Ready to merge?** Not yet: ${r.problems.join('; ')}.`, '');
-  const why = whyStopped(t, { live: false });
+  // Why it stopped: only when that's known. A request with no end may still be running, unless
+  // the caller says it isn't (live: false); a running one has no stop reason yet.
+  const why = t.end || live === false ? whyStopped(t, { live: !!live }) : null;
   if (why) lines.push(`_Why it stopped: ${why.text}._`, '');
   const outsidePaths = new Set(t.steps.filter(outside).flatMap((e) => e.files.map((x) => String(x.path).toLowerCase())));
   const elsewhere = (x) => outsidePaths.has(String(x.path).toLowerCase());
@@ -1134,8 +1139,14 @@ export function turnMarkdown(t) {
 }
 
 /** Several requests as one Markdown document ("Copy today", a session's export). */
-export const recapMarkdown = (title, turns) =>
-  [`## ${title}`, ...turns.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n');
+export function recapMarkdown(title, turns) {
+  // A request with no end that isn't its session's newest was cut off (a new message came in).
+  // The newest may still be running: no stop reason for it unless it ended.
+  const newest = new Map();
+  for (const t of turns) if (!newest.has(t.session) || t.at > newest.get(t.session).at) newest.set(t.session, t);
+  const shown = turns.filter((t) => t.prompt || t.steps.length);
+  return [`## ${title}`, ...shown.map((t) => turnMarkdown(t, newest.get(t.session) === t ? {} : { live: false }))].join('\n\n');
+}
 
 // -- reviewing a request: why it stopped, and is it ready to merge? ------------------------
 
