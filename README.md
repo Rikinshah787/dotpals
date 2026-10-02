@@ -185,6 +185,21 @@ dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dash
 
 Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. There are two opt-in exceptions. If you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. The other is Sentry tracing for your own copy: `dotpals sentry <dsn>` sends the bridge's errors and request timings (routes like `POST /hook`, never what your agents did) to your own Sentry project. Off unless you give it a DSN. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
 
+## How accurate is it?
+
+We check. `test/accuracy/cases` holds 21 real requests from building dotpals itself (cleaned of paths, keys and prompts), and every claim dotpals makes about them was checked by hand against what really happened: 145 claims.
+
+| Claim | Claims | Right | Wrong | Unsure |
+|---|---:|---:|---:|---:|
+| Test results (passed, failed) | 79 | 74 | 1 | 4 |
+| Risky steps | 13 | 13 | 0 | 0 |
+| Retries ("fixed on try 2") | 11 | 10 | 1 | 0 |
+| Ready to merge? | 21 | 20 | 1 | 0 |
+| Why it stopped | 21 | 20 | 1 | 0 |
+| **All** | **145** | **137 (94.5%)** | **4** | **4** |
+
+"Unsure" is a test run dotpals called unclear though a person could tell; that's what the optional [Jev or Laya check](#privacy) is for. The 4 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
+
 ## How it works
 
 ```

@@ -1,0 +1,426 @@
+{
+ "name": "2026-10-01-claude-964b-72835",
+ "source": "real",
+ "labeled": true,
+ "note": "",
+ "truth": {
+  "tests": {
+   "e7": "passed",
+   "e16": "passed",
+   "e24": "passed",
+   "e31": "passed"
+  },
+  "risky": [],
+  "retries": {},
+  "ready": true,
+  "stopped": "done"
+ },
+ "turn": {
+  "harness": "claude",
+  "prompt": {
+   "id": "e1",
+   "kind": "prompt",
+   "title": "(not kept)",
+   "status": "info",
+   "at": 1790884972835
+  },
+  "steps": [
+   {
+    "id": "e2",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Show the failing test's details",
+    "status": "ok",
+    "at": 1790884978395,
+    "ms": 3070,
+    "body": {
+     "command": "cd /c/Dot; gh run view 36917952639 --log-failed 2>/dev/null | sed 's/^[^\\t]*\\t[^\\t]*\\t[^ ]* //' | grep -A30 \"^not ok\" | head -40"
+    }
+   },
+   {
+    "id": "e3",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Find the error behind the failed test file",
+    "status": "ok",
+    "at": 1790884990029,
+    "ms": 2447,
+    "body": {
+     "command": "cd /c/Dot; gh run view 36917952639 --log-failed 2>/dev/null | sed 's/^[^\\t]*\\t[^\\t]*\\t[^ ]* //' | grep -n -i -B2 -A8 \"error\\b\\|Error:\\|unhandled\\|EADDRINUSE\\|ECONNRESET\\|Warning\" | grep -v \"error: 'test failed'\" | head -50"
+    }
+   },
+   {
+    "id": "e4",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Show the latest runs Jev checked and why",
+    "status": "ok",
+    "at": 1790885005412,
+    "ms": 1242,
+    "body": {
+     "command": "cd /c/Dot; curl -s -H \"x-dotpals: 1\" http://[REDACTED:ip]:5175/api/activity > \"$TEMP/act.json\"; node --input-type=module -e \"\nimport { readFileSync } from 'node:fs';\nconst { testVerdict } = await import('file:///C:/Dot/bridge/ui/story.js');\nconst es = JSON.parse(readFileSync(process.env.TEMP + '/act.json', 'utf8')).entries.filter((e) => e.check).sort((a, b) => a.at - b.at);\nfor (const e of es.slice(-3)) {\n  const v = testVerdict({ ...e, check: undefined });\n  console.log('---', new Date(e.at).toLocaleTimeString(), '| exit:', e.status, '| rules:', v.state, '/', v.reason, '| Jev:', JSON.stringify(e.check));\n  console.log('command:', String(e.body?.command ?? '').slice(0, 300));\n  console.log('output end:', JSON.stringify(String(e.body?.output ?? '').slice(-500)));\n}\""
+    }
+   },
+   {
+    "id": "e5",
+    "kind": "read",
+    "tool": "Read",
+    "title": "test/server.test.js",
+    "status": "ok",
+    "at": 1790885017959,
+    "ms": 135,
+    "files": [
+     {
+      "path": "C:\\Dot\\test\\server.test.js",
+      "change": "read"
+     }
+    ]
+   },
+   {
+    "id": "e6",
+    "kind": "edit",
+    "tool": "Edit",
+    "title": "test/server.test.js",
+    "status": "ok",
+    "at": 1790885028964,
+    "ms": 3309,
+    "files": [
+     {
+      "path": "C:\\Dot\\test\\server.test.js",
+      "change": "edit"
+     }
+    ]
+   },
+   {
+    "id": "e7",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Run the fixed test three times, then the full suite",
+    "status": "ok",
+    "at": 1790885032276,
+    "ms": 13623,
+    "body": {
+     "command": "cd /c/Dot; for i in 1 2 3; do timeout 120 node --test --test-name-pattern=\"goes quiet\" test/server.test.js 2>&1 | grep -E \"^ℹ (pass|fail)|unhandled|ECONNRESET\" | tr '\\n' ' '; echo; done; timeout 170 npm test > \"$TEMP/t.out\" 2>&1; grep -E \"^ℹ (pass|fail)\" \"$TEMP/t.out\"",
+     "output": "ℹ pass 1 ℹ fail 0 \nℹ pass 1 ℹ fail 0 \nℹ pass 1 ℹ fail 0 \nℹ pass 144\nℹ fail 0"
+    }
+   },
+   {
+    "id": "e8",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Push the fix and wait for every CI run",
+    "status": "ok",
+    "at": 1790885057453,
+    "ms": 611017,
+    "body": {
+     "command": "cd /c/Dot; git add test/server.test.js && git commit -q -m \"test: wait for in-flight requests before closing the bridge (flaky ECONNRESET on Linux CI)\n\nCo-Authored-By: Claude <[REDACTED:email]>\" && git push -q origin next && sha=$(git rev-parse --short HEAD) && echo \"pushed $sha\" && sleep 15 && ids=$(gh run list --branch next --limit 10 --json databaseId,headSha,workflowName --jq \".[] | select(.headSha | startswith(\\\"$sha\\\")) | select(.workflowName==\\\"CI\\\") | .databaseId\"); echo \"runs: $ids\"; for id in $ids; do gh run watch \"$id\" --exit-status --interval 15 > /dev/null 2>&1; gh run view \"$id\" --json event,conclusion,jobs --jq '\"\\(.event): \\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'; done"
+    }
+   },
+   {
+    "id": "e9",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Check the CI runs' progress",
+    "status": "ok",
+    "at": 1790887722697,
+    "ms": 3575,
+    "body": {
+     "command": "cat \"$TEMP/claude/c--Dot/00000000-0000/tasks/bq4ffcyu1.output\"; cd /c/Dot; gh run list --branch next --limit 4 --json databaseId,headSha,event,status,conclusion --jq '.[] | \"\\(.databaseId) \\(.headSha[0:7]) \\(.event) \\(.status)/\\(.conclusion)\"'"
+    }
+   },
+   {
+    "id": "e10",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Wait for the pull-request CI run",
+    "status": "ok",
+    "at": 1790887734426,
+    "ms": 601496,
+    "body": {
+     "command": "cd /c/Dot; for i in $(seq 1 30); do s=$(gh run view 36918916296 --json status,conclusion --jq '\"\\(.status) \\(.conclusion)\"' 2>/dev/null); case \"$s\" in completed*) break;; esac; sleep 20; done; for id in 36918907841 36918916296; do gh run view \"$id\" --json event,conclusion,jobs --jq '\"\\(.event): \\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'; done"
+    }
+   },
+   {
+    "id": "e11",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Check the pull-request run's status now",
+    "status": "ok",
+    "at": 1790888339414,
+    "ms": 2335,
+    "body": {
+     "command": "cd /c/Dot; gh run view 36918916296 --json status,conclusion,jobs --jq '\"\\(.status)/\\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.status)/\\(.conclusion)\"] | join(\", \"))' 2>&1"
+    }
+   },
+   {
+    "id": "e12",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the final CI results",
+    "status": "ok",
+    "at": 1790888378828,
+    "ms": 2228,
+    "body": {
+     "command": "cat \"$TEMP/claude/c--Dot/00000000-0000/tasks/bh3f9a0h7.output\"; cd /c/Dot; gh run view 36918916296 --json conclusion,jobs --jq '\"\\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'"
+    }
+   },
+   {
+    "id": "e13",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Inspect the slow Windows job",
+    "status": "ok",
+    "at": 1790888386428,
+    "ms": 2252,
+    "body": {
+     "command": "cd /c/Dot; gh run view 36918916296 --json jobs --jq '.jobs[] | select(.name==\"Node 22 on windows-latest\") | \"\\(.status) started=\\(.startedAt) steps: \" + ([.steps[] | \"\\(.name)=\\(.status)/\\(.conclusion)\"] | join(\", \"))'"
+    }
+   },
+   {
+    "id": "e14",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Find the test script and CI job settings",
+    "status": "ok",
+    "at": 1790888400085,
+    "ms": 1055,
+    "body": {
+     "command": "cd /c/Dot; grep -n '\"test\":' package.json; grep -n \"runs-on\\|timeout-minutes\\|run: npm test\\|name: Test\" .github/workflows/ci.yml"
+    }
+   },
+   {
+    "id": "e15",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Add a per-test timeout and read the CI workflow",
+    "status": "ok",
+    "at": 1790888401075,
+    "ms": 1799,
+    "body": {
+     "command": "cd /c/Dot; sed -i 's/\"test\": \"node --test\",/\"test\": \"node --test --test-timeout=60000\",/' package.json; grep -n '\"test\":' package.json; sed -n 1,40p .github/workflows/ci.yml"
+    }
+   },
+   {
+    "id": "e16",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Add a job time limit and rerun tests locally",
+    "status": "ok",
+    "at": 1790888409968,
+    "ms": 8301,
+    "body": {
+     "command": "cd /c/Dot; node -e \"\nconst fs=require('fs');const p='.github/workflows/ci.yml';let s=fs.readFileSync(p,'utf8');\ns=s.replace('    runs-on: \\${{ matrix.os }}\\n','    runs-on: \\${{ matrix.os }}\\n    # A hung test fails the job in minutes, not hours (each test also has a 60 s limit: npm test).\\n    timeout-minutes: 15\\n');\ns=s.replace('      # No \\`npm ci\\`: dotpals has no runtime dependencies, and the tests don\\'t\\n      # need Electron (a devDependency that would download ~100 MB).','      # No \\`npm ci\\`: dotpals has no required runtime dependencies (the TypeSafe SDK is\\n      # optional, and the tests fake it), and they don\\'t need Electron (a devDependency\\n      # that would download ~100 MB).');\nfs.writeFileSync(p,s);console.log('ok')\"; sed -n 11,30p .github/workflows/ci.yml; timeout 170 npm test > \"$TEMP/t.out\" 2>&1; grep -E \"^ℹ (pass|fail)\" \"$TEMP/t.out\"",
+     "output": "ok\n  test:\n    name: Node ${{ matrix.node }} on ${{ matrix.os }}\n    runs-on: ${{ matrix.os }}\n    # A hung test fails the job in minutes, not hours (each test also has a 60 s limit: npm test).\n    timeout-minutes: 15\n    strategy:\n      fail-fast: false\n      matrix:\n        os: [ubuntu-latest, windows-latest, macos-latest]\n        node: [20, 22]\n    steps:\n      - uses: actions/checkout@<hex> # v4.4.0\n\n      - uses: actions/setup-node@<hex> # v4.4.0\n        with:\n          node-version: ${{ matrix.node }}\n\n      # No `npm ci`: dotpals has no required runtime dependencies (the TypeSafe SDK is\n      # optional, and the tests fake it), and they don't need Electron (a devDependency\n      # that would download ~100 MB).\nℹ pass 144\nℹ fail 0"
+    }
+   },
+   {
+    "id": "e17",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Cancel the stuck run and push the time limits",
+    "status": "ok",
+    "at": 1790888423363,
+    "ms": 4446,
+    "body": {
+     "command": "cd /c/Dot; gh run cancel 36918916296 2>&1 | tail -1; git add package.json .github/workflows/ci.yml && git commit -q -m \"ci: a 60 s limit per test and 15 min per job, so a hung test fails fast and names itself\n\nCo-Authored-By: Claude <[REDACTED:email]>\" && git push -q origin next && echo \"pushed $(git rev-parse --short HEAD)\""
+    }
+   },
+   {
+    "id": "e18",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Wait for both CI runs of the new commit",
+    "status": "ok",
+    "at": 1790888433394,
+    "ms": 1382,
+    "body": {
+     "command": "cd /c/Dot; sleep 20; ids=$(gh run list --branch next --limit 10 --json databaseId,headSha,workflowName --jq '.[] | select(.headSha | startswith(\"53c8a28\")) | select(.workflowName==\"CI\") | .databaseId'); echo \"runs:\" $ids; for i in $(seq 1 40); do pending=0; for id in $ids; do st=$(gh run view \"$id\" --json status --jq .status 2>/dev/null); [ \"$st\" != \"completed\" ] && pending=1; done; [ $pending = 0 ] && break; sleep 20; done; for id in $ids; do gh run view \"$id\" --json event,conclusion,jobs --jq '\"\\(.event): \\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'; done"
+    }
+   },
+   {
+    "id": "e19",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the CI results",
+    "status": "ok",
+    "at": 1790888529574,
+    "ms": 1041,
+    "body": {
+     "command": "cat \"$TEMP/claude/c--Dot/00000000-0000/tasks/bgsm6ris6.output\""
+    }
+   },
+   {
+    "id": "e20",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the failures from both runs",
+    "status": "ok",
+    "at": 1790888537011,
+    "ms": 6278,
+    "body": {
+     "command": "cd /c/Dot; for id in 36925703322 36925700162; do echo \"=== run $id\"; gh run view $id --log-failed 2>/dev/null | sed 's/^[^\\t]*\\t[^\\t]*\\t[^ ]* //' | grep -E \"^not ok|^# Error|cancelledByParent|timed out|test timed out|Promise resolution|failureType|error: '\" | grep -v \"error: 'test failed'\" | head -12; done"
+    }
+   },
+   {
+    "id": "e21",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Find the server creation and existing keep-alive tweaks",
+    "status": "ok",
+    "at": 1790888558223,
+    "ms": 1043,
+    "body": {
+     "command": "cd /c/Dot; grep -n \"keepAliveTimeout\\|headersTimeout\" bridge/server.js test/*.js | head; grep -n \"  const server = http.createServer\\|const server = createServer\" bridge/server.js | head -2"
+    }
+   },
+   {
+    "id": "e22",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the lines around the server's close hook",
+    "status": "ok",
+    "at": 1790888563288,
+    "ms": 1139,
+    "body": {
+     "command": "cd /c/Dot; s=$(grep -n \"  server.on('close', () => { stopWatchers();\" bridge/server.js | cut -d: -f1); sed -n \"$((s-3)),$((s+1))p\" bridge/server.js"
+    }
+   },
+   {
+    "id": "e23",
+    "kind": "edit",
+    "tool": "Edit",
+    "title": "bridge/server.js",
+    "status": "ok",
+    "at": 1790888569639,
+    "ms": 3750,
+    "files": [
+     {
+      "path": "C:\\Dot\\bridge\\server.js",
+      "change": "edit"
+     }
+    ]
+   },
+   {
+    "id": "e24",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Raise the per-test limit and run the tests",
+    "status": "ok",
+    "at": 1790888573389,
+    "ms": 9106,
+    "body": {
+     "command": "cd /c/Dot; sed -i 's/\"test\": \"node --test --test-timeout=60000\",/\"test\": \"node --test --test-timeout=300000\",/' package.json; sed -i 's/(each test also has a 60 s limit: npm test)/(each test also has a 5 min limit: npm test)/' .github/workflows/ci.yml; grep -n '\"test\":' package.json; grep -n \"5 min limit\" .github/workflows/ci.yml; node --check bridge/server.js && timeout 200 npm test > \"$TEMP/t.out\" 2>&1; grep -E \"^ℹ (pass|fail)|^ℹ duration\" \"$TEMP/t.out\"",
+     "output": "73:    \"test\": \"node --test --test-timeout=300000\",\n14:    # A hung test fails the job in minutes, not hours (each test also has a 5 min limit: npm test).\nℹ pass 144\nℹ fail 0\nℹ duration_ms 5369.0532"
+    }
+   },
+   {
+    "id": "e25",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Push the fixes and wait for every CI job",
+    "status": "ok",
+    "at": 1790888589654,
+    "ms": 696,
+    "body": {
+     "command": "cd /c/Dot; git add bridge/server.js package.json .github/workflows/ci.yml && git commit -q -m \"fix: keep idle connections open longer than fetch does (\\\"fetch failed\\\" on Node 20); per-test limit 5 min\n\nNode's fetch keeps an idle connection for 4 s; the bridge closed its end at 5 s,\nso on Node 20 a reused connection could be closing under a request. The\nbridge now keeps idle connections for 65 s. The 60 s per-test limit also\napplied to whole test files on Node 20, so it's 5 minutes.\n\nCo-Authored-By: Claude <[REDACTED:email]>\" && git push -q origin next && sha=$(git rev-parse --short HEAD) && echo \"pushed $sha\" && sleep 20 && ids=$(gh run list --branch next --limit 10 --json databaseId,headSha,workflowName --jq \".[] | select(.headSha | startswith(\\\"$sha\\\")) | select(.workflowName==\\\"CI\\\") | .databaseId\") && echo \"runs:\" $ids && for i in $(seq 1 40); do pending=0; for id in $ids; do st=$(gh run view \"$id\" --json status --jq .status 2>/dev/null); [ \"$st\" != \"completed\" ] && pending=1; done; [ $pending = 0 ] && break; sleep 20; done; for id in $ids; do gh run view \"$id\" --json event,conclusion,jobs --jq '\"\\(.event): \\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'; done"
+    }
+   },
+   {
+    "id": "e26",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the CI results",
+    "status": "ok",
+    "at": 1790888664903,
+    "ms": 1061,
+    "body": {
+     "command": "cat \"$TEMP/claude/c--Dot/00000000-0000/tasks/bea1uwcnd.output\" | grep -v \"CRLF\""
+    }
+   },
+   {
+    "id": "e27",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Read the remaining failure",
+    "status": "ok",
+    "at": 1790888670466,
+    "ms": 3861,
+    "body": {
+     "command": "cd /c/Dot; gh run view 36926024218 --log-failed 2>/dev/null | sed 's/^[^\\t]*\\t[^\\t]*\\t[^ ]* //' | grep -E -A16 \"^not ok\" | grep -E \"^not ok|error:|failureType|location|cause|code:|Error|expected|actual\" | head -24"
+    }
+   },
+   {
+    "id": "e28",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Show the full error and cause",
+    "status": "ok",
+    "at": 1790888680294,
+    "ms": 2058,
+    "body": {
+     "command": "cd /c/Dot; gh run view 36926024218 --log-failed 2>/dev/null | sed 's/^[^\\t]*\\t[^\\t]*\\t[^ ]* //' | grep -A45 \"^not ok 109\" | sed -n 1,45p | grep -v \"^\\s*at node:internal\\|processTicksAndRejections\" | head -40"
+    }
+   },
+   {
+    "id": "e29",
+    "kind": "read",
+    "tool": "Read",
+    "title": "test/server.test.js",
+    "status": "ok",
+    "at": 1790888685524,
+    "ms": 56,
+    "files": [
+     {
+      "path": "C:\\Dot\\test\\server.test.js",
+      "change": "read"
+     }
+    ]
+   },
+   {
+    "id": "e30",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Count random-port picks in the tests",
+    "status": "ok",
+    "at": 1790888696175,
+    "ms": 952,
+    "body": {
+     "command": "cd /c/Dot; grep -n \"5190 + Math.floor(Math.random() \\* 2000)\" test/*.js | wc -l; grep -ln \"5190 + Math.floor(Math.random() \\* 2000)\" test/*.js"
+    }
+   },
+   {
+    "id": "e31",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Give each test file unique ports and run the tests",
+    "status": "ok",
+    "at": 1790888706219,
+    "ms": 7956,
+    "body": {
+     "command": "cd /c/Dot; for f in test/server.test.js test/agents.test.js test/context.test.js; do node -e \"\nconst fs=require('fs');const p='$f';let s=fs.readFileSync(p,'utf8');\nconst pick='5190 + Math.floor(Math.random() * 2000)';\nconst n=s.split(pick).length-1;\ns=s.split(pick).join('freshPort()');\n// The helper, after the last import line.\nconst lines=s.split('\\n');let last=-1;lines.forEach((l,i)=>{if(/^import |^const .*= await import\\(/.test(l)) last=i;});\nlines.splice(last+1,0,'','/** A port no bridge in this file has used yet: fetch keeps connections alive, and reusing an old port could hand a test a dead one (\\\"fetch failed\\\"). */','const usedPorts = new Set();','const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port)); usedPorts.add(port); return port; };');\nfs.writeFileSync(p,lines.join('\\n'));console.log(p, n, 'picks replaced');\"; done; grep -n \"const freshPort\" test/*.js | cut -c1-80; timeout 200 npm test > \"$TEMP/t.out\" 2>&1; grep -E \"^ℹ (pass|fail)\" \"$TEMP/t.out\"",
+     "output": "test/server.test.js 4 picks replaced\ntest/agents.test.js 1 picks replaced\ntest/context.test.js 1 picks replaced\ntest/agents.test.js:24:const freshPort = () => { let port; do port = 5190 + Math\ntest/context.test.js:22:const freshPort = () => { let port; do port = 5190 + Mat\ntest/server.test.js:22:const freshPort = () => { let port; do port = 5190 + Math\nℹ pass 144\nℹ fail 0"
+    }
+   },
+   {
+    "id": "e32",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Push, wait for CI, rerun it and wait again",
+    "status": "ok",
+    "at": 1790888723074,
+    "ms": 507,
+    "body": {
+     "command": "cd /c/Dot; git add test/server.test.js test/agents.test.js test/context.test.js && git commit -q -m \"test: never reuse a port within a test file (fetch kept a dead connection to it: \\\"fetch failed\\\")\n\nCo-Authored-By: Claude <[REDACTED:email]>\" && git push -q origin next && sha=$(git rev-parse --short HEAD) && echo \"pushed $sha\" && sleep 20 && ids=$(gh run list --branch next --limit 10 --json databaseId,headSha,workflowName --jq \".[] | select(.headSha | startswith(\\\"$sha\\\")) | select(.workflowName==\\\"CI\\\") | .databaseId\") && echo \"runs:\" $ids && wait_all() { for i in $(seq 1 45); do pending=0; for id in $ids; do st=$(gh run view \"$id\" --json status --jq .status 2>/dev/null); [ \"$st\" != \"completed\" ] && pending=1; done; [ $pending = 0 ] && break; sleep 20; done; for id in $ids; do gh run view \"$id\" --json event,conclusion,jobs --jq '\"\\(.event): \\(.conclusion) — \" + ([.jobs[] | \"\\(.name | sub(\"Node \";\"\") | sub(\" on \";\"/\")): \\(.conclusion)\"] | join(\", \"))'; done; }; wait_all; echo \"=== rerunning both for a second pass\"; for id in $ids; do gh run rerun \"$id\" > /dev/null 2>&1; done; sleep 30; wait_all"
+    }
+   }
+  ],
+  "end": {
+   "id": "e33",
+   "kind": "done",
+   "title": "Finished",
+   "status": "ok",
+   "at": 1790888728548,
+   "summary": "ts reusing a port an earlier test had used,** so `fetch` grabbed that test's dead connection. Fixed: each test file never reuses a port.\n\nI also added limits so a hung test can never block CI for hours again: 5 minutes per test, 15 per job."
+  }
+ }
+}
