@@ -510,3 +510,21 @@ test('commandEdits: the code files a command writes, never temp files, docs or r
   const stale = readiness({ steps: [{ ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } }, run("sed -i 's/a/b/' src/a.js")], end: { kind: 'done' } });
   assert.ok(stale.problems.some((p) => /after the last test run/.test(p)));
 });
+
+test('review fixes: a test target left failing blocks merging; a retry that failed by its counts gets one line', async () => {
+  const { readiness, turnMarkdown } = await import('../bridge/ui/story.js');
+  const out = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });
+  // `npm run test:unit` fails and a different target passes: not ready.
+  const r = readiness({ steps: [edit('src/a.js'), out('npm run test:unit', 'Tests: 1 failed, 4 passed', 'failed'), out('npm run test:lint', 'Tests: 3 passed')], end: { kind: 'done' } });
+  assert.equal(r.ready, false);
+  assert.ok(r.problems.includes('`npm run test:unit` failed and wasn’t fixed'), r.problems.join(' | '));
+  // Two runs that fail by their output (exit 0): one ❌ line, not two.
+  const md = turnMarkdown({ steps: [edit('src/a.js'), out('npm test; echo done', 'Tests: 1 failed, 4 passed'), out('npm test; echo done', 'Tests: 1 failed, 4 passed')], end: { kind: 'done' }, harness: 'claude' });
+  assert.equal((md.match(/^- Tests: /gm) ?? []).length, 1, md);
+});
+
+test('review fixes: sudo or Stop-Process inside a quoted search pattern isn’t risky', () => {
+  assert.deepEqual(flags([run('grep -rn "sudo" src')]), []);
+  assert.deepEqual(flags([run('grep -n "Stop-Process" scripts/a.ps1')]), []);
+  assert.ok(flags([run('sudo apt install jq')]).some((f) => f.text === 'Changed system permissions'));
+});

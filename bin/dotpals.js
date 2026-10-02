@@ -371,9 +371,10 @@ async function laya(flags) {
  * says whether it's on. Takes effect the next time dotpals starts.
  */
 async function sentry(args) {
-  const [arg] = args.filter((a) => !a.startsWith('--') && !/^\d*\.?\d+$/.test(a));
   const i = args.indexOf('--rate');
   const rate = i >= 0 ? Number(args[i + 1]) : undefined;
+  // The DSN (or "off"): the argument that isn't a flag or --rate's value.
+  const [arg] = args.filter((a, j) => !a.startsWith('--') && !(i >= 0 && j === i + 1));
   if (!arg) {
     const s = sentrySettings();
     console.log(s.dsn ? `Sentry tracing is on (${Math.round(s.tracesSampleRate * 100)}% of requests traced). Turn it off: dotpals sentry off` : 'Sentry tracing is off. Turn it on with your project’s DSN: dotpals sentry <dsn>');

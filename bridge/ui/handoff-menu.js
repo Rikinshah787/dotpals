@@ -53,7 +53,12 @@ async function ask(session, agent) {
   }
 }
 
-const defaultCopy = (text) => (window.dotpalsDesktop?.copy ? window.dotpalsDesktop.copy(text) : navigator.clipboard?.writeText(text));
+// Throws when it can't copy (no clipboard, or the browser said no), so the menu never says "Copied" for nothing.
+const defaultCopy = async (text) => {
+  if (window.dotpalsDesktop?.copy) return window.dotpalsDesktop.copy(text);
+  if (!navigator.clipboard?.writeText) throw new Error('no clipboard');
+  return navigator.clipboard.writeText(text);
+};
 
 export function continueMenu(session, { copy = defaultCopy, inline = false } = {}) {
   injectCss();
@@ -91,7 +96,7 @@ export function continueMenu(session, { copy = defaultCopy, inline = false } = {
   async function doCopy() {
     const text = note ?? (await ask(session, 'copy')).note;
     if (!text) return render('Couldn’t make the note (is the bridge running?).');
-    try { await copy(text); } catch {}
+    try { await copy(text); } catch { return render('Couldn’t copy it: the clipboard isn’t available here. Try again from the dashboard.', false, true); }
     close();
     flash('Copied ✓');
   }
