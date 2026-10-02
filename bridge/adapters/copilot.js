@@ -31,7 +31,7 @@ export function describeTool(name = '', raw = {}, cwd) {
   const kind = KIND[name] ?? 'tool';
   const path = [args.path, args.file_path, args.filePath].find((p) => typeof p === 'string');
   const body = { args: clipText(JSON.stringify(args, null, 2), 3000) };
-  if (kind === 'run') return { kind, title: clip(args.description || args.command, 80), detail: args.description ? clip(args.command, 160) : undefined, body: { command: clipText(args.command, 3000) } };
+  if (kind === 'run') return { kind, title: clip(args.description || args.command, 80), detail: args.description ? clip(args.command, 160) : undefined, body: { command: clipEnds(args.command, 4000) } };
   if (path && (kind === 'read' || kind === 'write' || kind === 'edit')) return { kind, title: relative(path, cwd), files: [{ path, change: kind }], body };
   const what = [args.pattern, args.query, args.url, args.description].find((v) => typeof v === 'string');
   return { kind, title: clip(what || name.replace(/_/g, ' '), 80), body };

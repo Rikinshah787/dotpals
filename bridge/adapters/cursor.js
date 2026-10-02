@@ -68,7 +68,7 @@ export function applyCursor(e, log) {
       add({
         ...base, id: `${session}:sh:${now}-${n}`, at: started(e.duration), tool: 'Shell', kind: 'run', title: clip(cmd, 80),
         detail: e.cwd && e.cwd !== root ? relative(e.cwd, root) : undefined, status: 'ok', ms: Number(e.duration) || undefined,
-        body: { command: clipText(cmd, 3000), output: clipEnds(e.output, 3000) || undefined },
+        body: { command: clipEnds(cmd, 4000), output: clipEnds(e.output, 3000) || undefined },
       });
       out.state = { state: 'working', text: clip(cmd, 40) };
       break;

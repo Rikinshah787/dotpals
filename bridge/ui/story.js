@@ -87,10 +87,24 @@ const runs = (cmd, re) => parts(cmd).some((s) => s.search(re) === 0);
 // A path that's fine to delete: temp and scratch space, build output, installed packages.
 const THROWAWAY_PATH = /(\$TEMP|%TEMP%|\$env:TEMP|(^|[\\/])te?mp([\\/]|$)|AppData[\\/]Local[\\/]Temp|(^|[\\/])scratchpad([\\/]|$)|(^|[\\/])(node_modules|dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)([\\/]|$))/i;
 /** Whether a delete command (rm, rmdir, del, Remove-Item) only deletes throwaway paths: every target must be one. */
-function deletesOnlyThrowaway(part) {
+function deletesOnlyThrowaway(part, vars = {}) {
   const tokens = part.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-  const targets = tokens.slice(1).filter((t) => !/^-/.test(t) && !/^\/[a-z]$/i.test(t)).map((t) => t.replace(/^["']|["']$/g, ''));
+  const targets = tokens.slice(1).filter((t) => !/^-/.test(t) && !/^\/[a-z]$/i.test(t))
+    .map((t) => t.replace(/^["']|["']$/g, '').replace(/\$\{?([A-Za-z_]\w*)\}?/g, (m, name) => vars[name] ?? m));
   return targets.length > 0 && targets.every((t) => THROWAWAY_PATH.test(t));
+}
+
+/**
+ * Shell variables a command sets, for the paths a delete names: T=$(mktemp -d) is a temp
+ * folder ("$TEMP/mktemp"), S="$TEMP/x" is what it says. Only from the same command.
+ */
+function shellVars(cmd) {
+  const vars = {};
+  for (const m of String(cmd).matchAll(/(?:^|[\s;&|(])(?:export\s+|local\s+)?([A-Za-z_]\w*)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)/g)) {
+    const value = m[2].replace(/^["']|["']$/g, '');
+    vars[m[1]] = /^\$\(\s*mktemp\b/.test(value) ? '$TEMP/mktemp' : value;
+  }
+  return vars;
 }
 
 // Output that looks like something broke, or like everything went fine, when there's
@@ -519,7 +533,7 @@ export function flags(steps, { before = false } = {}) {
       const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[5][0] || re === RISKY[6][0];
       if (anywhere ? !re.test(script) : !ran.some((p) => p.search(re) === 0)) continue;
       // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
-      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every(deletesOnlyThrowaway)) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
+      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every((p) => deletesOnlyThrowaway(p, shellVars(cmd)))) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
       add(level, text[0].toUpperCase() + text.slice(1), e);
     }
@@ -559,6 +573,11 @@ function target(e) {
 // A test run fails by its results, not only its exit code (`npm test; echo done` exits 0).
 const testedAs = (e) => (e.kind === 'run' && stepType(e) === 'test' && !running(e) ? testVerdict(e).state : null);
 const failedStep = (e) => e.status === 'failed' || testedAs(e) === 'failed';
+/** Whether a test run runs every test: no file, folder or name filter after the runner (`npm test`, `pytest -q`). */
+const wholeSuite = (e) => parts(commandOf(e)).filter((p) => TEST.test(p)).some((p) => {
+  const words = p.replace(/\s+\d?>>?&?\s*\S+/g, '').split(/\s+/).slice(1);
+  return !words.some((w) => /[\\/]|\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|cs)$/i.test(w) || /^(-k|-t|--grep|--test-name-pattern|--testNamePattern|--filter|-run)(=|$)/.test(w));
+});
 
 export function retries(steps) {
   const list = [...steps].filter((e) => !['prompt', 'done', 'error', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
@@ -579,6 +598,13 @@ export function retries(steps) {
       attempts.push(e);
       retryOf.set(e.id, first.id);
       if (!failedStep(e)) break; // fixed (or still running): the chain ends here
+    }
+    // Failing tests are also fixed by a later run of the whole suite that passes
+    // (`node --test test/a.test.js` fails, then `npm test` passes).
+    if (testedAs(first) && failedStep(attempts.at(-1))) {
+      const at = list.indexOf(attempts.at(-1));
+      const suite = list.slice(at + 1, at + 61).find((e) => e.session === first.session && e.at - attempts.at(-1).at <= 15 * 60_000 && testedAs(e) === 'passed' && wholeSuite(e));
+      if (suite) { attempts.push(suite); retryOf.set(suite.id, first.id); }
     }
     const last = attempts.at(-1);
     const outcome = last === first ? 'failing' : failedStep(last) ? 'failing' : running(last) ? 'trying' : 'fixed';
@@ -626,6 +652,7 @@ export function testState(steps) {
   const tests = list.filter((e) => e.kind === 'run' && stepType(e) === 'test');
   const edits = [];
   for (const e of list) {
+    for (const path of commandEdits(e)) edits.push({ at: e.at, path });
     if (stepType(e) !== 'change' || outside(e) || e.status === 'failed') continue;
     for (const f of e.files ?? []) if (f.change !== 'read' && !NOT_CODE.test(String(f.path))) edits.push({ at: e.at, path: f.path });
   }
@@ -645,6 +672,35 @@ export function testState(steps) {
     commit = { at: c.at, tested: !!before && testPassed(before) === true && !edits.some((x) => x.at > before.at && x.at < c.at) };
   }
   return { state, last, verdict, since, commit };
+}
+
+// A source file's name: what a command that writes files is taken to change.
+const CODE_FILE = /^[^\s"'`$<>|;&]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|kt|swift|cs|c|cc|cpp|h|hpp|css|scss|html?|vue|svelte|sh|ps1|ya?ml|toml|json|sql)$/i;
+
+/**
+ * The code files a command wrote, as far as its text shows: `sed -i … file`, `> file`,
+ * `>> file`, `tee file`, and scripts (node -e, python heredocs) that call writeFileSync /
+ * open(…, 'w') / write_text on a path they name. Never temp, scratch or build paths. When
+ * git saw the request (gitTruth), that's the better answer; this is for when it didn't.
+ */
+export function commandEdits(e) {
+  if (e.kind !== 'run' || e.status === 'failed' || running(e)) return [];
+  const cmd = commandOf(e);
+  const found = new Set();
+  const vars = shellVars(cmd);
+  const words = (p) => (p.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^["']|["']$/g, '').replace(/\$\{?([A-Za-z_]\w*)\}?/g, (m, n) => vars[n] ?? m));
+  for (const p of parts(cmd)) {
+    if (/^(sed|perl)\b/.test(p) && /\s-\w*i/.test(p)) words(p).slice(1).forEach((w) => found.add(w));
+    if (/^tee\b/.test(p)) words(p).slice(1).forEach((w) => found.add(w));
+    for (const m of p.matchAll(/(?:^|[^0-9&>])>>?\s*("[^"]*"|'[^']*'|[^\s;&|]+)/g)) found.add(words(m[1])[0] ?? '');
+  }
+  // Scripts: a write call's path, given as text or through a variable set in the script.
+  const text = String(cmd);
+  const named = (x) => (/^['"`]/.test(x) ? x.slice(1, -1) : text.match(new RegExp(`\\b${x.replace(/[^\w$]/g, '')}\\s*=\\s*(?:Path\\()?['"\`]([^'"\`]+)['"\`]`))?.[1]);
+  for (const m of text.matchAll(/\b(?:writeFileSync|writeFile|appendFileSync)\(\s*('[^']*'|"[^"]*"|`[^`]*`|[\w$]+)/g)) found.add(named(m[1]) ?? '');
+  for (const m of text.matchAll(/\bopen\(\s*('[^']*'|"[^"]*"|\w+)\s*,\s*['"][wa]/g)) found.add(named(m[1]) ?? '');
+  for (const m of text.matchAll(/(?:Path\(\s*('[^']*'|"[^"]*")\s*\)|\b(\w+))\.write_text\(/g)) found.add(named(m[1] ?? m[2]) ?? '');
+  return [...found].filter((f) => CODE_FILE.test(f) && !NOT_CODE.test(f) && !THROWAWAY_PATH.test(f));
 }
 
 /** "passed", "failed" or "were unclear", for a sentence about the last run. */
@@ -1088,8 +1144,8 @@ const lastTestVerdict = (steps) => {
 /** Failures the agent tried again and never fixed. */
 const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) => c.outcome === 'failing' && c.attempts.length > 1);
 /** Whether a request changed code (not docs, images or lockfiles, not scratch files outside the project). */
-const changedCode = (steps) => steps.some((e) => stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
-  && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path))));
+const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
+  && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
 
 /**
  * Why a request ended, in plain words: { kind, text }, or null while the agent is still
@@ -1108,7 +1164,9 @@ export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
   if (gaveUp) return { kind: 'gave-up', text: `Stopped trying: ${whatOf(gaveUp.attempts[0])} still failed after ${gaveUp.attempts.length} tries` };
   if (lastTestVerdict(turn.steps)?.state === 'failed') return { kind: 'failing', text: 'Said it was done, but the tests are failing' };
   const said = String(turn.end.summary ?? '').trim().split('\n').filter(Boolean).at(-1) ?? '';
-  if (/\?\s*\**\s*$/.test(said)) return { kind: 'question', text: 'Finished with a question for you' };
+  // A question in its last two sentences ("Shall I keep going? That's the X and the Y.").
+  const sentences = said.split(/(?<=[.!?]\**)\s+/).filter(Boolean).slice(-2);
+  if (sentences.some((s) => /\?\s*\**\s*$/.test(s))) return { kind: 'question', text: 'Finished with a question for you' };
   return { kind: 'done', text: 'Finished: the agent said it was done' };
 }
 
@@ -1159,7 +1217,7 @@ export function readiness(turn) {
     { ok: ran, text: ran ? 'Tests ran' : 'No tests ran' },
   ];
   if (ran) {
-    checks.push({ ok: tested.state !== 'stale', text: tested.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
+    checks.push({ ok: tested?.state !== 'stale', text: tested?.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
     checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
   }
   const stuck = leftFailing(turn.steps);

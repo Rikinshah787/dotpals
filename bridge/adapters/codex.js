@@ -41,7 +41,7 @@ export function describeCall(name, args, cwd) {
   switch (name) {
     case 'exec_command': case 'shell': case 'local_shell': {
       const cmd = Array.isArray(args.cmd ?? args.command) ? (args.cmd ?? args.command).join(' ') : String(args.cmd ?? args.command ?? '');
-      return { kind: 'run', title: clip(args.justification || cmd, 80), detail: args.justification ? clip(cmd, 160) : relative(args.workdir, cwd) || undefined, body: { command: clipText(cmd, 3000) } };
+      return { kind: 'run', title: clip(args.justification || cmd, 80), detail: args.justification ? clip(cmd, 160) : relative(args.workdir, cwd) || undefined, body: { command: clipEnds(cmd, 4000) } };
     }
     case 'write_stdin':
       return { kind: 'run', title: 'Sent input to a running command', body: { command: clipText(args.chars, 1000) } };
@@ -56,7 +56,7 @@ export function describeCall(name, args, cwd) {
     case 'update_plan':
       return { kind: 'plan', title: 'Updated the plan', plan: (args.plan ?? []).map((s) => ({ text: clip(s.step, 120), status: s.status })), body: { args: (args.plan ?? []).map((s) => `${s.status === 'completed' ? '✓' : s.status === 'in_progress' ? '▸' : '·'} ${s.step}`).join('\n') } };
     case 'js':
-      return { kind: 'run', title: clip(args.title || 'Ran a script', 80), body: { command: clipText(args.code, 3000) } };
+      return { kind: 'run', title: clip(args.title || 'Ran a script', 80), body: { command: clipEnds(args.code, 4000) } };
   }
   // MCP tools: "server__tool" or "mcp__server__tool".
   const mcp = name.includes('__') ? name.split('__').filter(Boolean) : null;
@@ -188,7 +188,7 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
         let described;
         const scripted = p.name === 'exec' ? patchFromScript(p.input) : null;
         if (scripted) described = describePatch(scripted, cwd, 'apply_patch');
-        else if (p.name === 'exec') described = { kind: 'run', title: 'Ran a script', body: { command: clipText(p.input, 3000) } };
+        else if (p.name === 'exec') described = { kind: 'run', title: 'Ran a script', body: { command: clipEnds(p.input, 4000) } };
         else described = describeCall(p.name, args, cwd);
         out.push(log.upsert({ ...base, id: `${session}:${p.call_id}`, tool: p.name, ...described, status: 'running', startedAt: at }));
         setState('working', described.title);

@@ -23,7 +23,7 @@ export function describeTool(name = '', input = {}, cwd) {
   const file = input.file_path;
   switch (name) {
     case 'run_shell_command':
-      return { kind: 'run', title: clip(input.description || input.command, 80), detail: input.description ? clip(input.command, 160) : rel(input.dir_path) || undefined, body: { command: clipText(input.command, 3000) } };
+      return { kind: 'run', title: clip(input.description || input.command, 80), detail: input.description ? clip(input.command, 160) : rel(input.dir_path) || undefined, body: { command: clipEnds(input.command, 4000) } };
     case 'write_file':
       return { kind: 'write', title: rel(file), files: [{ path: file, change: 'write' }], body: { patch: toPatch('', input.content) } };
     case 'replace':

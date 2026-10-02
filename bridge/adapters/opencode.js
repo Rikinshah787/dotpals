@@ -83,7 +83,7 @@ export function describeTool(name = '', args = {}, cwd) {
   const file = args.filePath;
   switch (name) {
     case 'bash':
-      return { kind: 'run', title: clip(args.description || args.command, 80), detail: args.description ? clip(args.command, 160) : rel(args.workdir) || undefined, body: { command: clipText(args.command, 3000) } };
+      return { kind: 'run', title: clip(args.description || args.command, 80), detail: args.description ? clip(args.command, 160) : rel(args.workdir) || undefined, body: { command: clipEnds(args.command, 4000) } };
     case 'read':
       return { kind: 'read', title: rel(file), files: file ? [{ path: file, change: 'read' }] : undefined };
     case 'edit':

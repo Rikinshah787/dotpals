@@ -89,7 +89,7 @@ test('the recap lists what git saw, and names files changed by commands', () => 
 });
 
 test('code changed only by a command still gets a ready-to-merge verdict', () => {
-  const turn = { steps: [run(`node -e "fs.writeFileSync('src/a.js', 'x')"`)], end: done({ files: [{ path: 'src/a.js', change: 'edit' }], committed: false, others: [] }) };
+  const turn = { steps: [run('node scripts/generate.js')], end: done({ files: [{ path: 'src/a.js', change: 'edit' }], committed: false, others: [] }) };
   const r = readiness(turn);
   assert.ok(r);
   assert.ok(r.problems.includes('No tests ran'));
