@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-01
+
 ### Added
 
+- **Ready to merge?** Each finished request that changed code gets a verdict: "✅ Ready to merge" when tests ran after the last change and passed, nothing is left failing and nothing risky happened; otherwise "⚠ Not ready to merge" with the reasons ("No tests ran", "Changed b.js after the last test run", "Tests are failing", "Changed .env", "Committed without a passing test run"). In the pal, the notch, the dashboard and the copied recap.
+- **Why it stopped**, in plain words: "Stopped trying: `npm test` still failed after 3 tries", "Said it was done, but the tests are failing", "Finished with a question for you", "Stopped with an error: …", "Cut off before it finished", "Waiting for you".
+- **Failing test names**, next to the counts: "1 failed, 47 passed: test_locked_failure_does_not_block_requested_work" (in the chapter, the Simple sentence and the recap). Retries of the same failure are one line in the recap.
+- **Two agents, one file.** When an agent is about to change a file that another agent session changed in the last 10 minutes, and that session is still at it, dotpals says so before they undo each other's work. **Claude Code can be stopped before the edit**: a new PreToolUse hook, only for Edit, Write, MultiEdit and NotebookEdit (`bridge/guard-hook.js`, in the foreground; the activity hook stays async), asks the bridge and gets Claude Code's own `permissionDecision`. **Ask me first** (the default) shows Claude Code's permission prompt with the reason, "Codex (api) changed billing.ts 2 minutes ago. Edit anyway?"; **Tell Claude** denies the edit and tells Claude "… Re-read the file first, then decide."; **Off**. It asks once per change of the other agent's, so the next try goes ahead, and it fails open: no bridge, or no answer within 1.5 s, and the edit goes ahead as usual. **Every other agent** (Codex, Cursor, Gemini CLI…) can't be stopped, since dotpals only follows what it did: the notch shows an alert ("Codex is editing billing.ts, which Claude (shop) changed 2 min ago") and the pal says it, with a desktop notification, once per file and pair of sessions per 10 minutes. Paths are compared without caring about case or slash direction, relative ones from each session's own folder; a session's own helpers don't count, nor do reads, failed edits or sessions that have gone to sleep. A paused edit shows "Paused: Codex (api) changed this file 2 minutes ago" in the pal's Tools and the dashboard's Log. Settings → Two agents, one file (`conflictGuard`: `ask`, `tell` or `off`; `conflictMinutes`, default 10), and a setup question. New: a `conflict` event, `POST /hook?guard=1`, `bridge/guard.js`.
+- **Hand-off: Continue in Codex, Claude or Gemini, or Copy.** **Continue in ▾** on a session (in the pal's header, the notch's Story tab and the dashboard's session) writes a hand-off note from the session's record: the original ask and the last request, the latest request's recap with its evidence, the requests before it in a sentence each, the files changed, how the tests stand (with the failing output), what's left on the agent's plan, what's worth a second look and the agent's last message. It's saved to `~/.dotpals/handoff/<id>.md`, and the agent you pick (Codex, Claude Code or Gemini CLI, whichever are installed) opens in a **new** terminal window in the session's project folder, told to read that file and continue: Windows Terminal or a console window on Windows, Terminal on macOS, gnome-terminal, konsole or x-terminal-emulator on Linux. **Copy** puts the note on the clipboard instead. It can't type into an agent that's already open. Nothing from the session goes through a shell: the note is a file, the prompt only names it, the folder is the one the session itself reported (never one from the request) and only those three agents can be started. New: `POST /api/handoff { session, agent }`, `GET /api/handoff/agents`, `bridge/handoff.js`, `bridge/ui/handoff.js`.
 - **The copied recap separates what happened, with evidence.** **✅ Ran successfully**, **❌ Failed**, **❔ Unclear** and **⚪ Not run** are listed apart, and each claim shows its command, the result it was read from ("Tests: `npm test` → 48 passed") and the step's ID, which the dashboard's search opens. A failure that was retried says "(fixed on try 2)". Quick look-ups (`ls`, `grep`, `git status`) aren't counted as failures. Suggested in a reply on X.
 - **Setup asks a few choices in the terminal**: your pal, sounds, the notch, Simple or Detailed, approving from the pal, sharing between agents, double-checking test results (Off, Local Laya, or Cloud Jev with the key typed hidden), Claude's usage limits and opening at login. Enter keeps each default; `--yes` (or no terminal) asks nothing. It ends with what you chose and the next steps. The Simple/Detailed choice is a setting now (`storyView`), and the dashboard's Requests tab has the switch too.
 - **Simple and Detailed views** of the story, in the pal's Summary and the notch's Story (a switch next to the tabs; remembered). **Simple**, the new default, is one plain sentence per request ("Changed billing.ts, the tests passed after one retry, and committed and pushed.", "Changed 2 files, but it didn't run the tests.") plus the warnings that matter. **Detailed** is the chapters as before, with small steps (tool plumbing, scratch files, memory) folded into "+ N small steps". Copy copies the view you're looking at. Rules, not AI: `simple()` in `bridge/ui/story.js`.
@@ -32,6 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **From the pull request's reviews** (Copilot, CodeRabbit and Sentry's Seer review bot):
+  - "Ready to merge" when one test target failed and a different one passed. A test or build that failed and never passed now blocks it ("`npm run test:unit` failed and wasn't fixed").
+  - A retry that failed by its counts (exit code 0) got its own ❌ line in the recap. It now folds into the first one.
+  - "Changed system permissions" or "Force-stopped programs" for a `grep "sudo"` or `grep "Stop-Process"`. Quoted text no longer counts for these two.
+  - Hand-off notes are saved readable by you only.
+  - "Copied ✓" showed even when the clipboard refused. The menu now says it couldn't copy.
+  - A pre-release install (`0.9.3-rc.1`) no longer counts as up to date with the release.
+- **Four wrong lines in the copied recap**, found by checking a real one against what happened:
+  - Tests piped into another command (`npm test | grep fail`) were "passed (exit code only)", but the exit code was grep's. They're now ❔ unclear, unless the output has counts.
+  - "Changed system permissions" came from the word `sudo` inside a `node -e "…"` script. Code in another language no longer triggers the whole-line rules; `bash -c "…"` still does.
+  - Scratch files outside the project were listed under Wrote. They're now counted: "Also touched 2 files outside the project".
+  - A failed test run wasn't linked to the run that fixed it when the two commands differed only in their pipes, or when the failure showed in the counts but the exit code was 0. Both now show "(fixed on try 2)".
 - **Is the checker working?** A status line under the checker says "Jev is working · answered 4 min ago in 227 ms" or "Jev isn't answering: TypeSafe didn't accept the API key · since 4:10 PM", from its answers, Test connection and a heartbeat (on start, when the setting changes, then every 30 minutes; for Jev that's the free model list). Recent checks starts with why it's rarely asked ("82 test runs · 79 settled by the rules · 3 unclear → 2 checked"), and the Overview's Test checks tile shows a green or red dot while a checker is on.
 - **Test connection said the TypeSafe SDK wasn't installed** when the pal had been opened by the Claude Code plugin: the plugin started dotpals from its own folder, which doesn't have what setup installs. The plugin now opens the installed copy (`~/.dotpals/app`) when there is one, the checker also looks for the SDK there, and an **Install it** button next to Test connection installs it in one click when it's missing.
 
@@ -244,7 +263,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...v0.9.0

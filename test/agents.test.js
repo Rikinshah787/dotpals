@@ -136,3 +136,9 @@ test('GET /api/usage answers with a list', async (t) => {
   assert.equal(res.status, 200);
   assert.ok(Array.isArray(res.json.agents));
 });
+
+test('the plugin only opens the installed copy when it is at least as new (compareVersions)', async () => {
+  const { compareVersions } = await import('../desktop/launch.js');
+  assert.deepEqual([compareVersions('0.9.3', '0.9.2'), compareVersions('0.9.2', '0.9.3'), compareVersions('1.0.0', '0.9.9'), compareVersions('0.9.2', '0.9.2')], [1, -1, 1, 0]);
+  assert.deepEqual([compareVersions('0.9.3-rc.1', '0.9.3'), compareVersions('0.9.3', '0.9.3-rc.1'), compareVersions('0.9.3-rc.2', '0.9.3-rc.10'), compareVersions('0.9.4-rc.1', '0.9.3')], [-1, 1, -1, 1]);
+});

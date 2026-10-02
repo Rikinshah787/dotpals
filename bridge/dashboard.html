@@ -166,6 +166,9 @@
     .turn .ask p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
     .turn .said { margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8de; }
     .turn .said b { color: var(--h); }
+    .turn .review { padding: 8px 14px; border-top: 1px solid var(--line); display: grid; gap: 3px; font-size: 13px; }
+    .turn .review .ready.ok { color: var(--ok); } .turn .review .ready.no { color: var(--warn); }
+    .turn .review .why { color: var(--muted); }
     /* Simple view (see simple() in story.js) and its switch next to the session's tabs. */
     .turn .simple { margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; }
     .turn .simple .mark { flex: none; font-weight: 700; }
@@ -525,6 +528,14 @@
           </div>
 
           <div class="card">
+            <h2>Two agents, one file</h2>
+            <div class="row"><div class="text">When an agent is about to change a file another agent just changed<small>Another session changed it a few minutes ago and is still at it: that’s how parallel agents undo each other’s work. Claude Code can be stopped before the edit: <b>Ask me first</b> shows Claude’s permission prompt with the reason (“Codex (api) changed billing.ts 2 minutes ago. Edit anyway?”); <b>Tell Claude</b> stops the edit and tells Claude to re-read the file first. Other agents (Codex, Cursor, Gemini…) can’t be stopped: the notch and the pal tell you right after.</small></div>
+              <select id="s-conflict" aria-label="Two agents, one file"><option value="ask">Ask me first</option><option value="tell">Tell Claude to re-read it</option><option value="off">Off</option></select></div>
+            <div class="row"><div class="text">“Just changed” means within<small>Older changes, and sessions that have gone quiet, don’t count.</small></div>
+              <select id="s-conflict-minutes" aria-label="Just changed means within"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
+          </div>
+
+          <div class="card">
             <h2>Double-check unclear test results</h2>
             <p class="muted" style="margin:4px 0 0">dotpals reads each test run’s output for its summary (“48 passed”, “1 failed”). When it can’t tell, say no tests ran or the exit code disagrees with the output, it says <b>Tests unclear</b>. A checker can look at those runs once and decide. Clear results are never sent.</p>
             <div class="row"><div class="text">Checker<small>Off unless you choose one.</small></div>
@@ -588,7 +599,8 @@
       buildTurns, facts, sentence, plain, summarizeSessions, turnTime,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
-    import { checkOf, minorChapter, overlaps, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown } from '/bridge/ui/story.js';
+    import { checkOf, minorChapter, overlaps, readiness, readinessLine, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown, whyStopped } from '/bridge/ui/story.js';
+    import { continueMenu } from '/bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -1087,7 +1099,7 @@
         download(`${name}.json`, JSON.stringify(s.entries, null, 2), 'application/json');
         toast('Downloaded Markdown and JSON');
       };
-      head.append(title, md, exp);
+      head.append(title, md, exp, handoffMenu(s.id));
 
       // Searching for a step's ID opens the Log on that step.
       const idq = idQuery();
@@ -1115,8 +1127,29 @@
       box.replaceChildren(head, tabs, body);
     }
 
+    /** "Continue in ▾" another agent (bridge/ui/handoff-menu.js), one per session, kept across redraws. */
+    const handoffMenus = new Map();
+    function handoffMenu(id) {
+      if (!handoffMenus.has(id)) handoffMenus.set(id, continueMenu(id, { copy: (text) => navigator.clipboard.writeText(text).then(() => toast('Copied the hand-off note')) }));
+      return handoffMenus.get(id);
+    }
+
     /** Simple or Detailed: the same choice as the pal and the notch (same page origin). */
     const storyView = () => { let v = null; try { v = localStorage.getItem('dotpals.view'); } catch {} return (v ?? config.storyView) === 'detailed' ? 'detailed' : 'simple'; };
+    /** Ready to merge? (finished requests that changed code) and why it stopped (left out when it simply finished). */
+    function reviewBlock(t, opts) {
+      const ready = readiness(t);
+      const why = whyStopped(t, opts);
+      if (!ready && (!why || why.kind === 'done')) return null;
+      const box = el('div', 'review');
+      if (ready) {
+        const line = el('div', `ready ${ready.ready ? 'ok' : 'no'}`, readinessLine(ready));
+        line.title = ready.checks.map((c) => `${c.ok ? '✓' : '✕'} ${c.text}`).join('\n');
+        box.append(line);
+      }
+      if (why && why.kind !== 'done') box.append(el('div', 'why', `Why it stopped: ${why.text}`));
+      return box;
+    }
     function renderTurns(s) {
       const wrap = el('div');
       wrap.style.cssText = 'display:grid;gap:12px';
@@ -1148,6 +1181,8 @@
             card.append(list);
           }
         }
+        const review = reviewBlock(t, { live: false });
+        if (review) card.append(review);
         const foot = el('footer');
         foot.append(t.end ? el('span', t.end.kind === 'done' ? 'ok' : 'bad', t.end.kind === 'done' ? `✓ Done${turnTime(t) ? ` in ${secs(turnTime(t))}` : ''}` : '✕ Stopped with an error') : el('span', '', 'In progress or interrupted'));
         const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t));
@@ -1284,6 +1319,7 @@
       }
       for (const f of e.files ?? []) { const a = el('a', '', `${f.change} · ${f.path}`); a.href = fileUrl(f.path); body.append(a); }
       if (e.error) body.append(el('div', 'bad', e.error));
+      if (e.guard) body.append(el('div', 'wait', e.guard.text)); // paused: another agent had just changed the file
       // A test run: the verdict and where it came from (its output, the exit code, or a checker).
       if (e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running') {
         const v = testVerdict(e);
@@ -1598,6 +1634,18 @@
     $('s-share').onchange = (e) => save({ shareRecap: e.target.checked });
     $('s-approval-wait').onchange = (e) => save({ approvalWait: Number(e.target.value) });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
+    // Two agents, one file (bridge/guard.js): kept in step with the settings as they arrive.
+    $('s-conflict').onchange = (e) => save({ conflictGuard: e.target.value });
+    $('s-conflict-minutes').onchange = (e) => save({ conflictMinutes: Number(e.target.value) });
+    function renderGuard() {
+      if (!config.conflictGuard) return;
+      $('s-conflict').value = config.conflictGuard;
+      const minutes = String(config.conflictMinutes ?? 10);
+      if (![...$('s-conflict-minutes').options].some((o) => o.value === minutes)) $('s-conflict-minutes').add(new Option(`${minutes} minutes`, minutes));
+      $('s-conflict-minutes').value = minutes;
+      $('s-conflict-minutes').disabled = config.conflictGuard === 'off';
+    }
+    source.addEventListener('config', renderGuard);
     $('s-days').onchange = (e) => save({ historyDays: Number(e.target.value) });
     // Double-check unclear test results (bridge/checker.js). The key is write-only: the
     // bridge only ever says whether one is saved and its last 4 characters.

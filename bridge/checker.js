@@ -124,7 +124,9 @@ function spawnNpm(args, { cwd, timeoutMs }) {
   return new Promise((resolve) => {
     // On Windows npm is a .cmd script, which Node only runs through a shell; the arguments are fixed above.
     const child = process.platform === 'win32'
-      ? spawn(['npm', ...args].join(' '), { cwd, shell: true, windowsHide: true })
+      // Quoted where cmd would read a character itself: ^ is its escape character, so an
+      // unquoted "@typesafe-ai/sdk@^0.6.0" would install exactly 0.6.0.
+      ? spawn(['npm', ...args.map((a) => (/[\^&|<>%!\s]/.test(a) ? `"${a}"` : a))].join(' '), { cwd, shell: true, windowsHide: true })
       : spawn('npm', args, { cwd, windowsHide: true });
     let output = '';
     const keep = (d) => { output = (output + d).slice(-4000); };

@@ -406,3 +406,107 @@ test('the copied recap keeps ran, failed, unclear and not run apart, each with i
   const unclear = turnMarkdown({ steps: [edit('src/a.js'), withOut('npm test', 'ok', 'Error: Cannot find module ./config')], end: { kind: 'done' }, harness: 'claude' });
   assert.match(unclear, /\*\*❔ Unclear\*\*\n- Tests: `npm test` → the exit code says passed, but the output shows errors/);
 });
+
+test('failing test names show next to the counts, shortened to the test’s own name', async () => {
+  const { testEvidence, testVerdict, simple } = await import('../bridge/ui/story.js');
+  const out = 'FAILED tests/test_locks.py::test_locked_failure_does_not_block_requested_work - AssertionError\n=== 1 failed, 47 passed in 0.42s ===';
+  const failing = { ...run('pytest -q', 'failed'), body: { command: 'pytest -q', output: out } };
+  assert.equal(testEvidence(testVerdict(failing)), '1 failed, 47 passed: test_locked_failure_does_not_block_requested_work');
+  assert.match(simple({ steps: [edit('src/locks.py'), failing], end: { kind: 'done' } }).text, /the tests are failing \(test_locked_failure_does_not_block_requested_work\)\.$/);
+});
+
+test('whyStopped: why a request ended, in plain words', async () => {
+  const { whyStopped } = await import('../bridge/ui/story.js');
+  const failing = (n) => Array.from({ length: n }, () => ({ ...run('npm test', 'failed'), body: { command: 'npm test', output: 'Tests: 1 failed, 3 passed' } }));
+  assert.equal(whyStopped({ steps: [edit('src/a.js')], end: null }, { live: true }), null);
+  assert.equal(whyStopped({ steps: [], end: null }, { live: true, waiting: true }).kind, 'waiting');
+  assert.equal(whyStopped({ steps: [edit('src/a.js')], end: null }, { live: false }).kind, 'cut');
+  assert.match(whyStopped({ steps: [], end: { kind: 'error', title: 'API error: overloaded' } }).text, /^Stopped with an error: API error: overloaded$/);
+  assert.equal(whyStopped({ steps: failing(3), end: { kind: 'done' } }).text, 'Stopped trying: `npm test` still failed after 3 tries');
+  assert.equal(whyStopped({ steps: failing(1), end: { kind: 'done' } }).kind, 'failing');
+  assert.equal(whyStopped({ steps: [], end: { kind: 'done', summary: 'Should I also update the docs?' } }).kind, 'question');
+  assert.equal(whyStopped({ steps: [edit('src/a.js')], end: { kind: 'done', summary: 'Done.' } }).kind, 'done');
+});
+
+test('readiness: ready to merge only when tests ran after the last change, passed, and nothing is risky', async () => {
+  const { readiness } = await import('../bridge/ui/story.js');
+  const ok = (cmd = 'npm test') => ({ ...run(cmd), body: { command: cmd, output: 'Tests: 48 passed' } });
+  const done = { kind: 'done' };
+  assert.equal(readiness({ steps: [read('src/a.js')], end: done }), null); // nothing changed
+  assert.equal(readiness({ steps: [edit('src/a.js')], end: null }), null); // still working
+  assert.equal(readiness({ steps: [edit('src/a.js'), ok(), run('git commit -m x')], end: done }).ready, true);
+  const untested = readiness({ steps: [edit('src/a.js')], end: done });
+  assert.deepEqual([untested.ready, untested.problems], [false, ['No tests ran']]);
+  const stale = readiness({ steps: [edit('src/a.js'), ok(), edit('src/b.js')], end: done });
+  assert.match(stale.problems.join(' | '), /Changed `b\.js` after the last test run/);
+  const risky = readiness({ steps: [edit('src/a.js'), edit('.env'), ok()], end: done });
+  assert.match(risky.problems.join(' | '), /\.env/);
+  const commit = readiness({ steps: [edit('src/a.js'), ok(), edit('src/a.js'), run('git commit -m x')], end: done });
+  assert.ok(commit.problems.includes('Committed without a passing test run after the last change'));
+});
+
+test('risky commands are still caught inside shells, behind sudo/xargs/-exec, and in mixed deletes (from code review)', () => {
+  const warns = (c) => flags([run(c)]).filter((f) => f.level === 'warn').map((f) => f.text);
+  for (const c of ['bash -c "rm -rf ~/project"', 'powershell -Command "Remove-Item -Recurse -Force C:/repo"', 'sudo rm -rf /var/lib/app',
+    "find . -name '*.js' -exec rm -rf {} \;", 'ls | xargs rm -rf', 'cmd /c rmdir /s /q src', 'rm -rf dist src', 'rm -rf node_modules ~/work/app']) {
+    assert.ok(warns(c).includes('Deleted files with a recursive delete'), c);
+  }
+  assert.ok(warns("sh -c 'git push --force'").includes('Force-pushed to git'));
+  assert.ok(warns('sudo git push --force').includes('Force-pushed to git'));
+  // Only deletes where every target is throwaway are quiet; mentions in files or other languages don't count.
+  assert.deepEqual(flags([run('rm -rf dist node_modules')]).map((f) => f.level), ['info']);
+  assert.deepEqual(flags([run("cat >> t.js <<'EOF'\nrm -rf src\nEOF")]), []);
+  assert.deepEqual(flags([run('node -e "require(\'fs\').rmSync(\'x\')" && echo "git push --force"')]), []);
+});
+
+test('a recap of a real turn: piped tests, code in node -e, scratch files and retries (from a user check)', async () => {
+  const { turnMarkdown, testVerdict } = await import('../bridge/ui/story.js');
+  const withOut = (command, status, output) => ({ ...run(command, status), body: { command, output } });
+  // Piped into grep or tail, the exit code is the last command's, not the tests'.
+  assert.equal(testVerdict(withOut('node --test test/guard.test.js 2>&1 | grep -E "fail|ok"', 'ok', 'ok 1 - x')).reason, 'piped');
+  assert.equal(testVerdict(withOut('npm test || echo failed', 'ok', '')).state, 'passed');
+  assert.equal(testVerdict(withOut('npm test 2>&1 | tail -3', 'ok', '# pass 12\n# fail 0')).state, 'passed'); // counts still win
+  // "sudo" or "chmod" inside a node -e script is a string, not a command; inside bash -c it is one.
+  assert.deepEqual(flags([run('node -e "console.log(\'sudo chmod 777 x\')"')]), []);
+  assert.ok(flags([run('bash -c "sudo chmod 777 x"')]).some((f) => f.level === 'warn'));
+  // A scratch file outside the project is counted, not listed.
+  const scratch = step('write', { title: 'C:/Users/me/AppData/Local/Temp/root-check.mjs', files: [{ path: 'C:/Users/me/AppData/Local/Temp/root-check.mjs', change: 'write' }] });
+  const md = turnMarkdown({
+    harness: 'claude', end: { kind: 'done' },
+    steps: [edit('src/guard.js'), scratch, withOut('node --test test/guard.test.js 2>&1 | grep -E "fail"', 'failed', 'not ok 3 - pathKey'),
+      edit('src/guard.js'), withOut('node --test test/guard.test.js 2>&1 | tail -5', 'ok', '# pass 9\n# fail 0')],
+  });
+  assert.doesNotMatch(md, /root-check/);
+  assert.match(md, /Also touched 1 file outside the project/);
+  // The same test file run again with a different pipe is a retry.
+  assert.match(md, /\(fixed on try 2\)/);
+});
+
+test('a test run that exits 0 but reports failures still starts a retry chain', async () => {
+  const { retries } = await import('../bridge/ui/story.js');
+  const withOut = (command, status, output) => ({ ...run(command, status), body: { command, output } });
+  const first = withOut('npm test; echo done', 'ok', 'Tests: 1 failed, 8 passed');
+  const piped = withOut('npm test | grep fail', 'ok', '');
+  const fixed = withOut('npm test', 'ok', 'Tests: 9 passed');
+  const { chains } = retries([first, piped, fixed]);
+  assert.deepEqual(chains.get(first.id).attempts.map((e) => e.id), [first.id, fixed.id]); // the piped run can't tell, so it's skipped
+  assert.equal(chains.get(first.id).outcome, 'fixed');
+});
+
+test('review fixes: a test target left failing blocks merging; a retry that failed by its counts gets one line', async () => {
+  const { readiness, turnMarkdown } = await import('../bridge/ui/story.js');
+  const out = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });
+  // `npm run test:unit` fails and a different target passes: not ready.
+  const r = readiness({ steps: [edit('src/a.js'), out('npm run test:unit', 'Tests: 1 failed, 4 passed', 'failed'), out('npm run test:lint', 'Tests: 3 passed')], end: { kind: 'done' } });
+  assert.equal(r.ready, false);
+  assert.ok(r.problems.includes('`npm run test:unit` failed and wasn’t fixed'), r.problems.join(' | '));
+  // Two runs that fail by their output (exit 0): one ❌ line, not two.
+  const md = turnMarkdown({ steps: [edit('src/a.js'), out('npm test; echo done', 'Tests: 1 failed, 4 passed'), out('npm test; echo done', 'Tests: 1 failed, 4 passed')], end: { kind: 'done' }, harness: 'claude' });
+  assert.equal((md.match(/^- Tests: /gm) ?? []).length, 1, md);
+});
+
+test('review fixes: sudo or Stop-Process inside a quoted search pattern isn’t risky', () => {
+  assert.deepEqual(flags([run('grep -rn "sudo" src')]), []);
+  assert.deepEqual(flags([run('grep -n "Stop-Process" scripts/a.ps1')]), []);
+  assert.ok(flags([run('sudo apt install jq')]).some((f) => f.text === 'Changed system permissions'));
+});

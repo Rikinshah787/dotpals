@@ -15,7 +15,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findElectron, installElectron } from '../desktop/launch.js';
-import { home, loadConfig, saveConfig } from '../bridge/config.js';
+import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
@@ -160,9 +160,9 @@ async function setup(flags) {
 
 /**
  * Setup's questions, in the terminal: the pal, sounds, the notch, how requests read,
- * approving from the pal, sharing between agents, double-checking test results (Off,
- * Local Laya, or Cloud Jev with its key, typed hidden), Claude's usage limits and
- * opening at login. Enter keeps the default shown in brackets. Saved to the settings
+ * approving from the pal, sharing between agents, two agents changing one file,
+ * double-checking test results (Off, Local Laya, or Cloud Jev with its key, typed
+ * hidden), Claude's usage limits and opening at login. Enter keeps the default shown in brackets. Saved to the settings
  * file; the dashboard's Settings changes them later. With --yes, or without a terminal
  * (scripts, CI), nothing is asked and the defaults stay.
  */
@@ -212,6 +212,7 @@ async function preferences(flags) {
     patch.storyView = await pick('How should each request read?', [['simple', 'Simple: one plain sentence (“Changed 2 files, the tests passed, and pushed.”)'], ['detailed', 'Detailed: every chapter (files, commands, tests)']], 'simple');
     patch.approvals = await yn('Approve Claude Code’s permission prompts from the pal?', false);
     patch.shareRecap = await yn('Tell each Claude Code session what your other agents did in the same project?', false);
+    patch.conflictGuard = await pick('When an agent is about to change a file another agent changed minutes ago:', [['ask', 'Ask me first (Claude Code asks you; other agents: an alert in the notch)'], ['tell', 'Tell Claude to re-read the file first, then decide'], ['off', 'Off']], 'ask');
     const mode = await pick('Double-check test results the rules can’t call?', [['off', 'Off'], ['local', 'Local: Laya on this computer (free, private; needs Python, downloads a few GB)'], ['cloud', 'Cloud: TypeSafe Jev (fast, needs an API key; sends the test output with secrets removed)']], 'off');
     patch.checker = { mode };
     if (mode === 'cloud') {
@@ -220,7 +221,9 @@ async function preferences(flags) {
       const key = (await rl.question('  TypeSafe API key (hidden, Enter to skip): ')).trim();
       hidden = false;
       process.stdout.write('\n');
-      if (key) patch.checker.jevKey = key;
+      // Only a key that looks like one is kept (the dashboard refuses the same ones).
+      if (key && validKey(key)) patch.checker.jevKey = validKey(key);
+      else if (key) warn('That doesn’t look like a TypeSafe key (8 or more characters, no spaces), so it wasn’t saved. Add it later in Dashboard → Settings.');
       else console.log(`  ${dim('No key yet: add it later in Dashboard → Settings, or set TYPESAFE_API_KEY.')}`);
     }
     if (mode === 'local') answers.laya = await yn('Set up Laya now (Python environment and model, a few GB)?', true);

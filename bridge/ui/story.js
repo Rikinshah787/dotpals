@@ -27,8 +27,6 @@ const RISKY = [
   [/\b(taskkill|Stop-Process|kill\s+-9|pkill|killall)\b/i, 'force-stopped programs', 'force-stops programs'],
   [/\bnpm\s+publish\b/i, 'published a package', 'publishes a package', 'info'],
 ];
-// Folders that are fine to delete: temp and scratch space, build output, installed packages.
-const THROWAWAY = /(\$TEMP|%TEMP%|\$env:TEMP|[\\/]te?mp[\\/]|AppData[\\/]Local[\\/]Temp|[\\/]scratchpad\b|\bnode_modules\b|(?:^|[\s"'\\/])(?:dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)(?:[\s"'\\/]|$))/i;
 const SECRET = /(^|[\\/])(\.env(\.[\w-]+)?|\.npmrc|\.pypirc|id_(rsa|ed25519)|credentials?(\.json)?|secrets?\.[\w]+|[\w-]*\.(pem|key|p12|pfx))$/i;
 
 const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
@@ -43,30 +41,57 @@ function runsTests(cmd) {
 }
 
 /**
- * The commands a command line actually runs, each from its start: text written into a
- * file (a heredoc's body) and inline scripts (`node -e "…"`, `python -c "…"`) are left
- * out, so a command that only mentions `git push` or `rm -rf` in a file it writes doesn't
- * count as doing it. Split at && || ; | and new lines; prefixes like `timeout 150`,
- * `FOO=1`, `npx` and `./node_modules/.bin/` are dropped.
+ * The commands a command line actually runs, each from its start. Text written into a
+ * file (a heredoc's body) and code in another language (`node -e "…"`, `python -c "…"`)
+ * are left out, so writing a test that mentions `git push` or `rm -rf` doesn't count as
+ * doing it. A script handed to a shell (`bash -c "…"`, `powershell -Command "…"`,
+ * `cmd /c …`) is a command too, and is read as one. Split at && || ; | -exec and new
+ * lines; wrappers and prefixes like `sudo`, `xargs`, `timeout 150`, `FOO=1`, `npx` and
+ * `./node_modules/.bin/` are looked through.
  */
 export function parts(cmd) {
-  const text = String(cmd)
-    .replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '') // heredoc bodies
-    .replace(/(\s-(?:e|c|p|-eval|Command|EncodedCommand))\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, '$1 ""'); // inline scripts
-  return text.split(/\n|&&|\|\||[;|]/).map((part) => {
+  return scriptText(cmd).split(/\n|&&|\|\||[;|]/).map((part) => {
     let s = part.trim();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       s = s
         .replace(/^&\s*/, '') // PowerShell's call operator
         .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
+        .replace(/^(?:sudo|doas)(?:\s+-\S+)*\s+/i, '')
+        .replace(/^(?:xargs|nohup|exec|command|env)(?:\s+-\S+)*\s+/i, '')
         .replace(/^(?:timeout(?:\s+-\S+)*\s+\d+[smhd]?|time|nice|npx|bunx|pnpm\s+exec|uv\s+run|poetry\s+run)\s+/i, '')
         .replace(/^["']?[^\s"']*[\\/](?=[\w.-]+["']?(\s|$))/, ''); // ./node_modules/.bin/jest
     }
     return s;
   }).filter(Boolean);
 }
+
+/**
+ * A command line as the shell would run it: heredoc bodies (text written into a file) and
+ * code in another language (node -e "…", python -c "…") left out, a shell's own script
+ * (bash -c "…", cmd /c …) kept as commands.
+ */
+export function scriptText(cmd) {
+  const unquote = (q) => q.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  return String(cmd)
+    .replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '') // heredoc bodies
+    // A shell's script is commands: bash -c "rm -rf x" → rm -rf x
+    .replace(/\b(?:bash|sh|zsh|dash|fish|pwsh|powershell)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:c|Command)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (_, q) => `;${unquote(q)};`)
+    .replace(/\bcmd(?:\.exe)?\s+\/[ck]\s+/gi, ';')
+    // Code in another language isn't a shell command: node -e "…", python -c "…"
+    .replace(/\b(?:node|deno|bun|python3?|py|ruby|perl|php)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:e|c|p|r|-eval)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (m, q) => m.slice(0, m.length - q.length) + '""')
+    .replace(/\s-exec(?:dir)?\s+/g, ';'); // find … -exec rm -rf {} \;
+}
 /** Whether a command runs something matching `re` (from the start of one of its parts). */
 const runs = (cmd, re) => parts(cmd).some((s) => s.search(re) === 0);
+
+// A path that's fine to delete: temp and scratch space, build output, installed packages.
+const THROWAWAY_PATH = /(\$TEMP|%TEMP%|\$env:TEMP|(^|[\\/])te?mp([\\/]|$)|AppData[\\/]Local[\\/]Temp|(^|[\\/])scratchpad([\\/]|$)|(^|[\\/])(node_modules|dist|build|out|coverage|\.next|\.cache|__pycache__|\.pytest_cache|target)([\\/]|$))/i;
+/** Whether a delete command (rm, rmdir, del, Remove-Item) only deletes throwaway paths: every target must be one. */
+function deletesOnlyThrowaway(part) {
+  const tokens = part.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  const targets = tokens.slice(1).filter((t) => !/^-/.test(t) && !/^\/[a-z]$/i.test(t)).map((t) => t.replace(/^["']|["']$/g, ''));
+  return targets.length > 0 && targets.every((t) => THROWAWAY_PATH.test(t));
+}
 
 // Output that looks like something broke, or like everything went fine, when there's
 // no summary to count from.
@@ -103,6 +128,18 @@ function countWords(f) {
  * output). An unclear run can be settled by the optional checker (bridge/checker.js),
  * whose answer is stored on the entry as `check`.
  */
+/**
+ * Whether a test command's output goes through a pipe (`npm test | grep fail`): the shell
+ * then reports the last command's exit code (grep's), not the tests'. `2>&1 | tee` too.
+ */
+function piped(cmd) {
+  for (const statement of scriptText(cmd).split(/\n|&&|\|\||;/)) {
+    const pipeline = statement.split(/(?<!\|)\|(?!\|)/);
+    if (pipeline.length > 1 && parts(pipeline.slice(0, -1).join(';')).some((p) => TEST.test(p))) return true;
+  }
+  return false;
+}
+
 export function testVerdict(e) {
   if (running(e)) return { state: 'running', source: 'exit' };
   const out = `${e.body?.output ?? ''}\n${e.error ?? ''}`;
@@ -112,6 +149,7 @@ export function testVerdict(e) {
   else if (facts.parsed && facts.passed > 0) v = { state: 'passed', source: 'output', summary: countWords(facts) };
   else if (facts.parsed) v = { state: 'unclear', source: 'output', summary: countWords(facts), reason: 'no-tests', note: 'no tests actually ran' };
   else if (e.status === 'stopped') v = { state: 'unclear', source: 'exit', reason: 'stopped', note: 'it didn’t finish' };
+  else if (piped(commandOf(e))) v = { state: 'unclear', source: 'exit', reason: 'piped', note: 'its output went through a pipe, so the exit code isn’t the tests’' };
   else if (e.status === 'failed') {
     v = FINE.test(out) && !BROKE.test(out)
       ? { state: 'unclear', source: 'exit', reason: 'clean-but-failed', note: 'the exit code says failed, but the output looks fine' }
@@ -138,7 +176,18 @@ export function testEvidence(v) {
     const extra = !c ? '' : c.error ? ` · couldn’t check with ${by}` : typeof c.p === 'number' ? ` · ${by} wasn’t sure (${Math.round(c.p * 100)}% that they passed)` : '';
     return `${v.note}${extra}`;
   }
-  return v.source === 'output' ? v.summary : 'exit code only';
+  return v.source === 'output' ? `${v.summary}${v.state === 'failed' ? failingNames(v) : ''}` : 'exit code only';
+}
+
+/**
+ * Which tests failed, when the output names them: ": test_locked_failure +1 more". The
+ * test's own name, not its path ("tests/test_x.py::test_name" → "test_name").
+ */
+function failingNames(v) {
+  const names = (v?.facts?.failing ?? []).map((n) => String(n).split('::').pop().split(' › ').pop().trim()).filter(Boolean);
+  if (!names.length) return '';
+  const shown = names.slice(0, 2).map((n) => (n.length > 60 ? `${n.slice(0, 59)}…` : n));
+  return `: ${shown.join(', ')}${names.length > 2 ? ` +${names.length - 2} more` : ''}`;
 }
 
 /** "Tests passed · 48 passed", "Tests passed (exit code only)", "Tests unclear: no tests actually ran". */
@@ -461,14 +510,19 @@ export function flags(steps, { before = false } = {}) {
     if (e.kind !== 'run') continue;
     const cmd = commandOf(e);
     const ran = parts(cmd);
+    const script = scriptText(cmd);
+    // Without quoted text: a "sudo" or "Stop-Process" in a grep pattern or a message isn't one being run.
+    const unquoted = script.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
     for (const [re, did, will, level = 'warn'] of RISKY) {
       // A command it ran (not text it wrote into a file); a pipe into a shell and SQL
       // (often inside `psql -c "…"`) and force-stops (inside a PowerShell pipeline) are looked
-      // for across the whole line, minus any text written into a file.
-      const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[6][0];
-      if (anywhere ? !re.test(cmd.replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '')) : !ran.some((p) => p.search(re) === 0)) continue;
+      // for across the whole line, minus text written into a file and code in another
+      // language (a "sudo" inside node -e "…" is a string, not a command).
+      const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[5][0] || re === RISKY[6][0];
+      const where = re === RISKY[5][0] || re === RISKY[6][0] ? unquoted : script;
+      if (anywhere ? !re.test(where) : !ran.some((p) => p.search(re) === 0)) continue;
       // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
-      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every((p) => THROWAWAY.test(p))) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
+      if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every(deletesOnlyThrowaway)) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
       add(level, text[0].toUpperCase() + text.slice(1), e);
     }
@@ -489,6 +543,11 @@ function target(e) {
   const changed = (e.files ?? []).find((f) => f.change !== 'read')?.path;
   const file = changed ?? e.files?.[0]?.path;
   if (file) return `${changed ? 'change' : 'read'}:${String(file).replace(/\\/g, '/').toLowerCase()}`;
+  if (e.kind === 'run' && stepType(e) === 'test') {
+    // `node --test x.js 2>&1 | grep fail` then `node --test x.js 2>&1 | tail` is one test, run twice.
+    const test = parts(commandOf(e)).find((p) => TEST.test(p));
+    if (test) return `test:${test.replace(/\s+\d?>>?&?\s*\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
+  }
   if (e.kind === 'run') return `cmd:${commandOf(e).trim().replace(/\s+/g, ' ').slice(0, 200)}`;
   return e.tool ? `tool:${e.tool}:${e.title ?? ''}` : null;
 }
@@ -500,13 +559,17 @@ function target(e) {
  * plus `retryOf`: Map(step id → the failed step it retried). It's a good guess, not a
  * certainty: agents don't say "this is a retry", so a later step at the same target counts.
  */
+// A test run fails by its results, not only its exit code (`npm test; echo done` exits 0).
+const testedAs = (e) => (e.kind === 'run' && stepType(e) === 'test' && !running(e) ? testVerdict(e).state : null);
+const failedStep = (e) => e.status === 'failed' || testedAs(e) === 'failed';
+
 export function retries(steps) {
   const list = [...steps].filter((e) => !['prompt', 'done', 'error', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
   const chains = new Map();
   const retryOf = new Map();
   for (let i = 0; i < list.length; i++) {
     const first = list[i];
-    if (first.status !== 'failed' || retryOf.has(first.id)) continue;
+    if (!failedStep(first) || retryOf.has(first.id)) continue;
     const key = target(first);
     if (!key) continue;
     const attempts = [first];
@@ -514,12 +577,14 @@ export function retries(steps) {
       const e = list[j];
       if (e.at - attempts.at(-1).at > 15 * 60_000) break;
       if (e.session !== first.session || target(e) !== key) continue;
+      // A test run that can't tell (piped, stopped) neither fixes nor fails: look further.
+      if (testedAs(e) === 'unclear') continue;
       attempts.push(e);
       retryOf.set(e.id, first.id);
-      if (e.status !== 'failed') break; // fixed (or still running): the chain ends here
+      if (!failedStep(e)) break; // fixed (or still running): the chain ends here
     }
     const last = attempts.at(-1);
-    const outcome = last === first ? 'failing' : last.status === 'failed' ? 'failing' : running(last) ? 'trying' : 'fixed';
+    const outcome = last === first ? 'failing' : failedStep(last) ? 'failing' : running(last) ? 'trying' : 'fixed';
     chains.set(first.id, { attempts, outcome });
   }
   return { chains, retryOf };
@@ -879,7 +944,11 @@ export function simple(turn, { live = !turn.end } = {}) {
     const last = testVerdict(tests.at(-1));
     const fails = tests.slice(0, -1).filter((e) => testVerdict(e).state === 'failed').length;
     if (last.state === 'passed') parts.push(fails ? `the tests passed after ${fails === 1 ? 'one retry' : `${fails} retries`}` : 'the tests passed');
-    else if (last.state === 'failed') { parts.push('the tests are failing'); if (status === 'ok') status = 'failed'; }
+    else if (last.state === 'failed') {
+      const first = failingNames({ facts: { failing: last.facts?.failing?.slice(0, 1) ?? [] } }).slice(2);
+      parts.push(`the tests are failing${first ? ` (${first})` : ''}`);
+      if (status === 'ok') status = 'failed';
+    }
     else { parts.push('the test result is unclear'); if (status === 'ok') status = 'unclear'; }
   } else if (change && !live && testState(turn.steps)?.state === 'untested') parts.push('but it didn’t run the tests');
   const build = by('build');
@@ -931,7 +1000,9 @@ export function turnMarkdown(t) {
   const failed = [];
   const unclear = [];
   const notRun = [];
-  const { chains } = retries(t.steps);
+  const { chains, retryOf } = retries(t.steps);
+  // A failed retry is part of the first failure's line ("still failing after 3 tries"), not a line of its own.
+  const repeat = (e) => failedStep(e) && retryOf.has(e.id);
   const tries = (e) => {
     const c = chains.get(e.id);
     if (!c || c.attempts.length < 2) return '';
@@ -942,6 +1013,7 @@ export function turnMarkdown(t) {
   for (const e of t.steps) {
     if (running(e)) continue;
     if (['edit', 'write', 'delete'].includes(e.kind) && e.status === 'failed') {
+      if (repeat(e)) continue;
       failed.push(`- Edit to ${code(baseName(e.files?.[0]?.path ?? e.title ?? 'a file'))} didn’t apply${ref(e)}${tries(e)}`);
       continue;
     }
@@ -952,12 +1024,12 @@ export function turnMarkdown(t) {
       const v = testVerdict(e);
       const line = `- Tests: ${code(commandOf(e))} → ${testEvidence(v)}${ref(e)}`;
       if (v.state === 'passed') ok.push(line);
-      else if (v.state === 'failed') failed.push(line + tries(e));
+      else if (v.state === 'failed') { if (!repeat(e)) failed.push(line + tries(e)); }
       else unclear.push(line);
       continue;
     }
     const label = { build: 'Build and checks', ship: 'Shipped', install: 'Installed' }[type];
-    if (e.status === 'failed') failed.push(`- ${label ?? 'Command'}: ${code(commandOf(e))} → ${firstError(e)}${ref(e)}${tries(e)}`);
+    if (e.status === 'failed') { if (!repeat(e)) failed.push(`- ${label ?? 'Command'}: ${code(commandOf(e))} → ${firstError(e)}${ref(e)}${tries(e)}`); }
     else if (label) ok.push(`- ${label}: ${code(commandOf(e))}${ref(e)}`);
     else other++;
   }
@@ -970,9 +1042,19 @@ export function turnMarkdown(t) {
   for (const [title, list] of [['✅ Ran successfully', ok], ['❌ Failed', failed], ['❔ Unclear', unclear], ['⚪ Not run', notRun]]) {
     if (list.length) lines.push(`**${title}**`, ...list, '');
   }
+  // The reviewer's two questions: ready to merge? and why did it stop?
+  const r = readiness(t);
+  if (r) lines.push(r.ready ? '**Ready to merge?** Yes: tests ran after the last change and passed, nothing risky.' : `**Ready to merge?** Not yet: ${r.problems.join('; ')}.`, '');
+  const why = whyStopped(t, { live: false });
+  if (why) lines.push(`_Why it stopped: ${why.text}._`, '');
+  const outsidePaths = new Set(t.steps.filter(outside).flatMap((e) => e.files.map((x) => String(x.path).toLowerCase())));
+  const elsewhere = (x) => outsidePaths.has(String(x.path).toLowerCase());
   for (const [label, list] of [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]]) {
-    if (list.length) lines.push(`- ${label}: ${fileList(list.map((x) => x.path))}`);
+    const mine = list.filter((x) => !elsewhere(x));
+    if (mine.length) lines.push(`- ${label}: ${fileList(mine.map((x) => x.path))}`);
   }
+  const scratch = [...f.changed, ...f.wrote, ...f.deleted].filter(elsewhere).length;
+  if (scratch) lines.push(`- Also touched ${plural(scratch, 'file')} outside the project (scratch or temp)`);
   if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
   if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
   const took = turnTime(t);
@@ -983,6 +1065,77 @@ export function turnMarkdown(t) {
 /** Several requests as one Markdown document ("Copy today", a session's export). */
 export const recapMarkdown = (title, turns) =>
   [`## ${title}`, ...turns.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n');
+
+// -- reviewing a request: why it stopped, and is it ready to merge? ------------------------
+
+/** What a step was trying to do, in a few words: a command, or the file an edit was for. */
+const whatOf = (e) => (e.kind === 'run' ? code(commandOf(e)) : code(baseName(e.files?.[0]?.path ?? e.title ?? 'a file')));
+const lastTestVerdict = (steps) => {
+  const runs = steps.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e));
+  return runs.length ? testVerdict(runs.at(-1)) : null;
+};
+/** Failures the agent tried again and never fixed. */
+const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) => c.outcome === 'failing' && c.attempts.length > 1);
+/** Whether a request changed code (not docs, images or lockfiles, not scratch files outside the project). */
+const changedCode = (steps) => steps.some((e) => stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
+  && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path))));
+
+/**
+ * Why a request ended, in plain words: { kind, text }, or null while the agent is still
+ * working on it. Agents don't say why they stopped, so this reads it from what happened:
+ * an error, a failure it kept retrying, failing tests, a question at the end, or a clean
+ * finish. `waiting`: the agent is waiting for you right now.
+ */
+export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
+  if (live) return waiting ? { kind: 'waiting', text: 'Waiting for you' } : null;
+  if (!turn.end) return { kind: 'cut', text: 'Cut off before it finished (interrupted, or a new message came in)' };
+  if (turn.end.kind === 'error') {
+    const why = String(turn.end.error || turn.end.title || '').split('\n')[0].trim().slice(0, 90);
+    return { kind: 'error', text: `Stopped with an error${why ? `: ${why}` : ''}` };
+  }
+  const gaveUp = leftFailing(turn.steps).at(-1);
+  if (gaveUp) return { kind: 'gave-up', text: `Stopped trying: ${whatOf(gaveUp.attempts[0])} still failed after ${gaveUp.attempts.length} tries` };
+  if (lastTestVerdict(turn.steps)?.state === 'failed') return { kind: 'failing', text: 'Said it was done, but the tests are failing' };
+  const said = String(turn.end.summary ?? '').trim().split('\n').filter(Boolean).at(-1) ?? '';
+  if (/\?\s*\**\s*$/.test(said)) return { kind: 'question', text: 'Finished with a question for you' };
+  return { kind: 'done', text: 'Finished: the agent said it was done' };
+}
+
+/**
+ * Is a finished request that changed code ready to merge? The checks a reviewer would make:
+ *   { ready, checks: [{ ok, text }], problems: [text] }, or null (still working, or no code changed).
+ * Only tests the agent ran count: dotpals can't see the ones you run yourself, or CI.
+ */
+export function readiness(turn) {
+  if (!turn.end || turn.end.kind !== 'done' || !changedCode(turn.steps)) return null;
+  const tested = testState(turn.steps);
+  const last = lastTestVerdict(turn.steps);
+  const ran = !!last && tested?.state !== 'untested';
+  const checks = [
+    { ok: ran, text: ran ? 'Tests ran' : 'No tests ran' },
+  ];
+  if (ran) {
+    checks.push({ ok: tested.state !== 'stale', text: tested.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
+    checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
+  }
+  // Left failing: anything tried again and again, and a test or build that failed once and
+  // never passed (a failing `npm run test:unit` isn't fixed by a passing `npm run lint`).
+  const stuck = [...retries(turn.steps).chains.values()].filter((c) => c.outcome === 'failing'
+    && (c.attempts.length > 1 || ['test', 'build'].includes(stepType(c.attempts[0]))));
+  const worst = stuck.at(-1);
+  checks.push({ ok: !stuck.length, text: !worst ? 'No failures left behind' : worst.attempts.length > 1 ? `${whatOf(worst.attempts[0])} still fails after ${worst.attempts.length} tries` : `${whatOf(worst.attempts[0])} failed and wasn’t fixed` });
+  const risky = flags(turn.steps).filter((f) => f.level === 'warn');
+  checks.push({ ok: !risky.length, text: risky.length ? risky[0].text : 'Nothing risky' });
+  if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
+  const problems = checks.filter((c) => !c.ok).map((c) => c.text);
+  return { ready: !problems.length, checks, problems };
+}
+
+/** "✅ Ready to merge" or "⚠ Not ready to merge: Tests are failing · Changed .env…", for a card. */
+export function readinessLine(r) {
+  if (!r) return '';
+  return r.ready ? '✅ Ready to merge: tests ran after the last change and passed, nothing risky' : `⚠ Not ready to merge: ${r.problems.join(' · ')}`;
+}
 
 /** A turn's story: chapters, flags for the whole turn, and the plan. */
 export function story(turn, sessionSteps = turn.steps) {
