@@ -6,6 +6,10 @@
 // test results). It never leaves this module: loadConfig() returns only whether a key
 // is set and its last 4 characters, and checkerKey() hands the key to bridge/checker.js.
 // The file is written readable by you only (0600) where the system supports it.
+//
+// It can also hold a Sentry DSN (sentry.dsn, set with `dotpals sentry <dsn>`), which turns
+// on error and performance tracing for your copy (bridge/tracing.js). The pages only see
+// whether it's on.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
@@ -103,6 +107,32 @@ function cleanChecker(input, before = {}) {
   return out;
 }
 
+/** A Sentry DSN as pasted (https://<key>@<host>/<project id>), or null. */
+export function validDsn(dsn) {
+  try {
+    const url = new URL(String(dsn ?? '').trim());
+    return /^https?:$/.test(url.protocol) && url.username && /^\/(.+\/)?\d+$/.test(url.pathname) ? url.href.replace(/\/$/, '') : null;
+  } catch { return null; }
+}
+/** How many requests get a span: 0.01 to 1. */
+const validRate = (rate) => { const n = Number(rate); return Number.isFinite(n) && n >= 0.01 && n <= 1 ? n : null; };
+export const SENTRY_RATE = 0.2;
+
+function cleanSentry(input, before = {}) {
+  const out = { ...before };
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return out;
+  if (validDsn(input.dsn)) out.dsn = validDsn(input.dsn);
+  if (validRate(input.tracesSampleRate) !== null) out.tracesSampleRate = validRate(input.tracesSampleRate);
+  if (input.off === true) { delete out.dsn; delete out.tracesSampleRate; }
+  return out;
+}
+
+/** Sentry's settings, for bridge/tracing.js only: { dsn, tracesSampleRate }. DOTPALS_SENTRY_DSN wins. */
+export function sentrySettings() {
+  const saved = cleanSentry(readSaved().sentry);
+  return { dsn: validDsn(process.env.DOTPALS_SENTRY_DSN) ?? saved.dsn ?? null, tracesSampleRate: saved.tracesSampleRate ?? SENTRY_RATE };
+}
+
 const readSaved = () => { try { return JSON.parse(readFileSync(file(), 'utf8')) ?? {}; } catch { return {}; } };
 
 /** The TypeSafe API key: the one saved from the dashboard, else TYPESAFE_API_KEY. Only for bridge/checker.js. */
@@ -128,6 +158,9 @@ export function loadConfig() {
     keyLast4: key ? key.slice(-4) : null,
     keyFrom: checker.jevKey ? 'settings' : key ? 'env' : null,
   };
+  // Tracing, without the DSN: only whether it's on.
+  const sentry = sentrySettings();
+  config.sentry = { on: !!sentry.dsn, tracesSampleRate: sentry.tracesSampleRate };
   return config;
 }
 
@@ -140,12 +173,28 @@ export function saveConfig(patch) {
   if (change.agents) next.agents = { ...before.agents, ...change.agents };
   const checker = cleanChecker(patch?.checker, cleanChecker(saved.checker));
   if (Object.keys(checker).length) next.checker = checker;
+  // Sentry is set only by saveSentry (`dotpals sentry`), never by a page: kept as saved.
+  const sentry = cleanSentry(saved.sentry);
+  if (Object.keys(sentry).length) next.sentry = sentry;
+  write(next);
+  return loadConfig();
+}
+
+/** Turn Sentry tracing on ({ dsn, tracesSampleRate }) or off ({ off: true }). For `dotpals sentry` only. */
+export function saveSentry(input) {
+  const saved = readSaved();
+  const next = { ...saved, sentry: cleanSentry(input, cleanSentry(saved.sentry)) };
+  if (!Object.keys(next.sentry).length) delete next.sentry;
+  write(next);
+  return sentrySettings();
+}
+
+function write(next) {
   mkdirSync(home(), { recursive: true });
   // Readable by you only, since it may hold an API key (POSIX; Windows keeps the
   // folder's own permissions, which are per user in your home folder).
   writeFileSync(file(), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   if (platform() !== 'win32') { try { chmodSync(file(), 0o600); } catch {} }
-  return loadConfig();
 }
 
 export const configPath = file;
