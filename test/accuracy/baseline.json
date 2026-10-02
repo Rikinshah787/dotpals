@@ -36,5 +36,11 @@
     "2026-10-01-claude-964b-82310 stopped stopped",
     "2026-10-02-claude-964b-97004 tests e61",
     "2026-10-02-claude-964b-97004 ready ready"
+  ],
+  "unsure": [
+    "2026-10-01-claude-964b-26947 tests e45",
+    "2026-10-01-claude-964b-98422 tests e33",
+    "2026-10-01-claude-964b-98422 tests e39",
+    "2026-10-02-claude-964b-76648 tests e7"
   ]
 }
