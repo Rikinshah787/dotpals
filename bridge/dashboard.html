@@ -599,7 +599,7 @@
       buildTurns, facts, sentence, plain, summarizeSessions, turnTime,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
-    import { checkOf, minorChapter, overlaps, readiness, readinessLine, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown, whyStopped } from '/bridge/ui/story.js';
+    import { checkOf, minorChapter, overlaps, readiness, readinessLine, gitTruth, gitLine, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown, whyStopped } from '/bridge/ui/story.js';
     import { continueMenu } from '/bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
@@ -1140,7 +1140,10 @@
     function reviewBlock(t, opts) {
       const ready = readiness(t);
       const why = whyStopped(t, opts);
-      if (!ready && (!why || why.kind === 'done')) return null;
+      // What git saw, when it adds something: changes made by commands, another agent in the same repository.
+      const truth = gitTruth(t);
+      const gitNote = truth && (truth.byCommand.length || truth.others.length || truth.tooMany || (!truth.files.length && truth.undone.length)) ? gitLine(truth) : '';
+      if (!ready && (!why || why.kind === 'done') && !gitNote) return null;
       const box = el('div', 'review');
       if (ready) {
         const line = el('div', `ready ${ready.ready ? 'ok' : 'no'}`, readinessLine(ready));
@@ -1148,6 +1151,11 @@
         box.append(line);
       }
       if (why && why.kind !== 'done') box.append(el('div', 'why', `Why it stopped: ${why.text}`));
+      if (gitNote) {
+        const line = el('div', 'why git', gitNote);
+        if (truth.byCommand.length) line.title = `Changed by commands, not file tools:\n${truth.byCommand.map((f) => f.path).join('\n')}`;
+        box.append(line);
+      }
       return box;
     }
     function renderTurns(s) {

@@ -1046,9 +1046,23 @@ export function turnMarkdown(t) {
   if (why) lines.push(`_Why it stopped: ${why.text}._`, '');
   const outsidePaths = new Set(t.steps.filter(outside).flatMap((e) => e.files.map((x) => String(x.path).toLowerCase())));
   const elsewhere = (x) => outsidePaths.has(String(x.path).toLowerCase());
-  for (const [label, list] of [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]]) {
+  // What changed: git's word when the bridge saw the repository before and after (it also
+  // sees what commands changed); otherwise what the file tools said.
+  const truth = gitTruth(t);
+  const lists = truth && !truth.tooMany
+    ? [['Changed', truth.files.filter((x) => x.change === 'edit')], ['Wrote', truth.files.filter((x) => x.change === 'write')], ['Deleted', truth.files.filter((x) => x.change === 'delete')]]
+    : [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]];
+  for (const [label, list] of lists) {
     const mine = list.filter((x) => !elsewhere(x));
-    if (mine.length) lines.push(`- ${label}: ${fileList(mine.map((x) => x.path))}`);
+    if (mine.length) lines.push(`- ${label}: ${fileList(mine.map((x) => x.path))}${truth && !truth.tooMany && truth.more && label === 'Changed' ? ` and ${truth.more} more` : ''}`);
+  }
+  if (truth && !truth.tooMany && truth.byCommand.length) lines.push(`- Changed by commands, not file tools: ${fileList(truth.byCommand.map((x) => x.path))}`);
+  if (truth) {
+    const note = gitLine({ ...truth, byCommand: [] }).replace(/^Git: [^·]*(· )?/, '');
+    if (truth.tooMany) lines.push('- Git: too many changed files to compare');
+    else if (!truth.files.length) lines.push(`- ${gitLine(truth)}`);
+    if (note) lines.push(`- ⚠ ${note[0].toUpperCase()}${note.slice(1)}`);
+    lines.push('- _Files checked against git_');
   }
   const scratch = [...f.changed, ...f.wrote, ...f.deleted].filter(elsewhere).length;
   if (scratch) lines.push(`- Also touched ${plural(scratch, 'file')} outside the project (scratch or temp)`);
@@ -1099,12 +1113,45 @@ export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
 }
 
 /**
+ * What git says a finished request changed (the bridge compares the repository before and
+ * after it: bridge/ground.js), next to what its tool calls said:
+ *   { files: [{ path, change, byTool }], byCommand: [files no file tool touched],
+ *     undone: [project files a tool changed that git shows unchanged], committed, others, more, tooMany }
+ * or null when there's no snapshot (not a git repository, or read from a transcript later).
+ * Git's paths are relative to the repository; a tool's may be absolute, so a tool's path
+ * counts as the same file when it ends with git's.
+ */
+export function gitTruth(turn) {
+  const g = turn.end?.git;
+  if (!g || !Array.isArray(g.files)) return null;
+  const norm = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+  const toolPaths = [...new Set(turn.steps.filter((e) => e.status !== 'failed' && !outside(e)).flatMap((e) => (e.files ?? []).filter((f) => f.change !== 'read').map((f) => norm(f.path))))];
+  const same = (tool, git) => tool === git || tool.endsWith(`/${git}`);
+  const files = g.files.map((f) => ({ ...f, byTool: toolPaths.some((t) => same(t, norm(f.path))) }));
+  const undone = g.tooMany ? [] : toolPaths.filter((t) => !files.some((f) => same(t, norm(f.path))));
+  return { files, byCommand: files.filter((f) => !f.byTool), undone, committed: !!g.committed, others: g.others ?? [], more: g.more ?? 0, tooMany: !!g.tooMany };
+}
+
+/** One line for a card: "Git: 5 files changed, 2 of them by commands · Codex was also working here", or ''. */
+export function gitLine(truth) {
+  if (!truth) return '';
+  if (truth.tooMany) return 'Git: too many changed files to compare';
+  const n = truth.files.length + truth.more;
+  const parts = [n ? `Git: ${plural(n, 'file')} changed${truth.byCommand.length ? `, ${truth.byCommand.length === n ? (n === 1 ? 'by a command' : 'all by commands') : `${truth.byCommand.length} of them by commands`}` : ''}` : 'Git: no files changed'];
+  if (!n && truth.undone.length) parts[0] += `, though it edited ${plural(truth.undone.length, 'file')} (undone, or ignored by git)`;
+  if (truth.others.length) parts.push(`${truth.others.map((o) => harnessName(o.harness)).join(', ')} ${truth.others.length === 1 ? 'was' : 'were'} also working here, so some may be theirs`);
+  return parts.join(' · ');
+}
+
+/**
  * Is a finished request that changed code ready to merge? The checks a reviewer would make:
  *   { ready, checks: [{ ok, text }], problems: [text] }, or null (still working, or no code changed).
  * Only tests the agent ran count: dotpals can't see the ones you run yourself, or CI.
  */
 export function readiness(turn) {
-  if (!turn.end || turn.end.kind !== 'done' || !changedCode(turn.steps)) return null;
+  // Code changed: through a file tool, or (git says) through a command.
+  const byGit = gitTruth(turn)?.files.some((f) => f.change !== 'delete' && !NOT_CODE.test(f.path));
+  if (!turn.end || turn.end.kind !== 'done' || !(changedCode(turn.steps) || byGit)) return null;
   const tested = testState(turn.steps);
   const last = lastTestVerdict(turn.steps);
   const ran = !!last && tested?.state !== 'untested';

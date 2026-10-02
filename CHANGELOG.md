@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Git checks what really changed.** When a request starts, dotpals notes the state of the project's git repository; when it ends, it compares. The recap's Changed / Wrote / Deleted lists now come from git, so files changed by commands (`sed -i`, `node -e`, a code generator, a formatter) and commits show up too, marked "Changed by commands, not file tools". A request that changed code only through a command still gets a "Ready to merge?" verdict. When another agent was working in the same repository meanwhile, the card says some changes may be theirs; when the agent edited files but git shows nothing changed, it says so. Only file names and times are read, nothing is written, and it works for every agent.
+
 ## [0.9.3] - 2026-10-01
 
 ### Added
