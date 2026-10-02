@@ -122,7 +122,7 @@ test('deletions count as code changes and unlocated Git changes are not proven t
   const generated = run('node scripts/generate.js');
   const gitOnly = readiness({ steps: [passing, generated], end: done({ files: [{ path: 'src/a.js', change: 'edit', byTool: false }], committed: false, others: [] }) });
   assert.equal(gitOnly.ready, false);
-  assert.ok(gitOnly.problems.some((p) => /timing relative to the tests is unknown/.test(p)));
+  assert.ok(gitOnly.problems.some((p) => /may not be tested/.test(p)));
 });
 
 test('another agent in the same repository, and edits git doesn’t show', () => {
@@ -132,4 +132,15 @@ test('another agent in the same repository, and edits git doesn’t show', () =>
   const undone = gitTruth({ steps: [edit('src/a.js')], end: done({ files: [], committed: false, others: [] }) });
   assert.equal(gitLine(undone), 'Git: no files changed, though it edited 1 file (undone, or ignored by git)');
   assert.equal(gitTruth({ steps: [], end: { kind: 'done' } }), null);
+});
+
+test('code git saw changed by a command: tested if the tests were the last thing run, unknown otherwise', () => {
+  const gitDone = done({ files: [{ path: 'src/a.js', change: 'edit' }], committed: false, others: [] });
+  const tests = run('npm test', 'Tests: 4 passed');
+  // node scripts/generate.js, then the tests, and nothing after: the change came before the tests.
+  assert.equal(readiness({ steps: [{ ...run('node scripts/generate.js'), at: 1 }, { ...tests, at: 2 }], end: gitDone }).ready, true);
+  // Tests, then another command: git's change may have come after them.
+  const r = readiness({ steps: [{ ...tests, at: 1 }, { ...run('node scripts/generate.js'), at: 2 }], end: gitDone });
+  assert.equal(r.ready, false);
+  assert.ok(r.problems.some((p) => /may not be tested/.test(p)), r.problems.join(' | '));
 });

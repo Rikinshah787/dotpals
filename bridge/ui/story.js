@@ -1232,13 +1232,17 @@ export function readiness(turn) {
   const norm = (path) => String(path).replace(/\\/g, '/').toLowerCase();
   const same = (a, b) => a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
   const commandPaths = turn.steps.flatMap(commandEdits).map(norm);
-  const gitUntimed = truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
+  // Code git saw changed that no file tool or readable command accounts for: it can't be
+  // placed before or after the tests, unless no command ran after the last test run (then
+  // it can only have happened before it).
+  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at) : true;
+  const gitUntimed = after && truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
     && !commandPaths.some((path) => same(path, norm(f.path))));
   const checks = [
     { ok: ran, text: ran ? 'Tests ran' : 'No tests ran' },
   ];
   if (ran) {
-    checks.push({ ok: tested?.state !== 'stale' && !gitUntimed, text: gitUntimed ? 'Git found code changes whose timing relative to the tests is unknown' : tested?.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
+    checks.push({ ok: tested?.state !== 'stale' && !gitUntimed, text: gitUntimed ? 'Code changed by a command after the tests may not be tested (git saw it, the steps don’t show when)' : tested?.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
     checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
   }
   // Left failing: anything tried again and again, and a test or build that failed once and
