@@ -57,9 +57,9 @@ import { homedir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
-import { clip, clipEnds, createActivityLog, folderName } from './activity.js';
+import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, lastReply, watchClaude } from './adapters/claude.js';
-import { crossRecap, flags as riskFlags, stepType } from './ui/story.js';
+import { contextEntries, crossRecap, flags as riskFlags, stepType } from './ui/story.js';
 import { sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -105,7 +105,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
       if (!getConfig().history) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const entries = activity.all().filter((e) => Date.now() - e.at < keep()).slice(-5000);
+        const entries = trimActivity(activity.all().filter((e) => Date.now() - e.at < keep()), 5000, contextEntries);
         writing = writing.then(async () => {
           try {
             await mkdir(home(), { recursive: true });
@@ -139,7 +139,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
-  const activity = createActivityLog({ limit: 1500 });
+  const activity = createActivityLog({ limit: 1500, retain: contextEntries });
   const backfilled = new Set();
   const hooked = new Set();    // Claude sessions that send hook events
   const lastSeen = {};        // harness → time of its last event

@@ -869,6 +869,42 @@ export function overlaps(entries, since = Date.now() - 2 * 3600_000, { within = 
 
 // -- compacting ------------------------------------------------------------------------
 
+export function contextEntries(entries) {
+  const sessions = new Map();
+  for (const entry of entries) {
+    if (!sessions.has(entry.session)) sessions.set(entry.session, []);
+    sessions.get(entry.session).push(entry);
+  }
+  const kept = new Set();
+  for (const list of sessions.values()) {
+    const prompts = list.filter((entry) => entry.kind === 'prompt');
+    for (const entry of [prompts[0], ...prompts.slice(-4)]) if (entry) kept.add(entry);
+    const plan = list.findLastIndex((entry) => Array.isArray(entry.plan));
+    for (const entry of list.slice(Math.max(0, plan))) if (entry.plan || entry.task) kept.add(entry);
+    for (const predicate of [
+      (entry) => entry.kind === 'run' && stepType(entry) === 'test',
+      (entry) => entry.kind === 'run' && runs(commandOf(entry), COMMIT),
+      (entry) => entry.kind === 'done' || entry.kind === 'error',
+    ]) {
+      const entry = list.findLast(predicate);
+      if (entry) kept.add(entry);
+    }
+    const paths = new Set();
+    for (let index = list.length - 1; index >= 0 && paths.size < 30; index--) {
+      const entry = list[index];
+      if (entry.status === 'failed') continue;
+      const changed = [...(entry.files ?? []).filter((file) => file.change !== 'read').map((file) => file.path), ...commandEdits(entry)];
+      for (const path of changed) {
+        const key = String(path).replace(/\\/g, '/').toLowerCase();
+        if (paths.has(key) || paths.size >= 30) continue;
+        paths.add(key);
+        kept.add(entry);
+      }
+    }
+  }
+  return [...kept];
+}
+
 /**
  * A `/compact` command with a note on what to keep, written from the session's own
  * record: the goal, what's still on the plan, the files changed and whether the
@@ -877,8 +913,10 @@ export function overlaps(entries, since = Date.now() - 2 * 3600_000, { within = 
  */
 export function compactNote(entries) {
   const list = [...entries].sort((a, b) => a.at - b.at);
-  const clipped = (s, n) => { s = String(s ?? '').split('\n')[0].trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
-  const goal = list.findLast((e) => e.kind === 'prompt')?.title;
+  const clipped = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+  const prompts = list.filter((entry) => entry.kind === 'prompt');
+  const original = prompts[0]?.title;
+  const goal = prompts.at(-1)?.title;
   const plan = planOf(list);
   const todo = plan?.items.filter((p) => p.status !== 'completed').slice(0, 4).map((p) => clipped(p.text, 60)) ?? [];
   const files = [];
@@ -886,17 +924,24 @@ export function compactNote(entries) {
     if (e.status === 'failed') continue;
     for (const f of e.files ?? []) {
       if (!['edit', 'write', 'delete'].includes(f.change)) continue;
-      const name = baseName(f.path);
+      const name = String(f.path).replace(/\\/g, '/');
       if (!files.includes(name)) files.push(name);
+      if (files.length >= 8) break;
     }
     if (files.length >= 8) break;
   }
-  const lastTest = list.findLast((e) => e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running');
+  const tested = testState(list);
+  const tests = !tested ? null : tested.state === 'untested' ? 'no tests run by the agent after changing code'
+    : tested.state === 'running' ? 'tests are still running; no final result yet'
+    : tested.state === 'stale' ? `tests ${lastWord(tested.verdict)}, but ${tested.since.slice(0, 4).map((path) => clipped(path, 120)).join(', ')}${tested.since.length > 4 ? ` and ${tested.since.length - 4} more files` : ''} changed since; not tested since`
+    : `${testWords(tested.verdict)} (${clipped(commandOf(tested.last), 120)})`;
   const parts = [
-    goal && `Keep the current goal: "${clipped(goal, 140)}"`,
+    original && original !== goal && `Keep the original request and constraints: "${clipped(original, 800)}"`,
+    prompts.length > 2 && `recent instructions (newer ones override older ones): ${prompts.slice(-4, -1).filter((entry) => entry !== prompts[0]).map((entry) => `"${clipped(entry.title, 400)}"`).join('; ')}`,
+    goal && `Keep the current goal and constraints: "${clipped(goal, 800)}"`,
     todo.length && `still to do: ${todo.join('; ')}`,
-    files.length && `files changed so far: ${files.join(', ')}`,
-    lastTest && testPassed(lastTest) === false && `the tests are failing right now (${clipped(commandOf(lastTest), 40)})`,
+    files.length && `recent changed paths: ${files.map((path) => clipped(path, 160)).join(', ')}`,
+    tests && `test evidence: ${tests}`,
   ].filter(Boolean);
   const sentences = parts.map((x) => x[0].toUpperCase() + x.slice(1));
   return `/compact ${sentences.length ? `${sentences.join('. ')}.` : 'Keep the current goal and the files changed so far.'}`;

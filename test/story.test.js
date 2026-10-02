@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chapters, flags, headline, planOf, stepType } from '../bridge/ui/story.js';
+import { chapters, compactNote, contextEntries, flags, headline, planOf, stepType, testState } from '../bridge/ui/story.js';
+import { createActivityLog, trimActivity } from '../bridge/activity.js';
 
 let n = 0;
 const step = (kind, extra = {}) => ({ id: `s${n++}`, session: 's', kind, status: 'ok', at: 1000 + n, ...extra });
@@ -144,8 +145,65 @@ test('compactNote: a /compact with what to keep', async () => {
     edit('src/useTheme.ts'),
     run('npm test', 'failed'),
   ]);
-  assert.equal(note, '/compact Keep the current goal: "Add dark mode". Still to do: Add Auto option. Files changed so far: useTheme.ts. The tests are failing right now (npm test).');
+  assert.equal(note, '/compact Keep the current goal and constraints: "Add dark mode". Still to do: Add Auto option. Recent changed paths: /p/src/useTheme.ts. Test evidence: Tests failed (exit code only) (npm test).');
   assert.equal(compactNote([]), '/compact Keep the current goal and the files changed so far.');
+});
+
+test('long sessions retain original constraints, plans, file changes and stale test evidence', () => {
+  const log = createActivityLog({ limit: 1500, retain: contextEntries });
+  const original = step('prompt', { title: 'Add dark mode\nDo not change the public API' });
+  const plan = step('plan', { plan: [{ text: 'Check accessibility', status: 'pending' }] });
+  const tested = run('npm test');
+  const changed = edit('src/theme.js');
+  const latest = step('prompt', { title: 'Finish the toggle\nKeep keyboard support' });
+  for (const entry of [original, plan, tested, changed, latest]) log.upsert(entry);
+  for (let index = 0; index < 1540; index++) log.upsert(read(`src/lookup-${index}.js`));
+  assert.equal(log.all().length, 1500);
+  assert.deepEqual(log.get(original.id), original);
+  assert.deepEqual(log.get(plan.id), plan);
+  assert.equal(testState(log.all()).state, 'stale');
+  const restored = createActivityLog({ limit: 12, retain: contextEntries });
+  for (const entry of JSON.parse(JSON.stringify(trimActivity(log.all(), 8, contextEntries)))) restored.upsert(entry);
+  const note = compactNote(restored.all());
+  assert.match(note, /original request and constraints: "Add dark mode Do not change the public API"/);
+  assert.match(note, /Finish the toggle Keep keyboard support/);
+  assert.match(note, /Check accessibility/);
+  assert.match(note, /\/p\/src\/theme\.js/);
+  assert.match(note, /not tested since/);
+});
+
+test('context retention keeps task creation and updates together and separates sessions', () => {
+  const entries = [
+    step('plan', { task: { op: 'create', text: 'Write tests' } }),
+    step('plan', { task: { op: 'update', id: '1', status: 'in_progress' } }),
+    step('prompt', { session: 'other', title: 'Other project' }),
+    ...Array.from({ length: 20 }, () => read('lookup.js')),
+  ];
+  const retained = trimActivity(entries, 6, contextEntries);
+  assert.equal(planOf(retained).current.text, 'Write tests');
+  assert.ok(retained.some((entry) => entry.session === 'other'));
+  assert.doesNotMatch(compactNote(retained.filter((entry) => entry.session === 's')), /Other project/);
+});
+
+test('compaction notes preserve recent instructions and distinguish identical filenames', () => {
+  const note = compactNote([
+    step('prompt', { title: 'Build a toggle' }),
+    step('prompt', { title: 'Use the existing theme API' }),
+    step('prompt', { title: 'Finish it' }),
+    edit('client/index.js'), edit('server/index.js'),
+  ]);
+  assert.match(note, /Recent instructions.*Use the existing theme API/);
+  assert.match(note, /\/p\/client\/index\.js/);
+  assert.match(note, /\/p\/server\/index\.js/);
+  assert.match(note, /no tests run by the agent/);
+});
+
+test('compaction file lists stay bounded even when one tool changes many files', () => {
+  const paths = Array.from({ length: 100 }, (_, index) => ({ path: `/p/file-${index}.js`, change: 'edit' }));
+  const note = compactNote([run('npm test'), step('edit', { files: paths })]);
+  assert.match(note, /and 96 more files/);
+  assert.doesNotMatch(note, /file-8\.js/);
+  assert.match(note, /not tested since/);
 });
 
 test('headline: prompts are not steps, and it shortens to whole words', async () => {
