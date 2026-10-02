@@ -458,3 +458,37 @@ test('risky commands are still caught inside shells, behind sudo/xargs/-exec, an
   assert.deepEqual(flags([run("cat >> t.js <<'EOF'\nrm -rf src\nEOF")]), []);
   assert.deepEqual(flags([run('node -e "require(\'fs\').rmSync(\'x\')" && echo "git push --force"')]), []);
 });
+
+test('a recap of a real turn: piped tests, code in node -e, scratch files and retries (from a user check)', async () => {
+  const { turnMarkdown, testVerdict } = await import('../bridge/ui/story.js');
+  const withOut = (command, status, output) => ({ ...run(command, status), body: { command, output } });
+  // Piped into grep or tail, the exit code is the last command's, not the tests'.
+  assert.equal(testVerdict(withOut('node --test test/guard.test.js 2>&1 | grep -E "fail|ok"', 'ok', 'ok 1 - x')).reason, 'piped');
+  assert.equal(testVerdict(withOut('npm test || echo failed', 'ok', '')).state, 'passed');
+  assert.equal(testVerdict(withOut('npm test 2>&1 | tail -3', 'ok', '# pass 12\n# fail 0')).state, 'passed'); // counts still win
+  // "sudo" or "chmod" inside a node -e script is a string, not a command; inside bash -c it is one.
+  assert.deepEqual(flags([run('node -e "console.log(\'sudo chmod 777 x\')"')]), []);
+  assert.ok(flags([run('bash -c "sudo chmod 777 x"')]).some((f) => f.level === 'warn'));
+  // A scratch file outside the project is counted, not listed.
+  const scratch = step('write', { title: 'C:/Users/me/AppData/Local/Temp/root-check.mjs', files: [{ path: 'C:/Users/me/AppData/Local/Temp/root-check.mjs', change: 'write' }] });
+  const md = turnMarkdown({
+    harness: 'claude', end: { kind: 'done' },
+    steps: [edit('src/guard.js'), scratch, withOut('node --test test/guard.test.js 2>&1 | grep -E "fail"', 'failed', 'not ok 3 - pathKey'),
+      edit('src/guard.js'), withOut('node --test test/guard.test.js 2>&1 | tail -5', 'ok', '# pass 9\n# fail 0')],
+  });
+  assert.doesNotMatch(md, /root-check/);
+  assert.match(md, /Also touched 1 file outside the project/);
+  // The same test file run again with a different pipe is a retry.
+  assert.match(md, /\(fixed on try 2\)/);
+});
+
+test('a test run that exits 0 but reports failures still starts a retry chain', async () => {
+  const { retries } = await import('../bridge/ui/story.js');
+  const withOut = (command, status, output) => ({ ...run(command, status), body: { command, output } });
+  const first = withOut('npm test; echo done', 'ok', 'Tests: 1 failed, 8 passed');
+  const piped = withOut('npm test | grep fail', 'ok', '');
+  const fixed = withOut('npm test', 'ok', 'Tests: 9 passed');
+  const { chains } = retries([first, piped, fixed]);
+  assert.deepEqual(chains.get(first.id).attempts.map((e) => e.id), [first.id, fixed.id]); // the piped run can't tell, so it's skipped
+  assert.equal(chains.get(first.id).outcome, 'fixed');
+});

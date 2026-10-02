@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Four wrong lines in the copied recap**, found by checking a real one against what happened:
+  - Tests piped into another command (`npm test | grep fail`) were "passed (exit code only)", but the exit code was grep's. They're now ❔ unclear, unless the output has counts.
+  - "Changed system permissions" came from the word `sudo` inside a `node -e "…"` script. Code in another language no longer triggers the whole-line rules; `bash -c "…"` still does.
+  - Scratch files outside the project were listed under Wrote. They're now counted: "Also touched 2 files outside the project".
+  - A failed test run wasn't linked to the run that fixed it when the two commands differed only in their pipes, or when the failure showed in the counts but the exit code was 0. Both now show "(fixed on try 2)".
 - **Is the checker working?** A status line under the checker says "Jev is working · answered 4 min ago in 227 ms" or "Jev isn't answering: TypeSafe didn't accept the API key · since 4:10 PM", from its answers, Test connection and a heartbeat (on start, when the setting changes, then every 30 minutes; for Jev that's the free model list). Recent checks starts with why it's rarely asked ("82 test runs · 79 settled by the rules · 3 unclear → 2 checked"), and the Overview's Test checks tile shows a green or red dot while a checker is on.
 - **Test connection said the TypeSafe SDK wasn't installed** when the pal had been opened by the Claude Code plugin: the plugin started dotpals from its own folder, which doesn't have what setup installs. The plugin now opens the installed copy (`~/.dotpals/app`) when there is one, the checker also looks for the SDK there, and an **Install it** button next to Test connection installs it in one click when it's missing.
 

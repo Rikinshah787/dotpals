@@ -50,16 +50,7 @@ function runsTests(cmd) {
  * `./node_modules/.bin/` are looked through.
  */
 export function parts(cmd) {
-  const unquote = (q) => q.slice(1, -1).replace(/\\(["\\])/g, '$1');
-  const text = String(cmd)
-    .replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '') // heredoc bodies
-    // A shell's script is commands: bash -c "rm -rf x" → rm -rf x
-    .replace(/\b(?:bash|sh|zsh|dash|fish|pwsh|powershell)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:c|Command)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (_, q) => `;${unquote(q)};`)
-    .replace(/\bcmd(?:\.exe)?\s+\/[ck]\s+/gi, ';')
-    // Code in another language isn't a shell command: node -e "…", python -c "…"
-    .replace(/\b(?:node|deno|bun|python3?|py|ruby|perl|php)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:e|c|p|r|-eval)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (m, q) => m.slice(0, m.length - q.length) + '""')
-    .replace(/\s-exec(?:dir)?\s+/g, ';'); // find … -exec rm -rf {} \;
-  return text.split(/\n|&&|\|\||[;|]/).map((part) => {
+  return scriptText(cmd).split(/\n|&&|\|\||[;|]/).map((part) => {
     let s = part.trim();
     for (let i = 0; i < 6; i++) {
       s = s
@@ -72,6 +63,23 @@ export function parts(cmd) {
     }
     return s;
   }).filter(Boolean);
+}
+
+/**
+ * A command line as the shell would run it: heredoc bodies (text written into a file) and
+ * code in another language (node -e "…", python -c "…") left out, a shell's own script
+ * (bash -c "…", cmd /c …) kept as commands.
+ */
+export function scriptText(cmd) {
+  const unquote = (q) => q.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  return String(cmd)
+    .replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '') // heredoc bodies
+    // A shell's script is commands: bash -c "rm -rf x" → rm -rf x
+    .replace(/\b(?:bash|sh|zsh|dash|fish|pwsh|powershell)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:c|Command)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (_, q) => `;${unquote(q)};`)
+    .replace(/\bcmd(?:\.exe)?\s+\/[ck]\s+/gi, ';')
+    // Code in another language isn't a shell command: node -e "…", python -c "…"
+    .replace(/\b(?:node|deno|bun|python3?|py|ruby|perl|php)(?:\.exe)?\b[^"'\n;&|]*?\s-(?:e|c|p|r|-eval)\s+("(?:[^"\\]|\\.)*"|'[^']*')/gi, (m, q) => m.slice(0, m.length - q.length) + '""')
+    .replace(/\s-exec(?:dir)?\s+/g, ';'); // find … -exec rm -rf {} \;
 }
 /** Whether a command runs something matching `re` (from the start of one of its parts). */
 const runs = (cmd, re) => parts(cmd).some((s) => s.search(re) === 0);
@@ -120,6 +128,18 @@ function countWords(f) {
  * output). An unclear run can be settled by the optional checker (bridge/checker.js),
  * whose answer is stored on the entry as `check`.
  */
+/**
+ * Whether a test command's output goes through a pipe (`npm test | grep fail`): the shell
+ * then reports the last command's exit code (grep's), not the tests'. `2>&1 | tee` too.
+ */
+function piped(cmd) {
+  for (const statement of scriptText(cmd).split(/\n|&&|\|\||;/)) {
+    const pipeline = statement.split(/(?<!\|)\|(?!\|)/);
+    if (pipeline.length > 1 && parts(pipeline.slice(0, -1).join(';')).some((p) => TEST.test(p))) return true;
+  }
+  return false;
+}
+
 export function testVerdict(e) {
   if (running(e)) return { state: 'running', source: 'exit' };
   const out = `${e.body?.output ?? ''}\n${e.error ?? ''}`;
@@ -129,6 +149,7 @@ export function testVerdict(e) {
   else if (facts.parsed && facts.passed > 0) v = { state: 'passed', source: 'output', summary: countWords(facts) };
   else if (facts.parsed) v = { state: 'unclear', source: 'output', summary: countWords(facts), reason: 'no-tests', note: 'no tests actually ran' };
   else if (e.status === 'stopped') v = { state: 'unclear', source: 'exit', reason: 'stopped', note: 'it didn’t finish' };
+  else if (piped(commandOf(e))) v = { state: 'unclear', source: 'exit', reason: 'piped', note: 'its output went through a pipe, so the exit code isn’t the tests’' };
   else if (e.status === 'failed') {
     v = FINE.test(out) && !BROKE.test(out)
       ? { state: 'unclear', source: 'exit', reason: 'clean-but-failed', note: 'the exit code says failed, but the output looks fine' }
@@ -489,12 +510,14 @@ export function flags(steps, { before = false } = {}) {
     if (e.kind !== 'run') continue;
     const cmd = commandOf(e);
     const ran = parts(cmd);
+    const script = scriptText(cmd);
     for (const [re, did, will, level = 'warn'] of RISKY) {
       // A command it ran (not text it wrote into a file); a pipe into a shell and SQL
       // (often inside `psql -c "…"`) and force-stops (inside a PowerShell pipeline) are looked
-      // for across the whole line, minus any text written into a file.
+      // for across the whole line, minus text written into a file and code in another
+      // language (a "sudo" inside node -e "…" is a string, not a command).
       const anywhere = re === RISKY[3][0] || re === RISKY[4][0] || re === RISKY[5][0] || re === RISKY[6][0];
-      if (anywhere ? !re.test(cmd.replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '')) : !ran.some((p) => p.search(re) === 0)) continue;
+      if (anywhere ? !re.test(script) : !ran.some((p) => p.search(re) === 0)) continue;
       // Clearing out a temp, scratch or build folder is housekeeping, not a risk: a quiet note.
       if (re === RISKY[0][0] && ran.filter((p) => p.search(re) === 0).every(deletesOnlyThrowaway)) { add('info', before ? 'Deletes a temporary or build folder' : 'Deleted a temporary or build folder', e); continue; }
       const text = before ? will : did;
@@ -517,6 +540,11 @@ function target(e) {
   const changed = (e.files ?? []).find((f) => f.change !== 'read')?.path;
   const file = changed ?? e.files?.[0]?.path;
   if (file) return `${changed ? 'change' : 'read'}:${String(file).replace(/\\/g, '/').toLowerCase()}`;
+  if (e.kind === 'run' && stepType(e) === 'test') {
+    // `node --test x.js 2>&1 | grep fail` then `node --test x.js 2>&1 | tail` is one test, run twice.
+    const test = parts(commandOf(e)).find((p) => TEST.test(p));
+    if (test) return `test:${test.replace(/\s+\d?>>?&?\s*\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
+  }
   if (e.kind === 'run') return `cmd:${commandOf(e).trim().replace(/\s+/g, ' ').slice(0, 200)}`;
   return e.tool ? `tool:${e.tool}:${e.title ?? ''}` : null;
 }
@@ -528,13 +556,17 @@ function target(e) {
  * plus `retryOf`: Map(step id → the failed step it retried). It's a good guess, not a
  * certainty: agents don't say "this is a retry", so a later step at the same target counts.
  */
+// A test run fails by its results, not only its exit code (`npm test; echo done` exits 0).
+const testedAs = (e) => (e.kind === 'run' && stepType(e) === 'test' && !running(e) ? testVerdict(e).state : null);
+const failedStep = (e) => e.status === 'failed' || testedAs(e) === 'failed';
+
 export function retries(steps) {
   const list = [...steps].filter((e) => !['prompt', 'done', 'error', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
   const chains = new Map();
   const retryOf = new Map();
   for (let i = 0; i < list.length; i++) {
     const first = list[i];
-    if (first.status !== 'failed' || retryOf.has(first.id)) continue;
+    if (!failedStep(first) || retryOf.has(first.id)) continue;
     const key = target(first);
     if (!key) continue;
     const attempts = [first];
@@ -542,12 +574,14 @@ export function retries(steps) {
       const e = list[j];
       if (e.at - attempts.at(-1).at > 15 * 60_000) break;
       if (e.session !== first.session || target(e) !== key) continue;
+      // A test run that can't tell (piped, stopped) neither fixes nor fails: look further.
+      if (testedAs(e) === 'unclear') continue;
       attempts.push(e);
       retryOf.set(e.id, first.id);
-      if (e.status !== 'failed') break; // fixed (or still running): the chain ends here
+      if (!failedStep(e)) break; // fixed (or still running): the chain ends here
     }
     const last = attempts.at(-1);
-    const outcome = last === first ? 'failing' : last.status === 'failed' ? 'failing' : running(last) ? 'trying' : 'fixed';
+    const outcome = last === first ? 'failing' : failedStep(last) ? 'failing' : running(last) ? 'trying' : 'fixed';
     chains.set(first.id, { attempts, outcome });
   }
   return { chains, retryOf };
@@ -1010,9 +1044,14 @@ export function turnMarkdown(t) {
   if (r) lines.push(r.ready ? '**Ready to merge?** Yes: tests ran after the last change and passed, nothing risky.' : `**Ready to merge?** Not yet: ${r.problems.join('; ')}.`, '');
   const why = whyStopped(t, { live: false });
   if (why) lines.push(`_Why it stopped: ${why.text}._`, '');
+  const outsidePaths = new Set(t.steps.filter(outside).flatMap((e) => e.files.map((x) => String(x.path).toLowerCase())));
+  const elsewhere = (x) => outsidePaths.has(String(x.path).toLowerCase());
   for (const [label, list] of [['Changed', f.changed], ['Wrote', f.wrote], ['Deleted', f.deleted]]) {
-    if (list.length) lines.push(`- ${label}: ${fileList(list.map((x) => x.path))}`);
+    const mine = list.filter((x) => !elsewhere(x));
+    if (mine.length) lines.push(`- ${label}: ${fileList(mine.map((x) => x.path))}`);
   }
+  const scratch = [...f.changed, ...f.wrote, ...f.deleted].filter(elsewhere).length;
+  if (scratch) lines.push(`- Also touched ${plural(scratch, 'file')} outside the project (scratch or temp)`);
   if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
   if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
   const took = turnTime(t);
