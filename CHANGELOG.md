@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-01
+
 ### Added
 
 - **Sentry tracing, opt-in.** `dotpals sentry <dsn> [--rate 0.2]` installs `@sentry/node` and sends the bridge's unhandled errors and a span per request ("POST /hook", "GET /api/sessions/:id", with status and time) to your own Sentry project; `dotpals sentry off` stops it. Nothing is sent without a DSN. It never sends what your agents did: request bodies, query strings, headers, console output (which carries prompts), local variables and child processes are left out, every event is scrubbed again before it leaves, and the computer's name becomes "dotpals". Only the command line can set the DSN.
@@ -255,7 +257,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/rikinshah787/dotpals/compare/v0.8.1...v0.9.0
