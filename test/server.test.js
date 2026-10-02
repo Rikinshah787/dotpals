@@ -1,9 +1,11 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { get, request } from 'node:http';
+import { createServer, get, request } from 'node:http';
+import { EventEmitter } from 'node:events';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 // Keep the bridge away from the real home folder: no Codex watcher, no history file.
 process.env.DOTPALS_CODEX = '0';
@@ -15,13 +17,20 @@ after(() => rm(home, { recursive: true, force: true }));
 
 const { startBridge } = await import('../bridge/server.js');
 
+/** A port no bridge in this file has used yet: fetch keeps connections alive, and reusing an old port could hand a test a dead one ("fetch failed"). */
+const usedPorts = new Set();
+// fetch refuses some ports outright ("bad port": 6000 X11, 6566, 6665-6669 IRC, 6679, 6697), like browsers do;
+// 5985 and 5986 (WinRM) are reserved on Windows CI machines. A port Windows reserves gives EACCES: try another.
+const BLOCKED = new Set([5985, 5986, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
+const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port) || BLOCKED.has(port)); usedPorts.add(port); return port; };
+
 async function start() {
   for (let tries = 0; ; tries++) {
-    const port = 5190 + Math.floor(Math.random() * 2000);
+    const port = freshPort();
     try {
       return { port, server: await startBridge({ port, log: () => {} }) };
     } catch (err) {
-      if (err.code !== 'EADDRINUSE' || tries > 10) throw err;
+      if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err;
     }
   }
 }
@@ -37,6 +46,10 @@ function post(port, path, body) {
     req.end(JSON.stringify(body));
   });
 }
+
+/** A POST to the bridge's API, with the header it needs. */
+const api = (port, path, body) => fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) })
+  .then(async (res) => ({ status: res.status, text: await res.text() }));
 
 /** Read the SSE stream for up to `ms`, returning the parsed events. */
 function readEvents(port, ms = 500) {
@@ -122,8 +135,8 @@ test('a session that goes quiet is put to sleep by the bridge; an active one is 
   let server;
   let port;
   for (let tries = 0; !server; tries++) {
-    port = 5190 + Math.floor(Math.random() * 2000);
-    try { server = await startBridge({ port, log: () => {}, sleepAfter: 400, sleepAfterWaiting: 5000 }); } catch (err) { if (err.code !== 'EADDRINUSE' || tries > 10) throw err; }
+    port = freshPort();
+    try { server = await startBridge({ port, log: () => {}, sleepAfter: 400, sleepAfterWaiting: 5000 }); } catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
   }
   const updates = [];
   const stream = await new Promise((ok) => get({ host: '127.0.0.1', port, path: '/events' }, ok));
@@ -136,12 +149,21 @@ test('a session that goes quiet is put to sleep by the bridge; an active one is 
   await post(port, '/event', { session: 'quiet', harness: 'x', state: 'done' });
   await post(port, '/event', { session: 'asking', harness: 'x', state: 'waiting' });
   await post(port, '/event', { session: 'busy', harness: 'x', state: 'working' });
-  const keepBusy = setInterval(() => post(port, '/event', { session: 'busy', activity: { kind: 'read', title: 'a.js' } }), 100);
+  // Keep "busy" busy. Each request is tracked, so none is still in flight when the bridge
+  // closes (one that was got its connection reset, an unhandled error: flaky in CI).
+  const inflight = new Set();
+  const keepBusy = setInterval(() => {
+    const p = post(port, '/event', { session: 'busy', activity: { kind: 'read', title: 'a.js' } }).catch(() => {});
+    inflight.add(p);
+    p.finally(() => inflight.delete(p));
+  }, 100);
   await new Promise((r) => setTimeout(r, 1100));
   clearInterval(keepBusy);
+  await Promise.all(inflight);
   const slept = updates.filter((u) => u.state === 'sleeping').map((u) => u.session);
   stream.destroy();
-  server.close();
+  server.closeAllConnections?.();
+  await new Promise((r) => server.close(r));
   assert.deepEqual(slept, ['quiet']);
 });
 
@@ -301,4 +323,250 @@ test('helpers: Claude subagents and any agent\'s helpers, live', async (t) => {
   await post(port, '/event', { session: 'mine', helper: { id: 'w1', state: 'done' } });
   await settle();
   assert.equal(last('mine')[0].status, 'done');
+});
+
+test('settings never return the TypeSafe key: not from /api/config, /api/status or /events', async (t) => {
+  delete process.env.TYPESAFE_API_KEY;
+  const { port, server } = await start();
+  t.after(async () => {
+    await api(port, '/api/config', { checker: { mode: 'off', removeKey: true } });
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  });
+  const key = ['apikey', '0'.repeat(16), 'f'.repeat(16)].join('_'); // fake, built at run time so secret scanners don't flag it
+  const saved = await api(port, '/api/config', { checker: { mode: 'cloud', jevKey: key } });
+  assert.equal(saved.status, 200);
+  assert.ok(!saved.text.includes(key));
+  const { laya, health, ...checker } = JSON.parse(saved.text).checker;
+  assert.deepEqual(checker, { mode: 'cloud', localUrl: 'http://127.0.0.1:8000', layaManaged: false, keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });
+  assert.ok(!JSON.stringify(health).includes(key)); // its health (working, failing, why) never carries the key
+  assert.deepEqual([laya.installed, laya.running, laya.phase], [false, false, 'idle']);
+  for (const path of ['/api/config', '/api/status']) {
+    const text = await (await fetch(`http://127.0.0.1:${port}${path}`)).text();
+    assert.ok(!text.includes(key), path);
+    assert.ok(!text.includes('jevKey'), path);
+  }
+  const { events } = await readEvents(port, 300);
+  assert.ok(!JSON.stringify(events).includes(key));
+  // Saving an empty field keeps the key; something that can't be a key is refused.
+  assert.equal(JSON.parse((await api(port, '/api/config', { checker: { jevKey: '' } })).text).checker.keySet, true);
+  const bad = await api(port, '/api/config', { checker: { jevKey: 'not a key at all' } });
+  assert.equal(bad.status, 400);
+  // Changes need the header.
+  const refused = await fetch(`http://127.0.0.1:${port}/api/config`, { method: 'POST', body: JSON.stringify({ checker: { removeKey: true } }) });
+  assert.equal(refused.status, 403);
+  assert.equal(JSON.parse((await api(port, '/api/config', { checker: { removeKey: true } })).text).checker.keySet, false);
+});
+
+test('an unclear test run is double-checked once by the local checker (a fake Laya), and every viewer sees it', async (t) => {
+  const asked = [];
+  const laya = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      if (req.url === '/health') return res.writeHead(200, { 'content-type': 'application/json' }).end('{"status":"ok","loaded":["english"]}');
+      asked.push({ url: req.url, body: JSON.parse(body) });
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ model: 'laya', answers: { 'done.met': { type: 'noul', noul: 0.91 } }, usage: { input_tokens: 10, output_tokens: 0 } }));
+    });
+  });
+  await new Promise((r) => laya.listen(0, '127.0.0.1', r));
+  const { port, server } = await start();
+  t.after(async () => {
+    await api(port, '/api/config', { checker: { mode: 'off', localUrl: 'http://127.0.0.1:8000' } });
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => laya.close(r));
+  });
+  await api(port, '/api/config', { checker: { mode: 'local', localUrl: `http://127.0.0.1:${laya.address().port}` } });
+  const test = JSON.parse((await api(port, '/api/checker/test', { mode: 'local' })).text);
+  assert.deepEqual([test.ok, test.by, test.model], [true, 'laya', 'english']);
+
+  const output = 'collected 3 items\nme@example.com\nTraceback (most recent call last):\n  File "conftest.py"\nImportError: no module';
+  await post(port, '/event', { session: 'chk', activity: { id: 't1', kind: 'run', title: 'pytest', status: 'ok', body: { command: 'pytest', output } } });
+  // Clear results are never sent.
+  await post(port, '/event', { session: 'chk', activity: { id: 't2', kind: 'run', title: 'pytest', status: 'ok', body: { command: 'pytest', output: '==== 3 passed in 0.1s ====' } } });
+  for (let i = 0; i < 50 && !asked.length; i++) await new Promise((r) => setTimeout(r, 20));
+  const { events } = await readEvents(port, 300);
+  const entry = events.filter((e) => e.event === 'activity' && e.data.id === 'chk:t1').at(-1).data;
+  assert.deepEqual([entry.check.by, entry.check.state, entry.check.p], ['laya', 'passed', 0.91]);
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].url, '/v1/systemone');
+  assert.equal(asked[0].body.questions['done.met'].type, 'noul');
+  assert.match(asked[0].body.state.evidence.output_end, /ImportError: no module/);
+  assert.ok(!JSON.stringify(asked[0].body).includes('me@example.com'));
+});
+
+/**
+ * Laya set up by dotpals, with a pretend install and server: `spawn` starts nothing real,
+ * `fetch` answers Laya's /health while the pretend server runs.
+ */
+function fakeLaya(dir, { installed = true } = {}) {
+  const spawned = [];
+  const killed = [];
+  let up = null;
+  const win = process.platform === 'win32';
+  const script = join(dir, '.venv', win ? 'Scripts' : 'bin', `laya-serve${win ? '.exe' : ''}`);
+  if (installed) {
+    mkdirSync(dirname(script), { recursive: true });
+    writeFileSync(script, '');
+    writeFileSync(join(dir, 'installed.json'), '{}');
+  }
+  const children = new Map();
+  const options = {
+    dir: () => dir,
+    hookExit: false,
+    pollMs: 5,
+    portFree: async () => true,
+    alive: (pid) => children.get(pid)?.alive === true,
+    spawn: (cmd, args, opts) => {
+      const child = new EventEmitter();
+      Object.assign(child, { pid: 7000 + spawned.length, exitCode: null, signalCode: null, alive: true, unref() {} });
+      spawned.push({ cmd, args, env: opts.env });
+      children.set(child.pid, child);
+      up = Number(opts.env.LAYA_PORT);
+      return child;
+    },
+    fetch: async (href) => {
+      const u = new URL(href);
+      if (u.hostname !== '127.0.0.1' || Number(u.port) !== up) throw new TypeError('fetch failed');
+      return { ok: true, json: async () => ({ status: 'ok' }) };
+    },
+    kill: async (pid) => {
+      killed.push(pid);
+      const child = children.get(pid);
+      if (!child?.alive) return;
+      child.alive = false;
+      child.signalCode = 'SIGTERM';
+      up = null;
+      setImmediate(() => child.emit('exit', null));
+    },
+  };
+  return { options, spawned, killed, isUp: () => up };
+}
+
+async function startWith(laya) {
+  for (let tries = 0; ; tries++) {
+    const port = freshPort();
+    try { return { port, server: await startBridge({ port, log: () => {}, laya }) }; } catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
+  }
+}
+const until = async (check) => { for (let i = 0; i < 100 && !(await check()); i++) await new Promise((r) => setTimeout(r, 20)); };
+const getJson = async (port, path) => (await fetch(`http://127.0.0.1:${port}${path}`)).json();
+const closeBridge = async (server) => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); };
+
+test('Laya endpoints need the x-dotpals header, like every other change', async (t) => {
+  const fake = fakeLaya(await mkdtemp(join(tmpdir(), 'dotpals-laya-')), { installed: false });
+  const { port, server } = await startWith(fake.options);
+  t.after(() => closeBridge(server));
+  for (const action of ['setup', 'start', 'stop', 'uninstall']) {
+    const res = await fetch(`http://127.0.0.1:${port}/api/checker/laya/${action}`, { method: 'POST' });
+    assert.equal(res.status, 403, action);
+    const fromSite = await fetch(`http://127.0.0.1:${port}/api/checker/laya/${action}`, { method: 'POST', headers: { origin: 'https://evil.example' } });
+    assert.equal(fromSite.status, 403, action);
+  }
+  assert.equal(fake.spawned.length, 0);
+  // Not set up: start says so.
+  assert.equal((await api(port, '/api/checker/laya/start', {})).status, 400);
+  // Its status is part of the settings.
+  const config = await getJson(port, '/api/config');
+  assert.deepEqual([config.checker.layaManaged, config.checker.laya.installed, config.checker.laya.running, config.checker.laya.phase], [false, false, false, 'idle']);
+  assert.equal((await getJson(port, '/api/checker/laya')).installed, false);
+});
+
+test('Set up Laya: answers at once, runs it on 127.0.0.1, turns on Local, and every viewer sees the progress', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-laya-'));
+  const fake = fakeLaya(dir);
+  const { port, server } = await startWith(fake.options);
+  t.after(async () => {
+    await api(port, '/api/config', { checker: { mode: 'off', layaManaged: false, localUrl: 'http://127.0.0.1:8000' } });
+    await closeBridge(server);
+  });
+  await api(port, '/api/config', { checker: { localUrl: 'http://localhost:9321' } }); // your own port: the managed server uses it
+  const watching = readEvents(port, 600);
+  await new Promise((r) => setTimeout(r, 50));
+  const res = await api(port, '/api/checker/laya/setup', {});
+  assert.equal(res.status, 202);
+  await until(async () => (await getJson(port, '/api/config')).checker.layaManaged);
+  const config = await getJson(port, '/api/config');
+  assert.deepEqual([config.checker.mode, config.checker.layaManaged, config.checker.localUrl], ['local', true, 'http://127.0.0.1:9321']);
+  assert.deepEqual([config.checker.laya.running, config.checker.laya.phase, config.checker.laya.port], [true, 'ready', 9321]);
+  assert.equal(fake.spawned.length, 1);
+  assert.equal(fake.spawned[0].env.LAYA_HOST, '127.0.0.1');
+  assert.equal(fake.spawned[0].env.LAYA_PORT, '9321');
+  const { events } = await watching;
+  const phases = events.filter((e) => e.event === 'laya').map((e) => e.data.phase);
+  assert.ok(phases.includes('starting') && phases.at(-1) === 'ready', phases.join());
+  assert.ok(events.some((e) => e.event === 'config' && e.data.checker.laya?.running === true));
+
+  // Choosing another checker stops it; Local again starts it.
+  await api(port, '/api/config', { checker: { mode: 'off' } });
+  await until(() => fake.killed.length === 1);
+  assert.equal((await getJson(port, '/api/checker/laya')).running, false);
+  await api(port, '/api/config', { checker: { mode: 'local' } });
+  await until(async () => (await getJson(port, '/api/checker/laya')).running);
+  assert.equal(fake.spawned.length, 2);
+
+  // Stop, then Remove: the folder goes, and the checker is turned off.
+  const stopped = JSON.parse((await api(port, '/api/checker/laya/stop', {})).text);
+  assert.deepEqual([stopped.ok, stopped.laya.running], [true, false]);
+  assert.equal((await api(port, '/api/checker/laya/uninstall', {})).status, 200);
+  assert.ok(!existsSync(dir));
+  const removed = await getJson(port, '/api/config');
+  assert.deepEqual([removed.checker.mode, removed.checker.layaManaged, removed.checker.laya.installed], ['off', false, false]);
+});
+
+test('the bridge starts Laya when the checker is on Local and dotpals set it up, and stops it when it closes', async () => {
+  const fake = fakeLaya(await mkdtemp(join(tmpdir(), 'dotpals-laya-')));
+  const first = await start();
+  await api(first.port, '/api/config', { checker: { mode: 'local', layaManaged: true, localUrl: 'http://127.0.0.1:8000' } });
+  await closeBridge(first.server);
+
+  const { port, server } = await startWith(fake.options);
+  await until(() => fake.isUp() === 8000);
+  assert.equal(fake.spawned.length, 1);
+  await until(async () => (await getJson(port, '/api/checker/laya')).running);
+  assert.equal((await getJson(port, '/api/checker/laya')).running, true);
+  await closeBridge(server);
+  await until(() => fake.killed.length === 1);
+  assert.equal(fake.isUp(), null);
+  // Leave the shared settings as the other tests expect them.
+  const last = await start();
+  await api(last.port, '/api/config', { checker: { mode: 'off', layaManaged: false } });
+  await closeBridge(last.server);
+});
+
+test('"Install it" (the TypeSafe SDK) needs the header and runs one install at a time', async () => {
+  let runs = 0;
+  let port;
+  let server;
+  for (let tries = 0; ; tries++) {
+    port = freshPort();
+    try { server = await startBridge({ port, log: () => {}, installSdk: async () => { runs++; await new Promise((r) => setTimeout(r, 50)); return { ok: true }; } }); break; } catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
+  }
+  try {
+    assert.equal((await post(port, '/api/checker/jev/install', {})).status, 403); // no header
+    const [a, b] = await Promise.all([api(port, '/api/checker/jev/install', {}), api(port, '/api/checker/jev/install', {})]);
+    assert.deepEqual([a.status, JSON.parse(a.text), JSON.parse(b.text)], [200, { ok: true }, { ok: true }]);
+    assert.equal(runs, 1);
+  } finally { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); }
+});
+
+test('the checker’s health: a heartbeat when the setting changes, the reason when it fails, cleared when off', async () => {
+  const { port, server } = await start();
+  const saved = process.env.TYPESAFE_API_KEY;
+  delete process.env.TYPESAFE_API_KEY;
+  try {
+    await api(port, '/api/config', { checker: { mode: 'cloud', removeKey: true } }); // no key: Jev can't answer
+    let health;
+    await until(async () => (health = (await getJson(port, '/api/config')).checker.health).state === 'failing');
+    assert.equal(health.by, 'jev');
+    assert.match(health.error, /no API key/);
+    assert.ok(health.failingSince <= Date.now());
+    await api(port, '/api/config', { checker: { mode: 'off' } });
+    await until(async () => (health = (await getJson(port, '/api/config')).checker.health).by === null);
+    assert.equal(health.state, 'unknown');
+  } finally {
+    if (saved !== undefined) process.env.TYPESAFE_API_KEY = saved;
+    await closeBridge(server);
+  }
 });

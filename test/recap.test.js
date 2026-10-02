@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { plain, turnMarkdown } from '../bridge/ui/recap.js';
+import { plain } from '../bridge/ui/recap.js';
+import { turnMarkdown } from '../bridge/ui/story.js';
 
 const reply = 'Your last screenshot shows it:\n\n```text\nYou asked · ship\n  Tests passed\n```\n\nEach box is one request.';
 

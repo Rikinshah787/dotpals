@@ -8,7 +8,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipText, folderName, relative, toPatch } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 import { backup, backupPath, hookCommand, isOurs, readJson, writeJson } from './setup.js';
 
 const ID = 'gemini';
@@ -105,7 +105,7 @@ export function applyGemini(e, log) {
       const id = ids.shift();
       if (ids.length) pending.set(key, ids); else pending.delete(key);
       const failed = !!e.tool_response?.error;
-      const text = clipText(responseText(e.tool_response), 3000);
+      const text = clipEnds(responseText(e.tool_response), 3000);
       const known = id && log.get(id);
       if (known) {
         add({ id, status: failed ? 'failed' : 'ok', ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, error: failed ? clip(text, 300) : undefined, body: { output: text || undefined } });

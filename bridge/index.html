@@ -81,6 +81,10 @@
     .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 8px 8px; color: var(--muted); }
     .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
     .tabs .count { color: var(--faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+    /* Simple | Detailed, on the Summary tab only (the files summary shows on the others). */
+    .tabs .tabseg { margin-left: auto; align-self: center; margin-bottom: 6px; }
+    .tabs .tabseg button { border-bottom: 0; padding: 2px 9px; font-size: 11px; }
+    .tabs:has(#tab-recap[aria-selected="false"]) .tabseg, .tabs:has(#tab-recap[aria-selected="true"]) .summary { display: none; }
     .tabs .summary { margin-left: auto; align-self: center; color: var(--faint); font-size: 12px; padding-bottom: 6px; }
 
     /* -- activity + files lists ----------------------------------------- */
@@ -141,6 +145,17 @@
     .turn .said { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: #d6d6dd; overflow-wrap: anywhere; white-space: pre-wrap; }
     .turn .said b { color: var(--h, var(--text)); font-weight: 600; }
     .turn .said.live { color: var(--muted); }
+    /* Simple view: one plain sentence per request (see simple() in story.js). */
+    .viewbar { display: flex; justify-content: flex-end; padding: 6px 10px 0; list-style: none; }
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .seg button { border: 0; background: none; color: var(--muted); font-size: 11px; padding: 3px 10px; cursor: pointer; }
+    .seg button[aria-pressed="true"] { background: var(--line); color: var(--text); }
+    .turn .simple { margin: 0; padding: 9px 12px; border-top: 1px solid var(--line); color: var(--text); display: flex; gap: 8px; align-items: baseline; }
+    .turn .simple .mark { flex: none; font-weight: 700; }
+    .turn .simple.ok .mark { color: var(--ok); } .turn .simple.failed .mark { color: var(--bad); }
+    .turn .simple.unclear .mark, .turn .simple.running .mark, .turn .simple.stopped .mark { color: var(--warn); }
+    .chapters .small-steps { color: var(--faint); font-size: 11.5px; padding: 3px 12px 5px; cursor: pointer; list-style: none; }
+    .chapters .small-steps:hover { color: var(--muted); }
     .turn .said .more { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--k-read); font-size: 12px; }
     .did { list-style: none; margin: 0; padding: 6px 12px 8px; border-top: 1px solid var(--line); display: grid; gap: 4px; }
     .did li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: start; color: var(--muted); font-size: 12px; }
@@ -177,6 +192,7 @@
     .ch .side { display: flex; gap: 6px; align-items: center; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 18px; }
     .ch .side .add { color: var(--add); } .ch .side .del { color: var(--del); }
     .ch .side .ok { color: var(--ok); } .ch .side .bad { color: var(--bad); }
+    .ch .side .unclear { color: var(--warn); }
     .ch.failed .what b { color: var(--bad); }
     .ch.quiet .what b { color: var(--muted); font-weight: 500; }
     .ch.quiet .mark { opacity: .45; }
@@ -391,6 +407,7 @@
       <button role="tab" id="tab-recap" aria-selected="true" aria-controls="recap">Summary<span class="count" id="n-turns"></span></button>
       <button role="tab" id="tab-feed" aria-selected="false" aria-controls="feed">Tools<span class="count" id="n-tools"></span></button>
       <button role="tab" id="tab-files" aria-selected="false" aria-controls="files">Files<span class="count" id="n-files"></span></button>
+      <span class="seg tabseg" id="viewseg" role="group" aria-label="View"></span>
       <span class="summary" id="summary"></span>
     </nav>
     <ol class="panel" id="recap" role="tabpanel" aria-labelledby="tab-recap" aria-live="polite"><li class="none">Each request you give your agent shows up here, with what it changed in plain words.</li></ol>
@@ -403,8 +420,8 @@
 
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
-    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine } from '../bridge/ui/story.js';
-    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnMarkdown, turnTime } from '../bridge/ui/recap.js';
+    import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown } from '../bridge/ui/story.js';
+    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from '../bridge/ui/recap.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -868,6 +885,13 @@
     // current chapter ("Changing files · 4 so far"). It only changes when that
     // changes, so you can actually read it.
     const bubbles = new Map(); // session → last text
+    // Poke a pal three times quickly and it gets dizzy (see src/element.js); here it also says so.
+    const DIZZY = ['Whoa, too many pokes at once!', 'Okay, okay, I’m watching!', 'Easy! I’m keeping an eye on it.', 'My head’s spinning… still watching, though.'];
+    let dizzyLine = 0;
+    document.addEventListener('dotpal-poke', (e) => {
+      if (e.detail?.count === 3) e.target.say?.(DIZZY[dizzyLine++ % DIZZY.length], { duration: 3200 });
+    });
+
     function bubbleText(update) {
       if (!['working', 'thinking'].includes(update.state)) return update.text;
       const steps = stepsOf(update.session);
@@ -1073,6 +1097,13 @@
       const meta = el('span', 'meta');
       const rb = retryBadge(e);
       if (rb) meta.append(rb);
+      // A checker (Jev, Laya) looked at this test run: "Jev ✕ 78%".
+      const ck = checkOf(e);
+      if (ck) {
+        const b = el('span', `rbadge ${{ passed: 'fixed', failed: 'failing' }[ck.state] ?? 'trying'}`, `${ck.who} ${{ passed: '✓', failed: '✕', unsure: '?', error: '!' }[ck.state]}${ck.sure != null && ck.state !== 'unsure' ? ` ${ck.sure}%` : ''}`);
+        b.title = ck.error ? `${ck.who} couldn’t check: ${ck.error}` : `${ck.who} said ${ck.state === 'unsure' ? 'it isn’t sure' : ck.state}${ck.sure != null ? `, ${ck.sure}% sure` : ''}`;
+        meta.append(b);
+      }
       if (e.status === 'running') {
         meta.append(el('span', 'elapsed', e.startedAt ? secs(Math.max(0, Date.now() - e.startedAt)) : ''), el('span', 'spin'));
       } else if (e.status === 'waiting') {
@@ -1099,6 +1130,12 @@
       fact('took', e.ms != null ? secs(e.ms) : '');
       fact('status', STATUS[e.status]);
       body.append(facts);
+      // Double-checked: why the rules weren't sure, what the checker said, how sure and how fast.
+      const ck = checkOf(e);
+      if (ck) {
+        const said = ck.error ? `couldn’t check: ${ck.error}` : `${ck.state === 'unsure' ? 'not sure' : ck.state}${ck.sure != null ? `, ${ck.sure}% sure` : ''}${ck.ms != null ? ` · ${ck.ms} ms` : ''}`;
+        body.append(el('div', 'label', `double-checked by ${ck.who}`), el('div', '', `${ck.why ? `${ck.why}. ` : ''}${ck.who}: ${said}`));
+      }
 
       if (e.files?.length) {
         const links = el('div', 'links');
@@ -1243,6 +1280,23 @@
     const openTurns = new Set();
     const fullAsk = new Set();
     const fullSaid = new Set();
+    const showMinor = new Set(); // requests whose small steps are unfolded
+    // Simple (one plain sentence per request) or Detailed (the chapters). Remembered.
+    const pickedView = () => { try { return localStorage.getItem('dotpals.view'); } catch { return null; } };
+    let recapView = pickedView() === 'detailed' ? 'detailed' : 'simple';
+    function viewBar() {
+      const seg = $('viewseg');
+      seg.replaceChildren();
+      for (const [v, label, title] of [['simple', 'Simple', 'One plain sentence per request'], ['detailed', 'Detailed', 'Every chapter: files, commands, tests']]) {
+        const b = el('button', '', label);
+        b.type = 'button';
+        b.title = title;
+        b.setAttribute('aria-pressed', String(recapView === v));
+        b.onclick = () => { recapView = v; try { localStorage.setItem('dotpals.view', v); } catch {} renderRecap(); };
+        seg.append(b);
+      }
+      return null;
+    }
     const latestTurn = new Map(); // session → its newest turn
     let recapTimer;
     const scheduleRecap = () => { clearTimeout(recapTimer); recapTimer = setTimeout(renderRecap, 120); };
@@ -1325,23 +1379,42 @@
       } else if (t.end?.kind === 'error') {
         said.append(el('b', '', `${who}: `), t.end.title);
       }
-      if (said.childNodes.length) li.append(said);
+      const easy = recapView === 'simple' && !openTurns.has(t.id) ? simple(t, { live }) : null;
+      if (easy) {
+        const line = el('p', `simple ${easy.status}`);
+        line.append(el('span', 'mark', { ok: '✓', failed: '✕', unclear: '?', running: '…', stopped: '■' }[easy.status] ?? '•'), el('span', '', easy.text));
+        li.append(line);
+        if (easy.warnings.length) {
+          const box = el('div', 'flags');
+          box.append(...easy.warnings.map((w) => el('div', 'flag', w)));
+          li.append(box);
+        }
+      } else if (said.childNodes.length) li.append(said);
 
       const sessionSteps = live ? stepsOf(t.session) : t.steps;
       const { chapters, flags, plan } = storyOf(t, sessionSteps);
       if (live && plan) li.append(renderPlan(plan));
       const crew = helperLists.get(t.session) ?? [];
       if (live && crew.length) li.append(renderHelpers(crew));
-      if (chapters.length) {
+      if (easy) { /* the sentence says it */ }
+      else if (chapters.length) {
         const list = el('ul', 'chapters');
-        list.append(...chapters.map((c) => renderChapter(t, c)));
+        // Small steps (tool plumbing, scratch files, memory) fold into one line.
+        const minor = chapters.length > 1 && !showMinor.has(t.id) ? chapters.filter(minorChapter) : [];
+        list.append(...chapters.filter((c) => !minor.includes(c)).map((c) => renderChapter(t, c)));
+        if (minor.length) {
+          const more = el('li', 'small-steps', `+ ${plural(minor.length, 'small step')}`);
+          more.title = minor.map((c) => c.title).join(' · ');
+          more.onclick = () => { showMinor.add(t.id); renderRecap(); };
+          list.append(more);
+        }
         li.append(list);
       } else if (t.end && !t.steps.length) {
         const did = el('ul', 'did');
         did.append(el('li', 'k-plan', 'Answered without using any tools'));
         li.append(did);
       }
-      if (flags.length) {
+      if (!easy && flags.length) {
         const box = el('div', 'flags');
         box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = sentence(f.step); return d; }));
         li.append(box);
@@ -1361,7 +1434,8 @@
         const copy = el('button', 'copy', 'Copy');
         copy.type = 'button';
         copy.title = 'Copy this as Markdown (for a PR, commit message or standup)';
-        copy.onclick = () => copyText(turnMarkdown(t), copy);
+        // Copies what you're looking at: the simple sentence and warnings, or the full recap.
+        copy.onclick = () => copyText(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t), copy);
         footer.append(copy);
       }
       if (t.steps.length) {
@@ -1393,6 +1467,7 @@
       if (c.lines?.add || c.lines?.del) side.append(el('span', 'add', `+${c.lines.add}`), el('span', 'del', `−${c.lines.del}`));
       if (c.status === 'running' || c.status === 'waiting') side.append(el('span', `spin`));
       else if (c.status === 'failed') side.append(el('span', 'bad', '✕'));
+      else if (c.status === 'unclear') side.append(Object.assign(el('span', 'unclear', '?'), { title: 'Tests unclear: dotpals couldn’t tell whether they passed' }));
       else if (['test', 'build', 'ship'].includes(c.type)) side.append(el('span', 'ok', '✓'));
       row.append(el('span', 'mark'), what, side);
       const toggle = () => { toggleIn(openChapters, key); renderRecap(); };
@@ -1553,6 +1628,7 @@
 
     function renderRecap() {
       clearTimeout(recapTimer);
+      viewBar();
       const stick = recap.scrollHeight - recap.scrollTop - recap.clientHeight < 40;
       const top = recap.scrollTop;
       const turns = buildTurns();
@@ -1627,6 +1703,8 @@
     const sameOrigin = location.protocol.startsWith('http');
     const saveConfig = (patch) => sameOrigin && fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
     function applyConfig(config) {
+      // How requests read by default (chosen at setup), unless you've picked a view here.
+      if (!pickedView() && (config.storyView === 'simple' || config.storyView === 'detailed') && config.storyView !== recapView) { recapView = config.storyView; scheduleRecap(); }
       if (typeof config.sounds === 'boolean' && config.sounds !== sound.on) { sound.on = config.sounds; syncSoundButton(); }
       // Your own pal, made on the dashboard.
       if (config.custom) {

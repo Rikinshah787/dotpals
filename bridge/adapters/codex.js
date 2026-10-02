@@ -4,7 +4,7 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipText, folderName, relative, toPatch } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 
 const HARNESS = 'codex';
 const RECENT = 12 * 60 * 60 * 1000; // follow logs touched in the last 12 hours
@@ -197,7 +197,7 @@ export function watchCodex(log, { emit, state, context = () => {}, dir = join(ho
         if (!entry) break;
         const text = outputText(p.output);
         const failed = looksFailed(text);
-        out.push(log.upsert({ id, status: failed ? 'failed' : 'ok', ms: entry.startedAt ? Math.max(0, at - entry.startedAt) : undefined, body: { output: clipText(text, 3000) } }));
+        out.push(log.upsert({ id, status: failed ? 'failed' : 'ok', ms: entry.startedAt ? Math.max(0, at - entry.startedAt) : undefined, body: { output: clipEnds(text, 3000) } }));
         setState('thinking');
         break;
       }

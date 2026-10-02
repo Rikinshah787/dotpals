@@ -54,7 +54,8 @@
     "bin",
     "hooks",
     "commands",
-    ".claude-plugin"
+    ".claude-plugin",
+    "THIRD_PARTY_NOTICES"
   ],
   "bin": {
     "dotpals": "bin/dotpals.js",
@@ -69,9 +70,12 @@
     "example:agent": "node examples/sse-harness/server.js",
     "bridge": "node bridge/server.js",
     "float": "node desktop/launch.js",
-    "test": "node --test",
+    "test": "node --test --test-timeout=300000",
     "setup": "node bin/dotpals.js setup",
     "dashboard": "node bin/dotpals.js dashboard"
+  },
+  "optionalDependencies": {
+    "@typesafe-ai/sdk": "^0.6.0"
   },
   "devDependencies": {
     "electron": "^44.5.1"

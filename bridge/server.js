@@ -21,6 +21,7 @@
 //                            context:  how full a session's context window is
 //                            approval: a permission request to answer (or that it's settled)
 //                            helpers:  a session's helper agents (subagents)
+//                            laya:     Laya on this computer: { installed, running, phase, message, line, error }
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
@@ -34,6 +35,10 @@
 //   GET  /api/approvals  → requests waiting for an answer; POST /api/approvals/<id> { decision }
 //   GET  /api/recap      → a note for one agent about the others (?session=&label=&mode=start|prompt)
 //   POST /api/sessions/<id>/dismiss → put a session to sleep (it wakes on new activity)
+//   POST /api/checker/test { mode? } → one tiny request to the test-result checker: { ok, by, ms, error? }
+//   GET  /api/checker/laya             → Laya's status (also in /api/config, as checker.laya)
+//   POST /api/checker/laya/setup       install Laya (once) and start it; answers at once, progress as `laya` events
+//   POST /api/checker/laya/start|stop|uninstall
 //   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
@@ -46,12 +51,14 @@ import { homedir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
-import { clip, createActivityLog, folderName } from './activity.js';
+import { clip, clipEnds, createActivityLog, folderName } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, lastReply, watchClaude } from './adapters/claude.js';
-import { crossRecap, flags as riskFlags } from './ui/story.js';
+import { crossRecap, flags as riskFlags, stepType } from './ui/story.js';
 import { sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
-import { configPath, home, loadConfig, saveConfig } from './config.js';
+import { createChecker, installSdk } from './checker.js';
+import { createLaya } from './laya.js';
+import { checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
 import { claudeContextSize, readUsage } from './usage.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -115,7 +122,7 @@ function createHistory(activity, getConfig) {
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk } = {}) {
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
@@ -233,9 +240,69 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       heard(entry.session, entry.at);
       if (entry.kind === 'agent') helperFromEntry(entry);
       if (entry.harness) lastSeen[entry.harness] = Math.max(lastSeen[entry.harness] ?? 0, entry.at ?? 0);
+      maybeCheck(entry);
       any = true;
     }
     if (any) history.save();
+  }
+
+  // -- Double-check unclear test results (bridge/checker.js; off unless you turn it on) --
+  // When a test run finishes and the rules can't tell whether it passed, ask Laya or
+  // Jev once. The answer goes on the entry as `check` ({ by, state, p, ms } or
+  // { by, error }), so every viewer updates. Only fresh runs: not every old run in a
+  // transcript read at startup.
+  const checker = createChecker({ getConfig: () => config, getKey: checkerKey });
+  let sdkInstall = null; // a running "Install it" (npm install @typesafe-ai/sdk)
+  function maybeCheck(entry) {
+    if (!config.checker || config.checker.mode === 'off' || entry.kind !== 'run' || entry.check || stepType(entry) !== 'test') return;
+    if (Date.now() - ((entry.at ?? 0) + (entry.ms ?? 0)) > 15 * 60_000) return;
+    checker.check(entry).then((check) => {
+      if (check && !activity.get(entry.id)?.check) publish([activity.upsert({ id: entry.id, check })]);
+      if (check?.by) noteHealth(check.by, check.error ? { ok: false, error: check.error } : { ok: true, ms: check.ms });
+    }, () => {});
+  }
+
+  // -- Is the checker working? -------------------------------------------------------------
+  // Its answers, its errors, Test connection and a heartbeat (on start, when the setting
+  // changes, then every 30 minutes; for Jev that's the free model list) all update one
+  // status, which rides along in the settings as checker.health:
+  //   { by, state: 'working' | 'failing' | 'unknown', okAt, okMs, errorAt, error, failingSince, heartbeatAt }
+  const HEARTBEAT_MS = 30 * 60_000;
+  const freshHealth = (by = null) => ({ by, state: 'unknown', okAt: null, okMs: null, errorAt: null, error: null, failingSince: null, heartbeatAt: null });
+  let health = freshHealth();
+  function noteHealth(by, result) {
+    if (health.by !== by) health = freshHealth(by);
+    const now = Date.now();
+    if (result.ok) Object.assign(health, { state: 'working', okAt: now, okMs: result.ms ?? null, error: null, failingSince: null });
+    else Object.assign(health, { state: 'failing', errorAt: now, error: result.error ?? 'no answer', failingSince: health.failingSince ?? now });
+    send('config', withLaya());
+  }
+  async function heartbeat() {
+    const mode = config.checker?.mode;
+    if (!mode || mode === 'off') { if (health.by) { health = freshHealth(); send('config', withLaya()); } return; }
+    const r = await checker.test(mode).catch(() => null);
+    if (!r?.by) return;
+    noteHealth(r.by, r);
+    health.heartbeatAt = Date.now();
+  }
+  const firstBeat = setTimeout(() => heartbeat(), 15_000);
+  const beat = setInterval(() => heartbeat(), HEARTBEAT_MS);
+  firstBeat.unref?.();
+  beat.unref?.();
+
+  // -- Laya on this computer, set up by dotpals (bridge/laya.js) ----------------------
+  // Runs while the checker is on Local and dotpals set it up (checker.layaManaged), on the
+  // port in checker.localUrl. Stopped when you choose something else, and when the bridge
+  // closes. Its status rides along in the settings (checker.laya) and as `laya` events.
+  const laya = createLaya({ getUrl: () => config.checker?.localUrl, ...layaOptions });
+  laya.subscribe((s) => send('laya', s));
+  const withLaya = () => ({ ...config, checker: { ...config.checker, laya: laya.status(), health } });
+  function applyLaya(before) {
+    const b = before?.checker ?? {};
+    const c = config.checker ?? {};
+    if (before && b.mode === c.mode && b.layaManaged === c.layaManaged && b.localUrl === c.localUrl) return;
+    if (c.mode === 'local' && c.layaManaged && laya.installed()) laya.start().catch(() => {});
+    else if (laya.owned() || laya.status().running) laya.stop().catch(() => {}); // only ever stops a Laya dotpals started
   }
 
   function setState(session, harness, label, next, at = Date.now(), test = false) {
@@ -355,8 +422,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const id = `${session}:${a.id ?? `g${Date.now()}-${n++}`}`;
       // Follow-ups (same id) only change what they send; new rows get defaults.
       const known = activity.get(id);
+      // Long output keeps its start and its end (where test summaries are).
+      const body = a.body && typeof a.body === 'object' && typeof a.body.output === 'string' ? { ...a.body, output: clipEnds(a.body.output, 3000) } : a.body;
       return activity.upsert({
         ...a,
+        body,
+        check: undefined, // only the bridge's own checker says this
+
         id, session,
         harness: harness ?? known?.harness,
         label: label ?? known?.label,
@@ -501,7 +573,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   async function api(req, res, path) {
     if (req.method === 'GET' && path === '/api/activity') return json(res, 200, { entries: activity.all() });
     if (req.method === 'GET' && path === '/api/status') return json(res, 200, await status());
-    if (req.method === 'GET' && path === '/api/config') return json(res, 200, config);
+    if (req.method === 'GET' && path === '/api/config') return json(res, 200, withLaya());
+    if (req.method === 'GET' && path === '/api/checker/laya') return json(res, 200, laya.status());
     if (req.method === 'GET' && path === '/api/agents') return json(res, 200, { agents: agents() });
     // What other agents did in this project, for a Claude Code hook to hand to a session
     // (Settings → Share with your agents). `mode=start`: the whole note. `mode=prompt`:
@@ -528,13 +601,19 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (path === '/api/config') {
       let patch = {};
       try { patch = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+      // A pasted key that can't be one (spaces, line breaks): say so rather than drop it quietly.
+      const key = patch?.checker?.jevKey;
+      if (typeof key === 'string' && key.trim() && !validKey(key)) return json(res, 400, { error: 'That doesn’t look like an API key (it has spaces or unusual characters). Paste it again.' });
       const before = config;
       config = saveConfig(patch);
       applyWatchers();
       if (enabled('claude') !== (before.agents?.claude !== false)) applyClaude();
       if (config.history && !before.history) history.save();
-      send('config', config);
-      return json(res, 200, config);
+      applyLaya(before);
+      // A different checker (or a new key): check it's answering, right away.
+      if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
+      send('config', withLaya());
+      return json(res, 200, withLaya());
     }
     const action = /^\/api\/agents\/([a-z][a-z0-9-]*)\/(connect|disconnect|test)$/.exec(path);
     if (action) {
@@ -559,6 +638,45 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (update) setState(session, update.harness, update.label, { state: 'sleeping' });
       lastHeard.delete(session);
       return json(res, 200, { ok: true, wasActive: !!update });
+    }
+    // "Test connection" on Settings: one tiny request (Laya's /health, or Jev's model list).
+    if (path === '/api/checker/test') {
+      let mode;
+      try { mode = JSON.parse((await readBody(req)) || '{}').mode; } catch {}
+      const result = await checker.test(['local', 'cloud'].includes(mode) ? mode : undefined);
+      if (result.by) noteHealth(result.by, result);
+      return json(res, 200, result);
+    }
+    // "Install it", when Test connection finds the TypeSafe SDK missing: one npm install at a time.
+    if (path === '/api/checker/jev/install') {
+      sdkInstall ??= installTheSdk().finally(() => { sdkInstall = null; });
+      return json(res, 200, await sdkInstall);
+    }
+    // Laya on this computer: Set up (install once, then start), Start, Stop, Remove.
+    const layaAction = /^\/api\/checker\/laya\/(setup|start|stop|uninstall)$/.exec(path);
+    if (layaAction) {
+      const act = layaAction[1];
+      if (act === 'setup') {
+        laya.setup().then((s) => {
+          if (!s.installed) return;
+          // From now on dotpals runs it, whenever the checker is on Local, at the address it runs on.
+          config = saveConfig({ checker: { mode: 'local', layaManaged: true, ...(s.running ? { localUrl: `http://127.0.0.1:${s.port}` } : {}) } });
+          send('config', withLaya());
+        }, () => {});
+        return json(res, 202, { ok: true, laya: laya.status() });
+      }
+      if (act === 'start') {
+        if (!laya.installed()) return json(res, 400, { error: 'Laya isn’t set up yet', laya: laya.status() });
+        laya.start().catch(() => {});
+        return json(res, 202, { ok: true, laya: laya.status() });
+      }
+      if (act === 'stop') return json(res, 200, { ok: true, laya: await laya.stop() });
+      // Remove: stop it, delete <home>/laya (the environment and the model), and turn the
+      // checker off if it was using it.
+      const removed = await laya.uninstall();
+      config = saveConfig({ checker: { layaManaged: false, ...(config.checker?.mode === 'local' ? { mode: 'off' } : {}) } });
+      send('config', withLaya());
+      return json(res, 200, { ok: true, laya: removed });
     }
     const answer = /^\/api\/approvals\/([\w-]{8,64})$/.exec(path);
     if (answer) {
@@ -612,7 +730,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
     if (url.pathname === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-      res.write(`event: config\ndata: ${JSON.stringify(config)}\n\n`);
+      res.write(`event: config\ndata: ${JSON.stringify(withLaya())}\n\n`);
       for (const entry of activity.all()) res.write(`event: activity\ndata: ${JSON.stringify(entry)}\n\n`);
       for (const update of sessions.values()) res.write(`data: ${JSON.stringify(update)}\n\n`);
       for (const ctx of contexts.values()) res.write(`event: context\ndata: ${JSON.stringify(ctx)}\n\n`);
@@ -640,7 +758,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       res.writeHead(404).end();
     }
   });
-  server.on('close', () => { stopWatchers(); clearInterval(reaper); });
+  // Keep idle connections open longer than a client does (Node's fetch drops its own after
+  // 4 s), so a client never reuses one this end is just closing ("fetch failed").
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.on('close', () => { stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });
@@ -648,6 +770,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       print(`dotpals bridge → http://localhost:${port}`);
       print(`dashboard      → http://localhost:${port}/dashboard`);
       print(`hook endpoint  → http://localhost:${port}/hook`);
+      // Only now: a bridge that couldn't listen (one is already running) mustn't start a second Laya.
+      applyLaya(null);
       ok(server);
     });
   });

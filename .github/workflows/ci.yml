@@ -11,6 +11,8 @@ jobs:
   test:
     name: Node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # A hung test fails the job in minutes, not hours (each test also has a 5 min limit: npm test).
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -23,8 +25,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # No `npm ci`: dotpals has no runtime dependencies, and the tests don't
-      # need Electron (a devDependency that would download ~100 MB).
+      # No `npm ci`: dotpals has no required runtime dependencies (the TypeSafe SDK is
+      # optional, and the tests fake it), and they don't need Electron (a devDependency
+      # that would download ~100 MB).
 
       - name: Check syntax
         shell: bash

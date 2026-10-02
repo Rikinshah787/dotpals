@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipText, folderName, relative, toPatch } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 import { backup, backupPath, hookCommand, isOurs, readJson, writeJson } from './setup.js';
 
 const ID = 'cursor';
@@ -68,7 +68,7 @@ export function applyCursor(e, log) {
       add({
         ...base, id: `${session}:sh:${now}-${n}`, at: started(e.duration), tool: 'Shell', kind: 'run', title: clip(cmd, 80),
         detail: e.cwd && e.cwd !== root ? relative(e.cwd, root) : undefined, status: 'ok', ms: Number(e.duration) || undefined,
-        body: { command: clipText(cmd, 3000), output: clipText(e.output, 3000) || undefined },
+        body: { command: clipText(cmd, 3000), output: clipEnds(e.output, 3000) || undefined },
       });
       out.state = { state: 'working', text: clip(cmd, 40) };
       break;
@@ -90,7 +90,7 @@ export function applyCursor(e, log) {
       add({
         ...base, id: `${session}:mcp:${now}-${n}`, at: started(e.duration), tool: `MCP:${e.tool_name}`, kind: 'mcp',
         title: String(e.tool_name ?? 'tool').replace(/_/g, ' '), detail: server || undefined, status: 'ok', ms: Number(e.duration) || undefined,
-        body: { args: clipText(text(parse(e.tool_input)), 3000), output: clipText(text(e.result_json), 3000) || undefined },
+        body: { args: clipText(text(parse(e.tool_input)), 3000), output: clipEnds(text(e.result_json), 3000) || undefined },
       });
       out.state = { state: 'working', text: clip(e.tool_name, 40) };
       break;
@@ -108,7 +108,7 @@ export function applyCursor(e, log) {
         title: clip(typeof target === 'string' ? relative(target, root) : tool, 80), status: failed ? 'failed' : 'ok',
         ms: Number(e.duration) || undefined, error: failed ? clip(e.error_message ?? e.failure_type, 300) : undefined,
         ...(kind === 'read' && typeof target === 'string' ? { files: [{ path: target, change: 'read' }] } : {}),
-        body: { args: clipText(text(input), 3000), output: failed ? undefined : clipText(text(e.tool_output), 3000) || undefined },
+        body: { args: clipText(text(input), 3000), output: failed ? undefined : clipEnds(text(e.tool_output), 3000) || undefined },
       });
       break;
     }

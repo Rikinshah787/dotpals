@@ -29,5 +29,9 @@ Add the new event shapes to `toAgentState()` in [src/agent.js](src/agent.js). Re
 
 ## Style
 
-- Keep everything dependency-free and framework-agnostic.
+- Keep everything dependency-free and framework-agnostic. The one exception is optional: the TypeSafe SDK, loaded only when someone turns on the cloud test check.
 - Match the existing code style: ES modules, private `#fields`, and short comments only where the "why" isn't obvious.
+
+## Code of Conduct
+
+Taking part means following the [Code of Conduct](CODE_OF_CONDUCT.md). Be kind; credit other people's work.

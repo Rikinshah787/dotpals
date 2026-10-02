@@ -104,28 +104,7 @@ export function facts(steps) {
   return f;
 }
 
-const names = (list) => list.map((x) => '`' + baseName(x.path) + '`').join(', ');
-
-/** A turn as Markdown, for a PR description, commit message or standup. */
-export function turnMarkdown(t) {
-  const f = facts(t.steps);
-  const lines = [];
-  if (t.prompt) lines.push(`### ${t.prompt.title.split('\n')[0]}`, '');
-  if (t.end?.summary) lines.push(String(t.end.summary).trim(), ''); // already Markdown: kept as the agent wrote it
-  if (f.changed.length) lines.push(`- Changed: ${names(f.changed)}`);
-  if (f.wrote.length) lines.push(`- Wrote: ${names(f.wrote)}`);
-  if (f.deleted.length) lines.push(`- Deleted: ${names(f.deleted)}`);
-  if (f.runs) lines.push(`- Ran ${plural(f.runs, 'command')}${f.runFailed ? ` (${f.runFailed} failed)` : ''}`);
-  if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
-  if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
-  const took = turnTime(t);
-  lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}_`);
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-/** Several turns as one Markdown document. */
-export const recapMarkdown = (title, turns) =>
-  [`## ${title}`, ...turns.filter((t) => t.prompt || t.steps.length).map(turnMarkdown)].join('\n\n');
+// The Markdown recap (turnMarkdown, recapMarkdown) lives in story.js: it needs the story's rules.
 
 /** Sessions (one per agent conversation) with their totals, newest first. */
 export function summarizeSessions(entries) {

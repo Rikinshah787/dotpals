@@ -4,3 +4,6 @@ node_modules/
 *.tgz
 .claude/settings.local.json
 _site/
+
+# Reference videos saved locally (not ours to publish)
+igexport-*.mp4
