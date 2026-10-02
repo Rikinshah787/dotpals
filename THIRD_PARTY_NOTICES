@@ -69,7 +69,7 @@ Laya
 https://huggingface.co/convaiinnovations/laya
 ================================================================================
 
-Not included and not installed by dotpals. Choosing Local (Laya) under Settings →
-"Double-check unclear test results" sends requests to Laya's own server
-(`laya-serve`), which you install and run yourself. Laya is made by Convai
-Innovations and licensed under the Apache License 2.0.
+Not bundled with this repository. Choosing Set up Laya (or running `dotpals laya`)
+installs Laya from PyPI into `~/.dotpals/laya`; alternatively, Local mode can
+send requests to a `laya-serve` instance you install and run yourself. Laya is
+made by Convai Innovations and licensed under the Apache License 2.0.
