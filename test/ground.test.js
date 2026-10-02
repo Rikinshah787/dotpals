@@ -38,6 +38,23 @@ test('not a git repository: no snapshot', async () => {
   assert.equal(await snapshot(dir, { git: async () => null }), null);
 });
 
+test('an initial commit after the snapshot reports its tracked files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-ground-'));
+  dirs.push(dir);
+  const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'test');
+  const before = await snapshot(dir);
+  await mkdir(join(dir, 'src'));
+  await writeFile(join(dir, 'src', 'a.js'), 'a\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'initial');
+  const changes = await changesBetween(before, await snapshot(dir));
+  assert.deepEqual(changes.files, [{ path: 'src/a.js', change: 'write' }]);
+  assert.equal(changes.committed, true);
+});
+
 test('git sees what commands changed, and leaves out what was already changed before', async () => {
   const { dir } = await repo();
   await writeFile(join(dir, 'before.js'), 'mine, from before\n'); // already there, untouched by the request
@@ -94,6 +111,18 @@ test('code changed only by a command still gets a ready-to-merge verdict', () =>
   assert.ok(r);
   assert.ok(r.problems.includes('No tests ran'));
   assert.equal(readiness({ ...turn, end: { kind: 'done', at: 9999 } }), null); // without git it can't know
+});
+
+test('deletions count as code changes and unlocated Git changes are not proven tested', () => {
+  const deleted = readiness({ steps: [], end: done({ files: [{ path: 'src/a.js', change: 'delete' }], committed: false, others: [] }) });
+  assert.ok(deleted);
+  assert.ok(deleted.problems.includes('No tests ran'));
+
+  const passing = { ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } };
+  const generated = run('node scripts/generate.js');
+  const gitOnly = readiness({ steps: [passing, generated], end: done({ files: [{ path: 'src/a.js', change: 'edit', byTool: false }], committed: false, others: [] }) });
+  assert.equal(gitOnly.ready, false);
+  assert.ok(gitOnly.problems.some((p) => /timing relative to the tests is unknown/.test(p)));
 });
 
 test('another agent in the same repository, and edits git doesn’t show', () => {

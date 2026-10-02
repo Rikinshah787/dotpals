@@ -102,7 +102,7 @@ test('onPath and installedAgents: what’s installed', () => {
 // -- POST /api/handoff ------------------------------------------------------------------
 
 const usedPorts = new Set();
-const BLOCKED = new Set([5985, 5986, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
+const BLOCKED = new Set([5985, 5986, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080]);
 const freshPort = () => { let port; do port = 8900 + Math.floor(Math.random() * 1500); while (usedPorts.has(port) || BLOCKED.has(port)); usedPorts.add(port); return port; };
 
 test('POST /api/handoff: header, origin, unknown session, allow-listed agents, and the folder comes from the session', async (t) => {

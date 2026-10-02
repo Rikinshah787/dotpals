@@ -60,7 +60,7 @@ function slim(e, ids) {
   if (e.files?.length) s.files = e.files.map((f) => ({ path: clean(f.path), change: f.change }));
   if (e.kind === 'run' && (e.body?.command || e.body?.output)) s.body = { command: clean(e.body.command, 1500), ...(test ? { output: clean(e.body.output, 3000) } : {}) };
   if (e.summary) s.summary = clean(String(e.summary).slice(-240));
-  if (e.git) s.git = e.git;
+  if (e.git) s.git = JSON.parse(clean(JSON.stringify(e.git)));
   return s;
 }
 
