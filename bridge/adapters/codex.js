@@ -4,7 +4,7 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative } from '../activity.js';
 
 const HARNESS = 'codex';
 const RECENT = 12 * 60 * 60 * 1000; // follow logs touched in the last 12 hours
