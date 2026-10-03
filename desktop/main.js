@@ -21,7 +21,9 @@ const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height:
 const MARGIN = 16;
 const TALK_EXTRA = 190; // small mode: extra height above the pal for the chat bubble
 const SHORTCUT = 'CommandOrControl+Alt+P';
-const TALK_SHORTCUT = 'CommandOrControl+Alt+Space';
+// Talk to Blu: your own (talkShortcut in the settings), else the first of these that's free.
+// Not Ctrl+Alt+Space: the Claude app uses it.
+const TALK_SHORTCUTS = ['CommandOrControl+Shift+Space', 'CommandOrControl+Alt+T', 'CommandOrControl+Alt+Shift+T'];
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
 app.setName('dotpals');
@@ -87,7 +89,7 @@ if (!app.requestSingleInstanceLock()) {
     syncNotch();
     handleArgs(process.argv);
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
-    if (!globalShortcut.register(TALK_SHORTCUT, () => openTalk({ listen: true }))) console.warn(`[dotpals] ${TALK_SHORTCUT} is taken by another app`);
+    registerTalkShortcut();
     watchCursor();
   });
 
@@ -162,6 +164,14 @@ if (!app.requestSingleInstanceLock()) {
     }
   }
   ipcMain.on('talk:open', () => openTalk());
+  let talkShortcut = null; // the one that's registered
+  function registerTalkShortcut() {
+    const own = loadConfig().talkShortcut;
+    for (const key of [...(own ? [own] : []), ...TALK_SHORTCUTS]) {
+      try { if (globalShortcut.register(key, () => openTalk({ listen: true }))) { talkShortcut = key; return; } } catch {}
+      console.warn(`[dotpals] ${key} is taken by another app`);
+    }
+  }
 
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
@@ -180,7 +190,7 @@ if (!app.requestSingleInstanceLock()) {
         { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
       ] },
       { label: 'Dashboard', click: openDashboard },
-      { label: 'Talk to Blu', accelerator: TALK_SHORTCUT, click: () => openTalk() },
+      { label: 'Talk to Blu', ...(talkShortcut ? { accelerator: talkShortcut } : {}), click: () => openTalk() },
       // Chat is optional (Dashboard → Settings → Chat with your agents).
       ...(loadConfig().chat ? [{ label: 'Start working…', click: sayHello }] : []),
       { type: 'separator' },

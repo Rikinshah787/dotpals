@@ -74,6 +74,8 @@ function clean(input = {}) {
   if (input.custom) out.custom = cleanCustom(input.custom);
   const days = Number(input.historyDays);
   if (Number.isInteger(days) && days >= 1 && days <= 90) out.historyDays = days;
+  // Talk to Blu's shortcut, as Electron writes one ("CommandOrControl+Alt+T").
+  if (typeof input.talkShortcut === 'string' && /^(?:(?:CommandOrControl|CmdOrCtrl|Control|Ctrl|Command|Cmd|Alt|Option|AltGr|Shift|Super|Meta)\+){1,3}(?:[A-Z0-9]|F(?:[1-9]|1\d|2[0-4])|Space)$/i.test(input.talkShortcut)) out.talkShortcut = input.talkShortcut;
   return out;
 }
 
