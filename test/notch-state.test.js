@@ -53,10 +53,14 @@ test('minimize closes it in one click, also while it shows "just finished"', () 
   assert.equal(mode(s, 10), 'open');
   s = reduce(s, { type: 'tuck', on: true }, 20);
   assert.equal(mode(s, 20), 'hidden');
-  // Already minimized, open again: the same button (now "bring the bar back") closes it too.
+  // Opened again while minimized: – closes it again.
   s = reduce(s, { type: 'click' }, 30);
-  s = reduce(s, { type: 'tuck', on: false }, 40);
-  assert.equal(mode(s, 40), 'bar');
+  s = reduce(s, { type: 'tuck', on: true }, 40);
+  assert.equal(mode(s, 40), 'hidden');
+  // Minimized until the work is done: the next work shows the bar.
+  s = reduce(s, { type: 'agents', running: 0 }, 50);
+  s = reduce(s, { type: 'agents', running: 1 }, 60);
+  assert.equal(mode(s, 60), 'bar');
 });
 
 test('hovering the hidden strip peeks at once, opens after a dwell, and hides again if you leave', () => {

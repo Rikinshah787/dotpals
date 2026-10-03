@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ghost dotpals processes** when a second copy started (a hook launching the pal while it was already running): the second copy exits at once instead of a quit that could hang.
 - **The pal could sit half off the screen**, hiding its × and other buttons. It keeps itself inside the display now, and a one-time hint by the × says how to hide it (×, or Ctrl+Alt+P) and that it stays in the tray.
 - **Updating didn't take effect while the pal was running.** `dotpals setup` on a machine with a pal still open just brought the old window back, so the new code never ran. Setup now asks the running app to quit (`POST /api/app/quit`, desktop app only) and starts the new one, also when the version number is the same (a fix installed from a branch).
-- **The notch's minimize button sometimes needed two clicks.** It switches minimize on and off, and only switching it on closed the island; a "just finished" alert on show also kept it open. Every click closes it now.
+- **The notch's minimize button sometimes needed two clicks.** It was an on/off switch whose icon changed, and only switching it on closed the island; a "just finished" alert on show also kept it open. Now – always minimizes and closes it in one click, and the bar comes back by itself the next time agents work.
 - **Setup could say the desktop runtime was installed when it wasn't** (npm reported success, but Electron's download step had failed, for example on files an old pal still held). Setup now checks Electron is really there, retries its download once, and no longer prints a Node 24 deprecation warning while installing it.
 
 Found by checking real requests by hand for the accuracy set:
