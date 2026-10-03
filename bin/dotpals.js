@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // dotpals command line.
 //
-//   npx --allow-git=all github:rikinshah787/dotpals setup     one command: install, connect your agents, start
+//   npx dotpals setup     one command: install, connect your agents, start
 //   dotpals start                             open the floating pal
 //   dotpals dashboard                         open the dashboard
 //   dotpals status                            what's running and connected
@@ -370,7 +370,7 @@ const flags = new Set(rest);
 switch (command) {
   case 'setup': await setup(flags); break;
   case 'start':
-    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx --allow-git=all github:rikinshah787/dotpals setup'); process.exitCode = 1; }
+    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
     break;
   case 'dashboard':
     // The app's own window when the desktop pal is installed (a running pal just opens it);
@@ -383,7 +383,7 @@ switch (command) {
   case 'statusline': statusline(flags); break;
   case 'notch':
     // The island at the top of the screen: every agent, its plan and your usage limits.
-    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx --allow-git=all github:rikinshah787/dotpals setup'); process.exitCode = 1; }
+    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
     break;
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge()); break;
   case 'laya': await laya(flags); break;

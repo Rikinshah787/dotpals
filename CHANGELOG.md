@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Install from npm:** `npx dotpals setup`. The package is published to npm as `dotpals`; installing straight from GitHub (`npx --allow-git=all github:rikinshah787/dotpals setup`) still works. Requires Node 20 or newer.
+
 ### Added
 
 - **How accurate is it?** 21 real requests and 145 claims, checked by hand against what happened (`test/accuracy/cases`). `npm run accuracy` prints the score and every wrong claim: 94.5% right, 4 wrong, 4 unsure, no false "risky" warnings. The tests fail if a claim that's right turns wrong. `scripts/accuracy-capture.mjs` turns your own requests into cases: one project's sessions only, prompts left out, paths, keys and emails removed.
