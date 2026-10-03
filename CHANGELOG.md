@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **"What are we working on today?"** With chat on, tray → *Start working…* asks which project (folders your agents worked in recently, or any folder), then what to do there, and starts an OpenCode session in that folder. Tray → *Greet me when dotpals starts* (off by default) asks every time dotpals starts. `GET /api/chat/projects`.
 - **Pal size.** Make the pal 50–150% in small mode: Dashboard → Settings → *Pal size*, tray → *Pal size* (Small, Normal, Large), or Ctrl+scroll over the pal (Cmd on macOS; a plain scroll never resizes it). Above 100% the small window grows to fit.
 
+### Fixed
+
+- **The notch's Story tab scrolled sideways.** A long file name or chapter title stretched every request card past the edge of the column, so a horizontal scrollbar appeared and the ends of lines ("Continue in ▾", "…was also changed by…") were cut off. Long titles now end in "…" and notes wrap, so everything fits the column.
+- **"+ N small steps" in the notch couldn't be opened.** It only said that steps were hidden. Click it (or press Enter) to show them; "Hide small steps" folds them again.
+
 ## [0.9.6] - 2026-10-03
 
 ### Added
