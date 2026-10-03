@@ -619,3 +619,20 @@ test('generic /event: malformed files are dropped, so a trimmed session never th
   assert.equal(mine.find((e) => e.id.endsWith(':f1')).files, undefined);
   assert.deepEqual(mine.find((e) => e.id.endsWith(':f2')).files, [{ path: 'src/ok.js', change: 'edit' }]);
 });
+
+test('POST /api/app/quit asks the desktop app to quit (header required; 409 when there is no app)', async (t) => {
+  let quits = 0;
+  const port = freshPort();
+  const server = await startBridge({ port, log: () => {}, onQuit: () => { quits++; } });
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  assert.equal((await post(port, '/api/app/quit', {})).status, 403); // no x-dotpals header
+  const res = await fetch(`http://127.0.0.1:${port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).ok, true);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(quits, 1);
+  const bare = await startBridge({ port: freshPort(), log: () => {} });
+  t.after(async () => { bare.closeAllConnections?.(); await new Promise((r) => bare.close(r)); });
+  const r2 = await fetch(`http://127.0.0.1:${bare.address().port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } });
+  assert.equal(r2.status, 409);
+});

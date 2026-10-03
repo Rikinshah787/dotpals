@@ -70,7 +70,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     // Run the bridge in this process, unless one is already running.
     try {
-      await startBridge({ port, log: () => {} });
+      await startBridge({ port, log: () => {}, onQuit: () => app.quit() });
     } catch (err) {
       if (err.code !== 'EADDRINUSE') console.error('[dotpals] bridge failed to start:', err.message);
     }
@@ -264,8 +264,8 @@ if (!app.requestSingleInstanceLock()) {
     notch.on('closed', () => { notch = null; notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
     notch.loadURL(`${bridge}/bridge/notch.html`).catch(() => notch?.loadFile(notchPage));
   }
-  // When it shows: 'auto' (whenever the pal is hidden, the default), 'always' or 'off'.
-  const notchMode = () => prefs.notchMode ?? (prefs.notch === true ? 'always' : 'auto');
+  // When it shows: 'always' (the default: people install dotpals for the notch), 'auto' (whenever the pal is hidden) or 'off'.
+  const notchMode = () => prefs.notchMode ?? (prefs.notch === false ? 'off' : 'always');
   function syncNotch() {
     const mode = notchMode();
     const want = mode === 'always' || (mode === 'auto' && !(win && !win.isDestroyed() && win.isVisible()));
@@ -541,7 +541,7 @@ if (!app.requestSingleInstanceLock()) {
         send('bridge:status', false);
         await new Promise((r) => setTimeout(r, 1500));
         // If the bridge we were using went away, take over.
-        await startBridge({ port, log: () => {} }).catch(() => {});
+        await startBridge({ port, log: () => {}, onQuit: () => app.quit() }).catch(() => {});
         controller = new AbortController();
       }
     })();
