@@ -40,10 +40,11 @@ const run = (cmd, args) => (platform() === 'win32'
 async function runningVersion() {
   try { return (await (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).json()).version ?? null; } catch { return null; }
 }
-/** Ask the running desktop app to quit, and wait (up to 8 s) for its bridge to go. */
+/** Ask the running desktop app to quit, and wait (up to 8 s) for its bridge to go. 'bridge': only a bridge is running (it can't quit). */
 async function quitRunningApp() {
   try {
     const r = await fetch(`${bridge}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' }, signal: AbortSignal.timeout(1500) });
+    if (r.status === 409) return 'bridge';
     if (!r.ok) return false;
   } catch { return false; }
   for (let i = 0; i < 32; i++) { await new Promise((r) => setTimeout(r, 250)); if (!(await bridgeUp())) return true; }
@@ -149,7 +150,12 @@ async function setup(flags) {
     // The same version too (a fix installed from a branch keeps the number); never a newer one.
     const running = await runningVersion();
     const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
-    if (running && installed && compareVersions(running, installed) <= 0 && (await quitRunningApp())) {
+    const quit = running && installed && compareVersions(running, installed) <= 0 ? await quitRunningApp() : false;
+    if (quit === 'bridge') {
+      // Only a bridge (started by a hook before the desktop app was installed): start the pal, which uses it.
+      if (startApp(extra)) ok('The pal is starting');
+      else warn('The desktop runtime isn’t installed: run dotpals start');
+    } else if (quit) {
       if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
       else warn('The old pal was closed, but the desktop runtime isn’t installed: run dotpals start');
     } else {

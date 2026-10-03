@@ -979,7 +979,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 // Run directly (`node bridge/server.js`, or the `dotpals-bridge` bin, which may be a symlink).
 const invoked = process.argv[1] && (() => { try { return realpathSync(process.argv[1]); } catch { return ''; } })();
 if (invoked && invoked === realpathSync(fileURLToPath(import.meta.url))) {
-  startBridge().catch((err) => {
+  // Run on its own (by a hook, or setup without the desktop app), it quits when setup asks, so the pal can take over.
+  startBridge({ onQuit: () => process.exit(0) }).catch((err) => {
     console.error(err.code === 'EADDRINUSE' ? 'The dotpals bridge is already running.' : err.message);
     process.exit(err.code === 'EADDRINUSE' ? 0 : 1);
   });
