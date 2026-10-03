@@ -80,23 +80,25 @@ const as = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
  *   Linux    gnome-terminal, konsole or x-terminal-emulator, with the agent and prompt as
  *            separate arguments; none found: an error (use Copy instead).
  */
-export function launchCommand({ platform = process.platform, agent, dir, prompt, has = onPath, find = findOnPath }) {
+export function launchCommand({ platform = process.platform, agent, dir, prompt, args, has = onPath, find = findOnPath }) {
   const a = Object.hasOwn(HANDOFF_AGENTS, agent) ? HANDOFF_AGENTS[agent] : null;
   if (!a) return { error: 'That agent can’t be started from dotpals.' };
   if (!dir) return { error: 'dotpals doesn’t know this session’s project folder.' };
-  const words = [a.command, ...a.args(prompt)];
+  // `args`: the agent's arguments in full (a task: Claude's session id and name, then the prompt).
+  const agentArgs = args ?? a.args(prompt);
+  const words = [a.command, ...agentArgs];
   if (platform === 'win32') {
     const folder = tidyDir(dir);
-    if ([folder, prompt].some((s) => /["%\r\n]/.test(s))) return { error: 'The folder or note path has characters a Windows terminal can’t take safely.' };
+    if ([folder, ...agentArgs].some((s) => /["%\r\n]/.test(s))) return { error: 'The folder or note path has characters a Windows terminal can’t take safely.' };
     // The agent's own file, found on PATH: cmd would look in the project folder first.
     const exe = find(a.command, { platform });
     if (!exe) return { error: `${a.name} isn’t on PATH.` };
     if (/["%\r\n]/.test(exe)) return { error: 'The agent’s path has characters a Windows terminal can’t take safely.' };
     const q = (s) => `"${s}"`;
     // cmd /s /k ""C:\path\codex.cmd" "prompt"": /s takes off the outer quotes and runs the rest as it is.
-    const run = ['cmd', '/s', '/k', `"${[q(exe), ...a.args(prompt).map((w) => (w.startsWith('-') && !/\s/.test(w) ? w : q(w)))].join(' ')}"`];
+    const run = ['cmd', '/s', '/k', `"${[q(exe), ...agentArgs.map((w) => (w.startsWith('-') && !/\s/.test(w) ? w : q(w)))].join(' ')}"`];
     // Windows Terminal splits its command line at ";", even inside quotes.
-    if (has('wt') && ![folder, prompt].some((s) => s.includes(';'))) {
+    if (has('wt') && ![folder, ...agentArgs].some((s) => s.includes(';'))) {
       return { file: 'wt.exe', args: ['-d', q(folder), ...run], options: { windowsVerbatimArguments: true } };
     }
     return { file: 'cmd.exe', args: ['/d', '/c', 'start', '""', '/D', q(folder), ...run], options: { windowsVerbatimArguments: true } };

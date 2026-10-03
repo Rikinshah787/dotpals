@@ -53,6 +53,13 @@
 //   POST /api/chat/answer { id, reply } | { id, answers }  answer an OpenCode permission request
 //                        (`ocask` events: once, always or reject) or question (null skips it)
 //   GET  /api/chat/projects → { projects: [{ path, name }] } folders agents worked in, newest first
+//   GET  /talk                       → Talk to Blu (bridge/talk.html): say a task, Claude does it, Blu checks it
+//   GET  /api/talk/projects          → { projects, claude } the folders a task can go to; is Claude Code installed
+//   GET  /api/talk/tasks             → { tasks } the tasks so far, newest first (also `task` events as they change)
+//   POST /api/talk/plan { text, project? }   your words → a plan with a definition of done (bridge/tasks.js)
+//   POST /api/talk/start { id, title?, task?, done?, project? }   start Claude Code on it in a new terminal
+//   POST /api/talk/fix { id }        → { text } a request for the agent to fix what isn't done (to paste)
+//   POST /api/talk/pr/plan { id }    → { pr } what opening a PR would do; POST /api/talk/pr/open { id } does it
 //   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
@@ -79,6 +86,7 @@ import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 import { createGround } from './ground.js';
 import { createChat } from './chat.js';
+import { agentEnv, askPlanner, claudeTaskArgs, createTaskList, evaluate, fixRequest, knownProjects, makePlan, newSessionId, openPr, prPlan, receiptMarkdown, saveTask, taskMarkdown, taskPrompt, tidyPath, verdictWords } from './tasks.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } })();
@@ -315,6 +323,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       maybeCheck(entry);
       checkConflicts(entry);
       groundTruth(entry);
+      taskNews(entry);
       any = true;
     }
     if (any) history.save();
@@ -445,6 +454,133 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         publish([activity.upsert({ id: entry.id, git })]);
       }, () => {});
     }
+  }
+
+  // -- Talk to Blu (bridge/tasks.js): a task said or typed, done by an agent, checked here ------
+  // Plans wait here until you send or drop them; a sent task is followed through its session
+  // (ours: Claude Code starts with a session id we chose) and checked each time it finishes.
+  const taskList = createTaskList();
+  // Saved tasks keep their last verdict; a task's new steps (live, or read from its transcript) check it again.
+  taskList.load().catch(() => {});
+  const plans = new Map(); // plan id → plan, for 30 minutes
+  const prPlans = new Map(); // task id → what opening its PR will do (shown before it's done)
+  const taskTimers = new Map();
+  const projectsNow = () => knownProjects(activity.all(), (s) => sessionMeta.get(s)?.cwd, { isFolder: handoffOptions.isFolder ?? isFolder, name: folderName });
+  const taskView = (t) => ({ ...t, verdict: t.verdict && { ...t.verdict, turn: undefined } });
+  function taskNews(entry) {
+    const task = entry.session && taskList.bySession(entry.session);
+    if (!task) return;
+    // When a request ends, wait a moment for git's account of it (groundTruth) before checking.
+    settleTask(task, entry.kind === 'done' || entry.kind === 'error' ? 2500 : 600);
+  }
+  function settleTask(task, delay) {
+    clearTimeout(taskTimers.get(task.id));
+    taskTimers.set(task.id, setTimeout(() => {
+      taskTimers.delete(task.id);
+      const v = evaluate(task, [...activity.each()]);
+      // Steps not loaded yet (history trimmed, a restart): keep what was known.
+      if (v.state === 'starting' && task.verdict && task.verdict.state !== 'starting') return;
+      const before = task.state;
+      task.state = v.state;
+      task.verdict = v;
+      if (!['starting', 'working'].includes(v.state)) task.words = verdictWords(task, v);
+      send('task', taskView(task));
+      if (before !== v.state || !['starting', 'working'].includes(v.state)) taskList.save();
+    }, delay));
+  }
+  /** Read a JSON body; only this bridge's own pages (or no page at all) may ask, as for the hand-off. */
+  async function talkBody(req, res) {
+    const origin = req.headers.origin;
+    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) { json(res, 403, { error: 'forbidden' }); return null; }
+    try { return JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { error: 'bad json' }); return null; }
+  }
+  /** A project folder the agents worked in, by its path; never a folder only a request names. */
+  const knownProject = (path) => projectsNow().find((p) => p.path.toLowerCase() === String(path ?? '').toLowerCase()) ?? null;
+  async function talk(req, res, path) {
+    const body = await talkBody(req, res);
+    if (!body) return;
+    if (path === '/api/talk/plan') {
+      const text = String(body.text ?? '').trim().slice(0, 2000);
+      if (!text) return json(res, 400, { error: 'Say or type what you want done' });
+      const projects = projectsNow();
+      const chosen = body.project ? knownProject(body.project) : null;
+      if (body.project && !chosen) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
+      try {
+        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects);
+        const plan = makePlan({ text, reply, projects, project: chosen });
+        plans.set(plan.id, plan);
+        for (const [id, p] of plans) if (Date.now() - p.createdAt > 30 * 60_000) plans.delete(id);
+        return json(res, 200, { plan });
+      } catch (err) {
+        return json(res, 502, { error: `Blu couldn’t write the plan: ${err.message}` });
+      }
+    }
+    if (path === '/api/talk/start') {
+      const plan = plans.get(body.id);
+      if (!plan) return json(res, 404, { error: 'That plan has expired: ask again' });
+      // What you changed on the card before sending: the title, the task and the definition of done (never the folder's path).
+      if (typeof body.title === 'string' && body.title.trim()) plan.title = body.title.trim().slice(0, 80);
+      if (typeof body.task === 'string' && body.task.trim()) plan.task = body.task.trim().slice(0, 4000);
+      if (body.project) {
+        const p = knownProject(body.project);
+        if (!p) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
+        plan.project = p;
+      }
+      if (Array.isArray(body.done)) {
+        plan.done = body.done.slice(0, 12).flatMap((d) => {
+          if (d?.kind === 'tests') return [plan.done.find((x) => x.kind === 'tests')].filter(Boolean);
+          if (d?.kind === 'untouched' && tidyPath(d.path)) return [{ kind: 'untouched', path: tidyPath(d.path), text: `Nothing in \`${tidyPath(d.path)}\` changes` }];
+          if (d?.kind === 'manual' && String(d.text ?? '').trim()) return [{ kind: 'manual', text: String(d.text).trim().slice(0, 200) }];
+          return [];
+        });
+      }
+      const has = handoffOptions.has ?? onPath;
+      if (!has('claude')) return json(res, 400, { error: 'Claude Code isn’t installed here (no `claude` on PATH)' });
+      if (!(handoffOptions.isFolder ?? isFolder)(plan.project.path)) return json(res, 409, { error: 'That project folder is gone' });
+      let file;
+      try { file = await saveTask(taskMarkdown(plan)); } catch (err) { return json(res, 500, { error: `Couldn’t save the task: ${err.message}` }); }
+      const session = newSessionId();
+      const command = launchCommand({ platform: handoffOptions.platform ?? process.platform, agent: 'claude', dir: plan.project.path, args: claudeTaskArgs({ sessionId: session, title: plan.title, prompt: taskPrompt(file) }), has, find: handoffOptions.find });
+      if (command.error) return json(res, 409, { error: command.error, file });
+      try { await (handoffOptions.launch ?? launch)({ ...command, options: { ...command.options, env: agentEnv() } }); } catch (err) { return json(res, 500, { error: `Couldn’t open a terminal: ${err.message}`, file }); }
+      plans.delete(plan.id);
+      const task = { ...plan, id: plan.id.replace(/^plan-/, 'task-'), session, file, startedAt: Date.now(), state: 'starting' };
+      noteSession(session, plan.project.path);
+      await taskList.add(task);
+      send('task', taskView(task));
+      return json(res, 200, { task: taskView(task) });
+    }
+    const task = taskList.get(body.id);
+    if (!task) return json(res, 404, { error: 'dotpals has no record of that task' });
+    if (path === '/api/talk/fix') {
+      const v = evaluate(task, [...activity.each()]);
+      if (!v.problems?.length) return json(res, 409, { error: 'There’s nothing to fix' });
+      return json(res, 200, { text: fixRequest(task, v) });
+    }
+    if (path === '/api/talk/pr/plan') {
+      const v = evaluate(task, [...activity.each()]);
+      if (v.state !== 'ready' && !body.anyway) return json(res, 409, { error: 'The task isn’t ready to merge yet' });
+      const p = await (handoffOptions.prPlan ?? prPlan)(task, v).catch((err) => ({ error: err.message }));
+      if (p.error) return json(res, 409, { error: p.error });
+      prPlans.set(task.id, { ...p, at: Date.now() });
+      return json(res, 200, { pr: p });
+    }
+    if (path === '/api/talk/pr/open') {
+      const p = prPlans.get(task.id);
+      if (!p || Date.now() - p.at > 15 * 60_000) return json(res, 409, { error: 'Look at the PR’s plan first' });
+      prPlans.delete(task.id);
+      const v = evaluate(task, [...activity.each()]);
+      try {
+        const r = await (handoffOptions.openPr ?? openPr)(task, p, receiptMarkdown(task, v));
+        task.pr = { url: r.url, branch: p.branch, at: Date.now() };
+        await taskList.save();
+        send('task', taskView(task));
+        return json(res, 200, { pr: task.pr });
+      } catch (err) {
+        return json(res, 502, { error: err.message });
+      }
+    }
+    return json(res, 404, { error: 'not found' });
   }
 
   // -- Is the checker working? -------------------------------------------------------------
@@ -810,6 +946,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { projects });
     }
     if (req.method === 'GET' && path === '/api/handoff/agents') return json(res, 200, { agents: installedAgents({ has: handoffOptions.has ?? onPath }) });
+    // Talk to Blu: the project folders a task can go to, and the tasks so far.
+    if (req.method === 'GET' && path === '/api/talk/projects') return json(res, 200, { projects: projectsNow(), claude: (handoffOptions.has ?? onPath)('claude') });
+    if (req.method === 'GET' && path === '/api/talk/tasks') return json(res, 200, { tasks: taskList.list().map(taskView) });
 
     // Changes need a custom header: browsers won't send it cross-site without
     // asking first (and we never say yes), so other websites can't change settings.
@@ -896,6 +1035,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { ok: true, laya: removed });
     }
     if (path === '/api/handoff') return handoff(req, res);
+    if (path.startsWith('/api/talk/')) return talk(req, res, path);
     // Chat (bridge/chat.js): a prompt typed in the pal goes to OpenCode.
     // { text, session? ('opencode:ses_…' to continue it), directory? (for a new one) }
     // Answer an OpenCode permission request or question from the pal.
@@ -1071,6 +1211,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
     const path = url.pathname === '/' ? '/bridge/index.html'
       : url.pathname === '/dashboard' ? '/bridge/dashboard.html'
+      : url.pathname === '/talk' ? '/bridge/talk.html'
       : url.pathname;
     const file = normalize(join(root, path));
     if (!file.startsWith(root) || !/[\\/](src|bridge|desktop)[\\/]/.test(file)) return res.writeHead(404).end();

@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Talk to Blu</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0e; --card: #131318; --raise: #1c1c22; --sunk: #0f0f13; --line: #2a2a31;
+      --text: #f2f2f5; --soft: #cfcfd6; --muted: #8b8b96; --faint: #5c5c66;
+      --ok: #46a758; --bad: #f2555a; --warn: #f5b94a; --blu: #3987e5; --claude: #d95926;
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 ui-rounded, "SF Pro Rounded", "Segoe UI Variable Text", system-ui, sans-serif; }
+    button, input, textarea, select { font: inherit; color: inherit; }
+    button { cursor: pointer; border: 1px solid var(--line); background: var(--raise); border-radius: 9px; padding: 6px 12px; }
+    button:hover { border-color: #3a3a44; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--blu); outline-offset: 1px; }
+    button[disabled] { opacity: .5; cursor: default; }
+    .primary { background: var(--blu); border-color: var(--blu); color: #fff; font-weight: 700; }
+    .good { background: var(--ok); border-color: var(--ok); color: #06140a; font-weight: 700; }
+    .quiet { background: transparent; }
+    main { max-width: 640px; margin: 0 auto; padding: 14px 16px 24px; display: grid; gap: 12px; }
+
+    header { display: flex; align-items: center; gap: 12px; }
+    header dot-pal { flex: none; }
+    header .who { flex: 1; min-width: 0; }
+    header h1 { margin: 0; font-size: 17px; letter-spacing: -.2px; }
+    #status { color: var(--muted); font-size: 12.5px; min-height: 18px; }
+    #status.bad { color: var(--bad); }
+    #voiceToggle[aria-pressed="false"] { opacity: .6; }
+
+    .composer { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: stretch; }
+    #mic { width: 54px; height: 54px; border-radius: 50%; padding: 0; display: grid; place-items: center; background: var(--raise); position: relative; }
+    #mic svg { width: 24px; height: 24px; }
+    #mic.on { background: var(--bad); border-color: var(--bad); }
+    #mic.on::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--bad); opacity: var(--lvl, .2); transform: scale(calc(1 + var(--lvl, 0) * .25)); transition: transform .08s, opacity .08s; }
+    #mic.busy { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .55; } }
+    #text { resize: none; min-height: 54px; max-height: 140px; border-radius: 12px; border: 1px solid var(--line); background: var(--sunk); padding: 8px 10px; }
+    .hint { color: var(--faint); font-size: 11.5px; margin-top: -4px; }
+    kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--soft); }
+
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 9px; }
+    .card h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 700; }
+    .field { display: grid; gap: 4px; }
+    .field label { color: var(--muted); font-size: 11.5px; }
+    .field input, .field textarea, .field select { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: var(--sunk); padding: 6px 8px; }
+    .field textarea { resize: vertical; min-height: 70px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .grow { flex: 1; }
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--raise); color: var(--soft); }
+    .badge.guess { color: var(--warn); background: rgb(245 185 74 / .12); }
+    ul.done { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+    ul.done li { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 9px; background: var(--sunk); }
+    ul.done li .ico { flex: none; width: 18px; text-align: center; }
+    ul.done li .txt { flex: 1; }
+    ul.done li small { color: var(--faint); }
+    ul.done li button { padding: 0 6px; border: 0; background: transparent; color: var(--faint); }
+    ul.done li button:hover { color: var(--bad); }
+    code { font: 12px var(--mono); background: var(--raise); padding: 0 4px; border-radius: 4px; }
+
+    #tasks { display: grid; gap: 10px; }
+    .task .top { display: flex; gap: 8px; align-items: baseline; }
+    .task .title { flex: 1; font-weight: 700; font-size: 14px; }
+    .task .meta { color: var(--muted); font-size: 11.5px; }
+    .state { font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    .state.starting, .state.working { color: #9cc6ff; background: rgb(57 135 229 / .15); }
+    .state.ready { color: #7ee08f; background: rgb(70 167 88 / .16); }
+    .state.not-ready, .state.stopped { color: #ffb25b; background: rgb(245 185 74 / .13); }
+    .state.no-changes { color: var(--soft); background: var(--raise); }
+    .doing { color: var(--soft); font-size: 12.5px; }
+    .doing::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--blu); animation: pulse 1s infinite; vertical-align: 1px; }
+    .sentence { color: var(--soft); }
+    ul.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+    ul.checks li { display: flex; gap: 7px; }
+    ul.checks li b { flex: none; width: 16px; text-align: center; }
+    ul.checks li.y b { color: var(--ok); } ul.checks li.n b { color: var(--bad); } ul.checks li.m b { color: var(--faint); }
+    .pr { padding: 9px 10px; border-radius: 10px; background: var(--sunk); border: 1px dashed #3a3a44; display: grid; gap: 7px; }
+    .pr ul { margin: 0; padding-left: 18px; }
+    a { color: #8fb8ff; }
+    .empty { color: var(--faint); text-align: center; padding: 14px 0; }
+    .note { color: var(--muted); font-size: 11.5px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <dot-pal id="pal" character="blu" size="64" idle="float"></dot-pal>
+    <div class="who">
+      <h1>Talk to Blu</h1>
+      <div id="status" role="status" aria-live="polite">Click the mic (or press <kbd>Space</kbd>) and say what you want done.</div>
+    </div>
+    <button id="voiceToggle" class="quiet" type="button" aria-pressed="true" title="Blu speaks out loud">🔊</button>
+  </header>
+
+  <form class="composer" id="composer" autocomplete="off">
+    <button id="mic" type="button" title="Talk (Space)" aria-label="Talk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <textarea id="text" rows="2" placeholder="Or type it… e.g. “Have Claude fix the failing checkout test in shop. Don’t touch the cart folder.”" aria-label="What you want done"></textarea>
+    <button id="ask" class="primary" type="submit">Ask</button>
+  </form>
+  <div class="hint">Blu writes the definition of done, Claude does the work, Blu checks it. Your voice stays on this computer.</div>
+
+  <section id="planBox" hidden></section>
+  <section id="tasks"></section>
+</main>
+
+<script type="module">
+  import '/src/index.js';
+
+  const $ = (id) => document.getElementById(id);
+  const pal = $('pal');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+  const api = async (path, body) => {
+    const res = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  };
+  const status = (text, bad = false) => { $('status').innerHTML = text; $('status').classList.toggle('bad', bad); };
+  const palState = (s) => { try { pal.setState(s); } catch {} };
+
+  // -- Blu's voice (the computer's own voices; nothing leaves it) ------------------------------
+  let speakOn = (() => { try { return localStorage.getItem('blu.speak') !== '0'; } catch { return true; } })();
+  const voiceBtn = $('voiceToggle');
+  const showVoice = () => { voiceBtn.setAttribute('aria-pressed', String(speakOn)); voiceBtn.textContent = speakOn ? '🔊' : '🔇'; };
+  showVoice();
+  voiceBtn.onclick = () => { speakOn = !speakOn; try { localStorage.setItem('blu.speak', speakOn ? '1' : '0'); } catch {} if (!speakOn) speechSynthesis.cancel(); showVoice(); };
+  const pickVoice = () => {
+    const voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
+    return voices.find((v) => /natural/i.test(v.name) && /aria|jenny|ava|emma|guy/i.test(v.name)) ?? voices.find((v) => /aria|jenny|zira|samantha|google us english/i.test(v.name)) ?? voices[0] ?? null;
+  };
+  /** Say it, then resolve (at once when speaking is off). */
+  function say(text) {
+    const plain = String(text ?? '').replace(/`/g, '').trim();
+    if (!plain || !speakOn) return Promise.resolve();
+    speechSynthesis.cancel();
+    return new Promise((ok) => {
+      const u = new SpeechSynthesisUtterance(plain);
+      const v = pickVoice();
+      if (v) u.voice = v;
+      u.rate = 1.05; u.pitch = 1.1;
+      u.onend = u.onerror = () => { palState(mode.kind === 'idle' ? 'idle' : 'waiting'); ok(); };
+      palState('speaking');
+      speechSynthesis.speak(u);
+    });
+  }
+  speechSynthesis.getVoices();
+
+  // -- listening: Whisper on this computer (Transformers.js), downloaded once -------------------
+  let asr = null;
+  async function recognizer() {
+    if (asr) return asr;
+    status('Getting the speech model ready (the first time it downloads about 80 MB)…');
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0');
+    env.allowLocalModels = false;
+    const progress = (p) => { if (p.status === 'progress' && p.total) status(`Downloading the speech model… ${Math.round((p.loaded / p.total) * 100)}% (${p.file})`); };
+    const model = 'onnx-community/whisper-base.en';
+    if (navigator.gpu) {
+      try { asr = await pipeline('automatic-speech-recognition', model, { device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, progress_callback: progress }); return asr; } catch {}
+    }
+    asr = await pipeline('automatic-speech-recognition', model, { device: 'wasm', dtype: 'q8', progress_callback: progress });
+    return asr;
+  }
+
+  let rec = null; // the recording in progress
+  async function listen() {
+    if (rec) return stopListening();
+    speechSynthesis.cancel();
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
+    catch (err) { status(`Blu can’t use the microphone (${esc(err.message)}). Check the system’s microphone privacy settings, or type instead.`, true); return; }
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const source = ctx.createMediaStreamSource(stream);
+    const node = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    const started = performance.now();
+    let floor = 0, frames = 0, heard = false, lastLoud = started;
+    rec = { stream, ctx, node, chunks };
+    node.onaudioprocess = (e) => {
+      const d = e.inputBuffer.getChannelData(0);
+      chunks.push(new Float32Array(d));
+      let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+      const rms = Math.sqrt(sum / d.length);
+      frames++;
+      if (frames <= 3) floor = Math.max(floor, rms); // the room's own noise, before you speak
+      const loud = rms > Math.max(0.015, floor * 2.5);
+      $('mic').style.setProperty('--lvl', Math.min(1, rms * 12).toFixed(2));
+      const now = performance.now();
+      if (loud) { heard = true; lastLoud = now; }
+      // Stop after a pause once you've spoken, after 25 s, or after 7 s of nothing.
+      if ((heard && now - lastLoud > 1400) || now - started > 25_000 || (!heard && now - started > 7000)) stopListening();
+    };
+    source.connect(node); node.connect(ctx.destination);
+    $('mic').classList.add('on');
+    palState('listening');
+    status('Listening… (click the mic or press <kbd>Space</kbd> to stop)');
+    recognizer().catch(() => {}); // warm up while you talk
+  }
+  async function stopListening() {
+    const r = rec;
+    if (!r) return;
+    rec = null;
+    r.node.disconnect(); r.stream.getTracks().forEach((t) => t.stop()); r.ctx.close();
+    $('mic').classList.remove('on');
+    $('mic').classList.add('busy');
+    const total = r.chunks.reduce((n, c) => n + c.length, 0);
+    const audio = new Float32Array(total);
+    let at = 0; for (const c of r.chunks) { audio.set(c, at); at += c.length; }
+    try {
+      palState('thinking');
+      status('Working out what you said…');
+      const result = await (await recognizer())(audio);
+      const text = String(result?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim();
+      if (!text || /^(you|thank you\.?|thanks for watching!?)$/i.test(text)) { status('Blu didn’t catch that. Try again, or type it.'); palState('idle'); return; }
+      $('text').value = text;
+      handle(text, { voice: true });
+    } catch (err) {
+      status(`Speech didn’t work (${esc(err.message)}). Type it instead.`, true);
+      palState('error');
+    } finally {
+      $('mic').classList.remove('busy');
+    }
+  }
+  $('mic').onclick = () => listen();
+  window.blu = { listen }; // the desktop app's shortcut (Ctrl+Alt+Space) calls this
+  document.addEventListener('keydown', (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '');
+    if (e.code === 'Space' && !typing) { e.preventDefault(); listen(); }
+    if (e.key === 'Escape' && mode.kind === 'plan') cancelPlan();
+  });
+
+  // -- the conversation: a request, a plan to confirm, a PR to offer ------------------------------
+  let mode = { kind: 'idle' }; // idle | plan | pr-offer (task) | pr-confirm (task)
+  const YES = /^(yes|yeah|yep|yup|sure|ok(ay)?|send( it)?|go( ahead)?|do it|please do|sounds good)\b/i;
+  const NO = /^(no|nope|cancel|stop|never ?mind|not now|don'?t)\b/i;
+  async function handle(text, { voice = false } = {}) {
+    const t = text.trim();
+    if (!t) return;
+    if (mode.kind === 'plan' && YES.test(t)) return sendPlan();
+    if (mode.kind === 'plan' && NO.test(t)) return cancelPlan(true);
+    if (mode.kind === 'pr-offer' && YES.test(t)) return preparePr(mode.task);
+    if (mode.kind === 'pr-offer' && NO.test(t)) { mode = { kind: 'idle' }; say('Okay, no PR.'); return; }
+    if (mode.kind === 'pr-confirm' && YES.test(t)) return openPr(mode.task);
+    if (mode.kind === 'pr-confirm' && NO.test(t)) { mode = { kind: 'idle' }; renderTasks(); say('Okay, I won’t open it.'); return; }
+    // Anything else while a plan is up adds to it ("also don't touch the docs").
+    const request = mode.kind === 'plan' ? `${mode.plan.said}. Also: ${t}` : t;
+    return makePlan(request, { voice });
+  }
+  $('composer').onsubmit = (e) => { e.preventDefault(); const t = $('text').value; handle(t); };
+  $('text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handle($('text').value); } });
+
+  let projects = [];
+  async function makePlan(text, { voice = false, project } = {}) {
+    status('Writing the definition of done…');
+    palState('thinking');
+    $('ask').disabled = true;
+    try {
+      const { plan } = await api('/api/talk/plan', { text, project });
+      mode = { kind: 'plan', plan };
+      renderPlan(plan);
+      $('text').value = '';
+      status('Here’s the plan. Send it, change it, or say what to add.');
+      const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '')).join(', and ');
+      await say(`Here's the plan. Claude will ${lowerFirst(plan.title)}, in ${plan.project.name}${plan.guessedProject ? ', since that\'s where you worked last' : ''}. Done means ${crit}. Send it?`);
+      if (voice && mode.kind === 'plan' && mode.plan.id === plan.id) listen(); // you asked by voice: answer by voice
+    } catch (err) {
+      status(esc(err.message), true);
+      palState('error');
+      say(err.message);
+    } finally {
+      $('ask').disabled = false;
+    }
+  }
+  const lowerFirst = (s) => String(s).charAt(0).toLowerCase() + String(s).slice(1);
+
+  function renderPlan(plan) {
+    const box = $('planBox');
+    box.hidden = false;
+    const opts = projects.map((p) => `<option value="${esc(p.path)}"${p.path === plan.project.path ? ' selected' : ''}>${esc(p.name)} · ${esc(p.path)}</option>`).join('');
+    box.innerHTML = `<div class="card">
+      <h2>The plan</h2>
+      <div class="field"><label for="pTitle">Title</label><input id="pTitle" value="${esc(plan.title)}"></div>
+      <div class="row">
+        <div class="field grow"><label for="pProject">Project ${plan.guessedProject ? '<span class="badge guess">guessed: where you worked last</span>' : ''}</label><select id="pProject">${opts}</select></div>
+        <div class="field"><label>Agent</label><span class="badge" style="color: #ffb38a">Claude Code</span></div>
+      </div>
+      <div class="field"><label for="pTask">Task</label><textarea id="pTask" rows="4">${esc(plan.task)}</textarea></div>
+      <div class="field"><label>Definition of done</label><ul class="done" id="pDone"></ul>
+        <div class="row"><input id="pAdd" class="grow" placeholder="Add a condition (or a folder Claude mustn't touch: “don’t touch docs/”)"><button type="button" id="pAddBtn">Add</button></div></div>
+      <div class="row"><button type="button" class="primary" id="pSend">Send to Claude</button><button type="button" class="quiet" id="pCancel">Cancel</button>
+        <span class="note grow" style="text-align: right">Or say “send it” · “cancel”</span></div>
+    </div>`;
+    renderDone(plan);
+    $('pSend').onclick = sendPlan;
+    $('pCancel').onclick = () => cancelPlan();
+    $('pProject').onchange = (e) => { plan.project = projects.find((p) => p.path === e.target.value) ?? plan.project; plan.guessedProject = false; };
+    const add = () => {
+      const v = $('pAdd').value.trim();
+      if (!v) return;
+      const m = /^(?:don'?t|do not|never)\s+(?:touch|change|edit)\s+(?:the\s+)?(.+?)(?:\s+folder)?$/i.exec(v);
+      plan.done.push(m ? { kind: 'untouched', path: m[1].replace(/^\.?\/*/, ''), text: `Nothing in \`${m[1]}\` changes` } : { kind: 'manual', text: v });
+      $('pAdd').value = '';
+      renderDone(plan);
+    };
+    $('pAddBtn').onclick = add;
+    $('pAdd').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+  }
+  function renderDone(plan) {
+    const icon = { tests: '🧪', untouched: '🚫', manual: '✍️' };
+    const note = { tests: 'Blu checks this', untouched: 'Blu checks this', manual: 'Blu can’t check this one' };
+    $('pDone').innerHTML = plan.done.map((d, i) => `<li><span class="ico">${icon[d.kind]}</span><span class="txt">${md(d.text)} <small>${note[d.kind]}</small></span>${d.kind === 'tests' ? '' : `<button type="button" data-i="${i}" title="Remove">✕</button>`}</li>`).join('');
+    for (const b of $('pDone').querySelectorAll('button')) b.onclick = () => { plan.done.splice(Number(b.dataset.i), 1); renderDone(plan); };
+  }
+  function cancelPlan(spoken = false) {
+    mode = { kind: 'idle' };
+    $('planBox').hidden = true;
+    status('Okay. What else?');
+    palState('idle');
+    if (spoken) say('Okay, cancelled.');
+  }
+  async function sendPlan() {
+    if (mode.kind !== 'plan') return;
+    const plan = mode.plan;
+    const body = { id: plan.id, title: $('pTitle')?.value ?? plan.title, task: $('pTask')?.value ?? plan.task, project: plan.project.path, done: plan.done };
+    $('pSend').disabled = true;
+    status('Starting Claude…');
+    try {
+      const { task } = await api('/api/talk/start', body);
+      tasks.set(task.id, task);
+      mode = { kind: 'idle' };
+      $('planBox').hidden = true;
+      renderTasks();
+      palState('working');
+      status(`Claude is on it, in a new terminal in ${esc(task.project.name)}. Blu will tell you when it’s really done.`);
+      say(`Started Claude in ${task.project.name}. I'll tell you when it's really done.`);
+    } catch (err) {
+      status(esc(err.message), true);
+      palState('error');
+      say(err.message);
+      $('pSend').disabled = false;
+    }
+  }
+
+  // -- tasks: followed live, checked when they finish ------------------------------------------
+  const tasks = new Map();
+  const prPlans = new Map(); // task id → the PR's plan, shown before it's opened
+  const STATE = { starting: 'Starting', working: 'Working', ready: '✓ Ready to merge', 'not-ready': '⚠ Not ready', 'no-changes': 'No code changed', stopped: 'Stopped' };
+  function renderTasks() {
+    const list = [...tasks.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 6);
+    $('tasks').innerHTML = list.length ? list.map(taskCard).join('') : '<div class="empty">No tasks yet. Tell Blu what you want done.</div>';
+    for (const b of $('tasks').querySelectorAll('[data-act]')) b.onclick = () => act(b.dataset.act, b.dataset.id);
+  }
+  function taskCard(t) {
+    const v = t.verdict ?? {};
+    const checks = (v.checks ?? []).map((c) => `<li class="${c.ok === true ? 'y' : c.ok === false ? 'n' : 'm'}"><b>${c.ok === true ? '✓' : c.ok === false ? '✗' : '?'}</b><span>${md(c.text)}</span></li>`).join('');
+    const pr = prPlans.get(t.id);
+    const prBox = t.pr?.url ? `<div class="pr">PR opened: <a href="${esc(t.pr.url)}" target="_blank" rel="noopener">${esc(t.pr.url)}</a></div>`
+      : pr ? `<div class="pr"><b>Blu will:</b><ul>
+          ${pr.newBranch ? `<li>create the branch <code>${esc(pr.branch)}</code> from <code>${esc(pr.base)}</code></li>` : `<li>use the current branch <code>${esc(pr.branch)}</code></li>`}
+          ${pr.files.length ? `<li>commit ${pr.files.length} file${pr.files.length === 1 ? '' : 's'}: ${pr.files.slice(0, 6).map((f) => `<code>${esc(f)}</code>`).join(', ')}${pr.files.length > 6 ? '…' : ''}</li>` : `<li>no new commit (${pr.ahead} already on the branch)</li>`}
+          <li>push it, and open a PR “${esc(pr.title)}” into <code>${esc(pr.base)}</code>, with the evidence as its description</li></ul>
+          <div class="row"><button class="good" data-act="pr-open" data-id="${esc(t.id)}">Open the PR</button><button class="quiet" data-act="pr-cancel" data-id="${esc(t.id)}">Not now</button></div></div>` : '';
+    const actions = [];
+    if (t.state === 'ready' && !t.pr && !pr) actions.push(`<button class="good" data-act="pr-plan" data-id="${esc(t.id)}">Open a PR…</button>`);
+    if (t.state === 'not-ready') actions.push(`<button data-act="fix" data-id="${esc(t.id)}">Copy a fix request for Claude</button>`);
+    return `<div class="card task">
+      <div class="top"><span class="title">${esc(t.title)}</span><span class="state ${esc(t.state)}">${esc(STATE[t.state] ?? t.state)}</span></div>
+      <div class="meta">Claude Code · ${esc(t.project.name)} · ${new Date(t.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+      ${t.state === 'working' || t.state === 'starting' ? `<div class="doing">${esc(v.doing ?? 'Starting in a new terminal…')}</div>` : ''}
+      ${v.sentence ? `<div class="sentence">${esc(v.sentence)}</div>` : ''}
+      ${checks ? `<ul class="checks">${checks}</ul>` : ''}
+      ${v.tests ? `<div class="note">${esc(v.tests)}</div>` : ''}
+      ${prBox}
+      ${actions.length ? `<div class="row">${actions.join('')}</div>` : ''}
+    </div>`;
+  }
+  async function act(what, id) {
+    const t = tasks.get(id);
+    if (!t) return;
+    if (what === 'pr-plan') return preparePr(t);
+    if (what === 'pr-open') return openPr(t);
+    if (what === 'pr-cancel') { prPlans.delete(id); mode = { kind: 'idle' }; renderTasks(); return; }
+    if (what === 'fix') {
+      try {
+        const { text } = await api('/api/talk/fix', { id });
+        await navigator.clipboard.writeText(text);
+        status('Copied. Paste it into Claude’s terminal, and Blu checks again when it finishes.');
+        say('Copied the fix request. Paste it into Claude\'s window.');
+      } catch (err) { status(esc(err.message), true); }
+    }
+  }
+  async function preparePr(t) {
+    status('Looking at the repository…');
+    try {
+      const { pr } = await api('/api/talk/pr/plan', { id: t.id });
+      prPlans.set(t.id, pr);
+      mode = { kind: 'pr-confirm', task: t };
+      renderTasks();
+      status('Here’s what opening the PR will do.');
+      say(`I'll ${pr.newBranch ? `make a new branch, ` : ''}commit ${pr.files.length} file${pr.files.length === 1 ? '' : 's'}, push, and open the PR. Go ahead?`);
+    } catch (err) { status(esc(err.message), true); say(err.message); }
+  }
+  async function openPr(t) {
+    status('Opening the PR…');
+    palState('working');
+    try {
+      const { pr } = await api('/api/talk/pr/open', { id: t.id });
+      t.pr = pr;
+      prPlans.delete(t.id);
+      mode = { kind: 'idle' };
+      renderTasks();
+      palState('done');
+      status(pr.url ? `PR opened: <a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.url)}</a>` : 'PR opened.');
+      say('The PR is open.');
+      if (pr.url) window.open(pr.url, '_blank');
+    } catch (err) { status(esc(err.message), true); palState('error'); say(`That didn't work: ${err.message}`); }
+  }
+
+  /** A task changed (from the bridge): show it, and say the result once. */
+  function onTask(t) {
+    const before = tasks.get(t.id);
+    tasks.set(t.id, { ...before, ...t });
+    renderTasks();
+    const finished = !['starting', 'working'].includes(t.state);
+    const news = finished && t.words && (before?.state !== t.state || before?.verdict?.at !== t.verdict?.at);
+    if (!news) { if (t.state === 'working') palState('working'); return; }
+    palState(t.state === 'ready' ? 'done' : t.state === 'no-changes' ? 'idle' : 'waiting');
+    if (t.state === 'ready' && !t.pr) mode = { kind: 'pr-offer', task: tasks.get(t.id) };
+    status(esc(t.words));
+    say(t.words);
+  }
+
+  // -- start ---------------------------------------------------------------------------------
+  (async () => {
+    try { ({ projects } = await api('/api/talk/projects')); } catch {}
+    try { for (const t of (await api('/api/talk/tasks')).tasks) tasks.set(t.id, t); } catch {}
+    renderTasks();
+    const source = new EventSource('/events');
+    source.addEventListener('task', (e) => onTask(JSON.parse(e.data)));
+    source.onopen = async () => { try { ({ projects } = await api('/api/talk/projects')); } catch {} };
+  })();
+</script>
+</body>
+</html>

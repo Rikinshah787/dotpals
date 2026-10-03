@@ -21,6 +21,7 @@ const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height:
 const MARGIN = 16;
 const TALK_EXTRA = 190; // small mode: extra height above the pal for the chat bubble
 const SHORTCUT = 'CommandOrControl+Alt+P';
+const TALK_SHORTCUT = 'CommandOrControl+Alt+Space';
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
 app.setName('dotpals');
@@ -86,6 +87,7 @@ if (!app.requestSingleInstanceLock()) {
     syncNotch();
     handleArgs(process.argv);
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
+    if (!globalShortcut.register(TALK_SHORTCUT, () => openTalk({ listen: true }))) console.warn(`[dotpals] ${TALK_SHORTCUT} is taken by another app`);
     watchCursor();
   });
 
@@ -131,6 +133,36 @@ if (!app.requestSingleInstanceLock()) {
   }
   ipcMain.on('dashboard:open', openDashboard);
 
+  // Talk to Blu (bridge/talk.html): say a task, Claude does it, Blu checks it. Closing it only
+  // hides it, so Blu can still say how a task went; Ctrl+Alt+Space opens it and listens.
+  let talk;
+  function openTalk({ listen = false } = {}) {
+    const ready = talk && !talk.isDestroyed();
+    if (!ready) {
+      const area = screen.getPrimaryDisplay().workArea;
+      talk = new BrowserWindow({
+        width: 520, height: 720, minWidth: 380, minHeight: 420,
+        x: area.x + Math.round((area.width - 520) / 2), y: area.y + 60,
+        title: 'Talk to Blu', icon, backgroundColor: '#0b0b0e', autoHideMenuBar: true, alwaysOnTop: true,
+        webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false },
+      });
+      talk.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:/i.test(url)) shell.openExternal(url);
+        return { action: 'deny' };
+      });
+      talk.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(bridge)) e.preventDefault(); });
+      talk.on('close', (e) => { if (!quitting) { e.preventDefault(); talk.hide(); } });
+      talk.loadURL(`${bridge}/talk`);
+    }
+    talk.show();
+    talk.focus();
+    if (listen) {
+      const go = () => talk.webContents.executeJavaScript('window.blu && window.blu.listen()').catch(() => {});
+      if (!ready) talk.webContents.once('did-finish-load', () => setTimeout(go, 400)); else go();
+    }
+  }
+  ipcMain.on('talk:open', () => openTalk());
+
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
     tray.setToolTip(`dotpals: ${process.platform === 'darwin' ? 'Cmd+Option+P' : 'Ctrl+Alt+P'} to show or hide`);
@@ -148,6 +180,7 @@ if (!app.requestSingleInstanceLock()) {
         { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
       ] },
       { label: 'Dashboard', click: openDashboard },
+      { label: 'Talk to Blu', accelerator: TALK_SHORTCUT, click: () => openTalk() },
       // Chat is optional (Dashboard → Settings → Chat with your agents).
       ...(loadConfig().chat ? [{ label: 'Start working…', click: sayHello }] : []),
       { type: 'separator' },
