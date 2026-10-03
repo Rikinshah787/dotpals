@@ -152,7 +152,8 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
     const { session, label, cwd } = file;
     const base = { session, label, harness: HARNESS, at };
     const out = [];
-    const setState = (s, text) => live && state(session, label, { state: s, ...(text ? { text } : {}) }, at);
+    // Judged by the event's own time: on Windows a log Codex keeps open reports a stale mtime.
+    const setState = (s, text) => (live || Date.now() - at < LIVE) && state(session, label, { state: s, ...(text ? { text } : {}) }, at);
 
     switch (kind) {
       case 'event_msg/user_message':
