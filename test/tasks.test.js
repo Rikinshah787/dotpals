@@ -113,7 +113,7 @@ test('evaluate: ready when the tests ran after the last change and passed, and c
   assert.ok(v.checks.some((c) => c.ok === true && /Nothing in cart changed/.test(c.text)));
   assert.ok(v.checks.some((c) => c.ok === null && /Explain the fix/.test(c.text)));
   assert.deepEqual(v.changed, ['checkout.js']);
-  assert.match(verdictWords(sent(), v), /^Claude is done\. .*Ready to merge\. Want a PR\?$/);
+  assert.match(verdictWords(sent(), v), /^Claude's done, and it checks out\. .*Ready to merge\. Want me to open a PR\?$/);
   assert.match(receiptMarkdown(sent(), v), /✅ Nothing in cart changed[\s\S]*`checkout\.js`/);
 });
 
@@ -121,7 +121,7 @@ test('evaluate: not ready when it changed code after the tests, or touched what 
   const stale = evaluate(sent(), [prompt(), edit('checkout.js'), tests(), edit('tax.js'), done()]);
   assert.equal(stale.state, 'not-ready');
   assert.match(stale.problems.join(' '), /tax\.js/);
-  assert.match(verdictWords(sent(), stale), /^Claude says it's done, but it isn't ready: /);
+  assert.match(verdictWords(sent(), stale), /^Hmm\. Claude says it's done, but it isn't ready yet: changed /);
   assert.match(fixRequest(sent(), stale), /run `npm test` again after your last change/);
   const touched = evaluate(sent(), [prompt(), edit('cart/total.js'), tests(), done()]);
   assert.equal(touched.state, 'not-ready');

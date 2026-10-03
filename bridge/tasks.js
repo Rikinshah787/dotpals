@@ -346,10 +346,11 @@ export function evaluate(task, entries) {
 /** What Blu says about a task's result, in one or two sentences. */
 export function verdictWords(task, v) {
   const who = TASK_AGENTS[task.agent]?.name ?? 'The agent';
-  if (v.state === 'ready') return `${who} is done. ${v.sentence} Ready to merge. Want a PR?`;
-  if (v.state === 'not-ready') return `${who} says it's done, but it isn't ready: ${v.problems[0]}.`;
-  if (v.state === 'no-changes') return `${who} finished without changing any code. ${v.sentence}`;
-  if (v.state === 'stopped') return `${who} stopped: ${v.problems?.[0] ?? 'it hit an error'}.`;
+  const lower = (s) => String(s ?? '').charAt(0).toLowerCase() + String(s ?? '').slice(1);
+  if (v.state === 'ready') return `${who}'s done, and it checks out. ${v.sentence} Ready to merge. Want me to open a PR?`;
+  if (v.state === 'not-ready') return `Hmm. ${who} says it's done, but it isn't ready yet: ${lower(v.problems[0])}.`;
+  if (v.state === 'no-changes') return `${who} finished, but it didn't change any code. ${v.sentence}`;
+  if (v.state === 'stopped') return `${who} stopped: ${lower(v.problems?.[0] ?? 'it hit an error')}.`;
   return '';
 }
 

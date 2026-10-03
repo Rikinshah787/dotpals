@@ -31,6 +31,9 @@
     #status { color: var(--muted); font-size: 12.5px; min-height: 18px; }
     #status.bad { color: var(--bad); }
     #voiceToggle[aria-pressed="false"] { opacity: .6; }
+    #voicePick { max-width: 130px; padding: 5px 6px; border-radius: 9px; border: 1px solid var(--line); background: var(--raise); font-size: 12px; }
+    #voiceNote:empty { display: none; }
+    #text.live { color: var(--muted); font-style: italic; }
 
     .composer { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: stretch; }
     #mic { width: 54px; height: 54px; border-radius: 50%; padding: 0; display: grid; place-items: center; background: var(--raise); position: relative; }
@@ -91,13 +94,15 @@
     <dot-pal id="pal" character="blu" size="64" idle="float"></dot-pal>
     <div class="who">
       <h1>Talk to Blu</h1>
-      <div id="status" role="status" aria-live="polite">Click the mic (or press <kbd>Space</kbd>) and say what you want done.</div>
+      <div id="status" role="status" aria-live="polite">Hold <kbd>Space</kbd> (or the mic) and just talk. Let go when you’re done.</div>
+      <div id="voiceNote" class="note"></div>
     </div>
+    <select id="voicePick" title="Blu’s voice" aria-label="Blu’s voice"></select>
     <button id="voiceToggle" class="quiet" type="button" aria-pressed="true" title="Blu speaks out loud">🔊</button>
   </header>
 
   <form class="composer" id="composer" autocomplete="off">
-    <button id="mic" type="button" title="Talk (Space)" aria-label="Talk">
+    <button id="mic" type="button" title="Hold to talk (or hold Space)" aria-label="Hold to talk">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
     </button>
     <textarea id="text" rows="2" placeholder="Or type it… e.g. “Have Claude fix the failing checkout test in shop. Don’t touch the cart folder.”" aria-label="What you want done"></textarea>
@@ -125,53 +130,127 @@
   const status = (text, bad = false) => { $('status').innerHTML = text; $('status').classList.toggle('bad', bad); };
   const palState = (s) => { try { pal.setState(s); } catch {} };
 
-  // -- Blu's voice (the computer's own voices; nothing leaves it) ------------------------------
-  let speakOn = (() => { try { return localStorage.getItem('blu.speak') !== '0'; } catch { return true; } })();
+  // -- Blu's voice: Kokoro, a neural voice, on this computer; the system's voice until it's ready --
+  const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+  const VOICES = [['af_heart', 'Heart (warm)'], ['af_bella', 'Bella'], ['af_nicole', 'Nicole (soft)'], ['am_michael', 'Michael'], ['am_fenrir', 'Fenrir'], ['bf_emma', 'Emma (British)'], ['bm_george', 'George (British)']];
+  let speakOn = store.get('blu.speak', '1') !== '0';
+  let voiceId = VOICES.some(([id]) => id === store.get('blu.voice')) ? store.get('blu.voice') : 'af_heart';
   const voiceBtn = $('voiceToggle');
   const showVoice = () => { voiceBtn.setAttribute('aria-pressed', String(speakOn)); voiceBtn.textContent = speakOn ? '🔊' : '🔇'; };
   showVoice();
-  voiceBtn.onclick = () => { speakOn = !speakOn; try { localStorage.setItem('blu.speak', speakOn ? '1' : '0'); } catch {} if (!speakOn) speechSynthesis.cancel(); showVoice(); };
-  const pickVoice = () => {
-    const voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
-    return voices.find((v) => /natural/i.test(v.name) && /aria|jenny|ava|emma|guy/i.test(v.name)) ?? voices.find((v) => /aria|jenny|zira|samantha|google us english/i.test(v.name)) ?? voices[0] ?? null;
-  };
+  voiceBtn.onclick = () => { speakOn = !speakOn; store.set('blu.speak', speakOn ? '1' : '0'); if (!speakOn) stopSpeaking(); else loadVoice(); showVoice(); };
+  $('voicePick').innerHTML = VOICES.map(([id, name]) => `<option value="${id}"${id === voiceId ? ' selected' : ''}>${name}</option>`).join('');
+  $('voicePick').onchange = (e) => { voiceId = e.target.value; store.set('blu.voice', voiceId); say(pick(['Hi! This is how I sound now.', 'Hey, how’s this?', 'Okay, I’ll sound like this.'])); };
+  const voiceNote = (t) => { $('voiceNote').textContent = t; };
+  const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
+  const KOKORO = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+  let kokoro = null, kokoroLoading = null, kokoroBroken = false;
+  function loadVoice() {
+    if (kokoro || kokoroBroken || !speakOn) return Promise.resolve(kokoro);
+    kokoroLoading ??= (async () => {
+      const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js');
+      const progress_callback = (p) => { if (p.status === 'progress' && p.total) voiceNote(`Getting Blu’s natural voice (once, about 330 MB)… ${Math.round((p.loaded / p.total) * 100)}%`); };
+      // Full precision on the graphics card: half precision comes out silent on some cards.
+      try { if (!navigator.gpu) throw new Error('no WebGPU'); kokoro = await KokoroTTS.from_pretrained(KOKORO, { dtype: 'fp32', device: 'webgpu', progress_callback }); }
+      catch { kokoro = await KokoroTTS.from_pretrained(KOKORO, { dtype: 'q8', device: 'wasm', progress_callback }); }
+      voiceNote('');
+      return kokoro;
+    })().catch((err) => { kokoroBroken = true; voiceNote(''); console.warn('[blu] natural voice unavailable:', err?.message); return null; });
+    return kokoroLoading;
+  }
+
+  /** Words as they should sound: "checkout.js" → "checkout dot js", no Markdown. */
+  const spoken = (t) => String(t).replace(/`/g, '').replace(/(\w)\.(js|ts|jsx|tsx|mjs|py|json|md|go|rs|rb|java|css|html|yml|yaml|toml|sh)\b/gi, '$1 dot $2').replace(/\s+/g, ' ').trim();
+  const sentences = (t) => t.split(/(?<=[.!?])\s+/).filter(Boolean);
+  let audioCtx = null, playing = null, speakToken = 0;
+  function stopSpeaking() { speakToken++; speechSynthesis.cancel(); try { playing?.stop(); } catch {} playing = null; }
   /** Say it, then resolve (at once when speaking is off). */
-  function say(text) {
-    const plain = String(text ?? '').replace(/`/g, '').trim();
-    if (!plain || !speakOn) return Promise.resolve();
-    speechSynthesis.cancel();
+  async function say(text) {
+    const words = spoken(text ?? '');
+    if (!words || !speakOn) return;
+    stopSpeaking();
+    const token = speakToken;
+    palState('speaking');
+    try {
+      if (!kokoro) { loadVoice(); throw new Error('not ready'); }
+      await sayNatural(words, token);
+    } catch {
+      if (token === speakToken) await saySystem(words);
+    }
+    if (token === speakToken) palState(mode.kind === 'idle' ? 'idle' : 'waiting');
+  }
+  /** Sentence by sentence: the next one is made while this one plays, so speech starts quickly. */
+  async function sayNatural(text, token) {
+    audioCtx ??= new AudioContext();
+    if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
+    const parts = sentences(text);
+    let next = kokoro.generate(parts[0], { voice: voiceId });
+    for (let i = 0; i < parts.length; i++) {
+      const audio = await next;
+      if (token !== speakToken) return;
+      next = i + 1 < parts.length ? kokoro.generate(parts[i + 1], { voice: voiceId }) : null;
+      const pcm = audio.audio;
+      let energy = 0; for (let k = 0; k < pcm.length; k += 64) energy += Math.abs(pcm[k]);
+      if (!(energy > 0)) { kokoroBroken = true; kokoro = null; throw new Error('the natural voice came out silent'); }
+      await play(pcm, audio.sampling_rate, token);
+    }
+  }
+  function play(pcm, rate, token) {
     return new Promise((ok) => {
-      const u = new SpeechSynthesisUtterance(plain);
-      const v = pickVoice();
+      if (token !== speakToken) return ok();
+      const buf = audioCtx.createBuffer(1, pcm.length, rate);
+      buf.copyToChannel(pcm, 0);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      src.onended = () => ok();
+      playing = src;
+      src.start();
+    });
+  }
+  const systemVoice = () => {
+    const voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
+    return voices.find((v) => /natural/i.test(v.name)) ?? voices.find((v) => /aria|jenny|zira|samantha|google us english/i.test(v.name)) ?? voices[0] ?? null;
+  };
+  function saySystem(text) {
+    return new Promise((ok) => {
+      const u = new SpeechSynthesisUtterance(text);
+      const v = systemVoice();
       if (v) u.voice = v;
-      u.rate = 1.05; u.pitch = 1.1;
-      u.onend = u.onerror = () => { palState(mode.kind === 'idle' ? 'idle' : 'waiting'); ok(); };
-      palState('speaking');
+      u.rate = 1.05;
+      u.onend = u.onerror = () => ok();
       speechSynthesis.speak(u);
     });
   }
   speechSynthesis.getVoices();
 
   // -- listening: Whisper on this computer (Transformers.js), downloaded once -------------------
-  let asr = null;
-  async function recognizer() {
-    if (asr) return asr;
-    status('Getting the speech model ready (the first time it downloads about 80 MB)…');
-    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0');
-    env.allowLocalModels = false;
-    const progress = (p) => { if (p.status === 'progress' && p.total) status(`Downloading the speech model… ${Math.round((p.loaded / p.total) * 100)}% (${p.file})`); };
-    const model = 'onnx-community/whisper-base.en';
-    if (navigator.gpu) {
-      try { asr = await pipeline('automatic-speech-recognition', model, { device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, progress_callback: progress }); return asr; } catch {}
-    }
-    asr = await pipeline('automatic-speech-recognition', model, { device: 'wasm', dtype: 'q8', progress_callback: progress });
-    return asr;
+  // Hold Space (or the mic) and talk, let go to send. A quick tap listens until you pause.
+  // Your words show as you speak.
+  let asr = null, asrLoading = null;
+  function recognizer() {
+    if (asr) return Promise.resolve(asr);
+    asrLoading ??= (async () => {
+      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0');
+      env.allowLocalModels = false;
+      const progress_callback = (p) => { if (p.status === 'progress' && p.total) status(`Getting the speech model ready (once, about 80 MB)… ${Math.round((p.loaded / p.total) * 100)}%`); };
+      const model = 'onnx-community/whisper-base.en';
+      if (navigator.gpu) {
+        try { asr = await pipeline('automatic-speech-recognition', model, { device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, progress_callback }); return asr; } catch {}
+      }
+      asr = await pipeline('automatic-speech-recognition', model, { device: 'wasm', dtype: 'q8', progress_callback });
+      return asr;
+    })().finally(() => { asrLoading = null; });
+    return asrLoading;
   }
+  const joined = (chunks) => { const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { out.set(c, at); at += c.length; } return out; };
+  const heardText = (r) => String(r?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 
   let rec = null; // the recording in progress
-  async function listen() {
+  async function listen({ hold = false } = {}) {
     if (rec) return stopListening();
-    speechSynthesis.cancel();
+    stopSpeaking();
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
     catch (err) { status(`Blu can’t use the microphone (${esc(err.message)}). Check the system’s microphone privacy settings, or type instead.`, true); return; }
@@ -188,13 +267,13 @@
     const chunks = [];
     const started = performance.now();
     let floor = 0, frames = 0, heard = false, lastLoud = started;
-    rec = { stream, ctx, node, chunks, peak: 0, device: stream.getAudioTracks()[0]?.label ?? '' };
+    const r = rec = { stream, ctx, node, chunks, hold, peak: 0, busy: false, live: null, device: stream.getAudioTracks()[0]?.label ?? '' };
     node.onaudioprocess = (e) => {
       const d = e.inputBuffer.getChannelData(0);
       chunks.push(new Float32Array(d));
       let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
       const rms = Math.sqrt(sum / d.length);
-      if (rec) rec.peak = Math.max(rec.peak, rms);
+      r.peak = Math.max(r.peak, rms);
       frames++;
       if (frames <= 3) floor = Math.max(floor, rms); // the room's own noise, before you speak
       // Capped: if you start talking at once, your voice isn't taken for the room's noise.
@@ -202,77 +281,100 @@
       $('mic').style.setProperty('--lvl', Math.min(1, rms * 12).toFixed(2));
       const now = performance.now();
       if (loud) { heard = true; lastLoud = now; }
-      // Stop after a pause once you've spoken, after 25 s, or after 7 s of nothing.
-      if ((heard && now - lastLoud > 1400) || now - started > 25_000 || (!heard && now - started > 7000)) stopListening();
+      // Held: until you let go (at most a minute). Tapped: after a pause once you've spoken, or 7 s of nothing.
+      if (now - started > 60_000 || (!r.hold && ((heard && now - lastLoud > 1400) || (!heard && now - started > 7000)))) stopListening();
     };
     source.connect(node); node.connect(ctx.destination);
+    // Your words as you speak, about once a second.
+    r.live = setInterval(async () => {
+      if (rec !== r || r.busy || !asr || chunks.length < 4) return;
+      r.busy = true;
+      try { const t = heardText(await asr(joined(chunks))); if (rec === r && t) { $('text').value = `${t} …`; $('text').classList.add('live'); } } catch {}
+      r.busy = false;
+    }, 1000);
     $('mic').classList.add('on');
     palState('listening');
-    status('Listening… (click the mic or press <kbd>Space</kbd> to stop)');
+    status(hold ? 'Listening… let go when you’re done.' : 'Listening… pause when you’re done (or tap again).');
     recognizer().catch(() => {}); // warm up while you talk
   }
   async function stopListening() {
     const r = rec;
     if (!r) return;
     rec = null;
+    clearInterval(r.live);
     r.node.disconnect(); r.stream.getTracks().forEach((t) => t.stop()); r.ctx.close();
     $('mic').classList.remove('on');
     $('mic').classList.add('busy');
-    const total = r.chunks.reduce((n, c) => n + c.length, 0);
-    const audio = new Float32Array(total);
-    let at = 0; for (const c of r.chunks) { audio.set(c, at); at += c.length; }
-    const secs = (total / 16000).toFixed(1);
+    const audio = joined(r.chunks);
+    const secs = (audio.length / 16000).toFixed(1);
     const mic = r.device ? ` (${esc(r.device)})` : '';
+    const done = () => { $('mic').classList.remove('busy'); $('text').classList.remove('live'); };
     // Why nothing came out, so it can be fixed: no audio at all, or a silent microphone.
-    if (!total) { status(`No sound reached Blu from the microphone${mic}. Click the mic and try again.`, true); palState('idle'); $('mic').classList.remove('busy'); return; }
-    if (r.peak < 0.004) { status(`The microphone${mic} sent only silence for ${secs} s. Check Windows Settings → Privacy &amp; security → Microphone (“Let desktop apps access your microphone”), and that this is the right input device.`, true); palState('idle'); $('mic').classList.remove('busy'); return; }
+    if (!audio.length) { status(`No sound reached Blu from the microphone${mic}. Try again.`, true); palState('idle'); done(); return; }
+    if (r.peak < 0.004) { status(`The microphone${mic} sent only silence for ${secs} s. Check Windows Settings → Privacy &amp; security → Microphone (“Let desktop apps access your microphone”), and that this is the right input device.`, true); palState('idle'); done(); return; }
     try {
       palState('thinking');
-      status('Working out what you said…');
-      const result = await (await recognizer())(audio);
-      const heardRaw = String(result?.text ?? '').trim();
-      const text = heardRaw.replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim();
-      if (!text || /^(you|thank you\.?|thanks for watching!?)$/i.test(text)) { status(`Blu didn’t catch that: ${secs} s of sound${mic}, but no words${heardRaw ? ` (heard “${esc(heardRaw)}”)` : ''}. Try again a little closer, or type it.`); palState('idle'); return; }
+      status('Got it, one moment…');
+      const raw = await (await recognizer())(audio);
+      const text = heardText(raw);
+      if (!text || /^(you|thank you\.?|thanks for watching!?)$/i.test(text)) { $('text').value = ''; status(`Blu didn’t catch that: ${secs} s of sound${mic}, but no words${raw?.text?.trim() ? ` (heard “${esc(raw.text.trim())}”)` : ''}. Try again a little closer, or type it.`); palState('idle'); return; }
       $('text').value = text;
       handle(text, { voice: true });
     } catch (err) {
       status(`Speech didn’t work (${esc(err.message)}). Type it instead.`, true);
       palState('error');
     } finally {
-      $('mic').classList.remove('busy');
+      done();
     }
   }
-  $('mic').onclick = () => listen();
-  window.blu = { listen }; // the desktop app's shortcut (Ctrl+Alt+Space) calls this
+  // Hold to talk, let go to send; a quick tap listens until you pause; tap again to stop.
+  const HOLD_MS = 400;
+  let pressedAt = 0;
+  const press = () => { pressedAt = performance.now(); if (rec) return stopListening(); return listen({ hold: true }); };
+  const release = () => { if (!rec?.hold) return; if (performance.now() - pressedAt > HOLD_MS) stopListening(); else rec.hold = false; };
+  $('mic').addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
+  $('mic').addEventListener('pointerup', release);
+  $('mic').addEventListener('pointerleave', release);
+  // The notch's mic and the shortcut call listen(); say() and voice() are for checking Blu's voice.
+  window.blu = { listen: () => listen(), say, voice: () => ({ natural: !!kokoro, broken: kokoroBroken, loading: !!kokoroLoading && !kokoro, voiceId }) };
+  const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '');
   document.addEventListener('keydown', (e) => {
-    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '');
-    if (e.code === 'Space' && !typing) { e.preventDefault(); listen(); }
+    if (e.code === 'Space' && !typing()) { e.preventDefault(); if (!e.repeat) press(); }
     if (e.key === 'Escape' && mode.kind === 'plan') cancelPlan();
   });
+  document.addEventListener('keyup', (e) => { if (e.code === 'Space' && !typing()) { e.preventDefault(); release(); } });
+  if (speakOn) loadVoice(); // in the background, so Blu sounds like Blu by the time it speaks
 
   // -- the conversation: a request, a plan to confirm, a PR to offer ------------------------------
   let mode = { kind: 'idle' }; // idle | plan | pr-offer (task) | pr-confirm (task)
-  const YES = /^(yes|yeah|yep|yup|sure|ok(ay)?|send( it)?|go( ahead)?|do it|please do|sounds good)\b/i;
-  const NO = /^(no|nope|cancel|stop|never ?mind|not now|don'?t)\b/i;
+  // Talk the way you would to a person: "yeah, go for it", "looks good", "wait", "yes, but also…".
+  const YES = /^(?:um+,?\s*|uh+,?\s*|so,?\s*|okay,?\s*so\s+)?(yes|yeah|yep|yup|ya|sure|ok|okay|alright|all right|send|go|do it|ship it|sounds good|looks good|looks great|perfect|great|nice|let'?s go|let'?s do it|go for it|go ahead|please|absolutely|definitely|correct|right|that'?s right|exactly)\b/i;
+  const NO = /^(?:um+,?\s*|uh+,?\s*)?(no|nope|nah|cancel|stop|wait|hold on|hang on|never ?mind|not now|not yet|forget it|scratch that|don'?t)\b/i;
+  const MORE = /\b(but|and also|also|plus|except|and make sure|make sure|and don'?t|as well)\b/i;
+  const short = (t) => t.split(/\s+/).filter(Boolean).length <= 4;
   async function handle(text, { voice = false } = {}) {
     const t = text.trim();
     if (!t) return;
-    if (mode.kind === 'plan' && YES.test(t)) return sendPlan();
-    if (mode.kind === 'plan' && NO.test(t)) return cancelPlan(true);
-    if (mode.kind === 'pr-offer' && YES.test(t)) return preparePr(mode.task);
-    if (mode.kind === 'pr-offer' && NO.test(t)) { mode = { kind: 'idle' }; say('Okay, no PR.'); return; }
-    if (mode.kind === 'pr-confirm' && YES.test(t)) return openPr(mode.task);
-    if (mode.kind === 'pr-confirm' && NO.test(t)) { mode = { kind: 'idle' }; renderTasks(); say('Okay, I won’t open it.'); return; }
-    // Anything else while a plan is up adds to it ("also don't touch the docs").
-    const request = mode.kind === 'plan' ? `${mode.plan.said}. Also: ${t}` : t;
-    return makePlan(request, { voice });
+    if (mode.kind === 'plan') {
+      if (YES.test(t) && !MORE.test(t)) return sendPlan();
+      if (NO.test(t) && short(t)) return cancelPlan(true);
+      // Anything else changes the plan: "yes, but also update the docs", "no, do it in dotpals".
+      return makePlan(`${mode.plan.said}. Also: ${t}`, { voice, project: mode.plan.project.path });
+    }
+    if (mode.kind === 'pr-offer' || mode.kind === 'pr-confirm') {
+      const task = mode.task;
+      if (YES.test(t)) return mode.kind === 'pr-offer' ? preparePr(task) : openPr(task);
+      if (NO.test(t) && short(t)) { mode = { kind: 'idle' }; prPlans.delete(task.id); renderTasks(); say(pick(['Okay, no PR for now.', 'Sure, I’ll leave it.', 'Got it, no PR.'])); return; }
+      mode = { kind: 'idle' }; // something else: a new request
+    }
+    return makePlan(t, { voice });
   }
   $('composer').onsubmit = (e) => { e.preventDefault(); const t = $('text').value; handle(t); };
   $('text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handle($('text').value); } });
 
   let projects = [];
   async function makePlan(text, { voice = false, project } = {}) {
-    status('Writing the definition of done…');
+    status(pick(['Thinking about what “done” means here…', 'Writing the definition of done…', 'One sec, working out the plan…']));
     palState('thinking');
     $('ask').disabled = true;
     try {
@@ -281,8 +383,9 @@
       renderPlan(plan);
       $('text').value = '';
       status('Here’s the plan. Send it, change it, or say what to add.');
-      const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '')).join(', and ');
-      await say(`Here's the plan. Claude will ${lowerFirst(plan.title)}, in ${plan.project.name}${plan.guessedProject ? ', since that\'s where you worked last' : ''}. Done means ${crit}. Send it?`);
+      const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '').replace(/^Nothing in (.+) changes$/, 'nothing in $1 changes')).join(', and ');
+      const where = plan.guessedProject ? `in ${plan.project.name}, that's where you were working last` : `in ${plan.project.name}`;
+      await say(`${pick(['Got it.', 'Okay.', 'Sure thing.', 'Alright.'])} Claude will ${lowerFirst(plan.title)}, ${where}. I'll call it done when ${crit}. ${pick(['Want me to send it?', 'Shall I send it?', 'Good to go?', 'Send it over?'])}`);
       if (voice && mode.kind === 'plan' && mode.plan.id === plan.id) listen(); // you asked by voice: answer by voice
     } catch (err) {
       status(esc(err.message), true);
@@ -332,12 +435,12 @@
     $('pDone').innerHTML = plan.done.map((d, i) => `<li><span class="ico">${icon[d.kind]}</span><span class="txt">${md(d.text)} <small>${note[d.kind]}</small></span>${d.kind === 'tests' ? '' : `<button type="button" data-i="${i}" title="Remove">✕</button>`}</li>`).join('');
     for (const b of $('pDone').querySelectorAll('button')) b.onclick = () => { plan.done.splice(Number(b.dataset.i), 1); renderDone(plan); };
   }
-  function cancelPlan(spoken = false) {
+  function cancelPlan(aloud = false) {
     mode = { kind: 'idle' };
     $('planBox').hidden = true;
     status('Okay. What else?');
     palState('idle');
-    if (spoken) say('Okay, cancelled.');
+    if (aloud) say(pick(['Okay, scrapped it.', 'No problem, cancelled.', 'Sure, forget that one.']));
   }
   async function sendPlan() {
     if (mode.kind !== 'plan') return;
@@ -353,7 +456,7 @@
       renderTasks();
       palState('working');
       status(`Claude is on it, in a new terminal in ${esc(task.project.name)}. Blu will tell you when it’s really done.`);
-      say(`Started Claude in ${task.project.name}. I'll tell you when it's really done.`);
+      say(`${pick(['On it.', 'Okay, sent.', 'Done, it’s on its way.'])} Claude's working in ${task.project.name}. ${pick(['I’ll let you know when it’s really done.', 'I’ll check its work when it says it’s finished.', 'I’ll tell you how it went.'])}`);
     } catch (err) {
       status(esc(err.message), true);
       palState('error');
@@ -406,7 +509,7 @@
         const { text } = await api('/api/talk/fix', { id });
         await navigator.clipboard.writeText(text);
         status('Copied. Paste it into Claude’s terminal, and Blu checks again when it finishes.');
-        say('Copied the fix request. Paste it into Claude\'s window.');
+        say('I copied a note for Claude. Paste it into its window, and I’ll check again when it’s done.');
       } catch (err) { status(esc(err.message), true); }
     }
   }
@@ -418,7 +521,7 @@
       mode = { kind: 'pr-confirm', task: t };
       renderTasks();
       status('Here’s what opening the PR will do.');
-      say(`I'll ${pr.newBranch ? `make a new branch, ` : ''}commit ${pr.files.length} file${pr.files.length === 1 ? '' : 's'}, push, and open the PR. Go ahead?`);
+      say(`Okay. I'll ${pr.newBranch ? 'make a new branch, ' : ''}commit ${pr.files.length === 1 ? 'the one file' : `those ${pr.files.length} files`}, push it, and open the PR. Go ahead?`);
     } catch (err) { status(esc(err.message), true); say(err.message); }
   }
   async function openPr(t) {
@@ -432,7 +535,7 @@
       renderTasks();
       palState('done');
       status(pr.url ? `PR opened: <a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.url)}</a>` : 'PR opened.');
-      say('The PR is open.');
+      say(pick(['Done! The PR is open.', 'There you go, the PR is up.', 'PR’s open.']));
       if (pr.url) window.open(pr.url, '_blank');
     } catch (err) { status(esc(err.message), true); palState('error'); say(`That didn't work: ${err.message}`); }
   }
