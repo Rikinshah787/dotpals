@@ -36,6 +36,15 @@ test('agents: only known ids with true/false are kept; everything else is on', a
   assert.equal(loadConfig().agents.opencode, false);
 });
 
+test('chat is off and the pal is 100% until changed; the pal size is a whole percent from 50 to 150', () => {
+  assert.equal(loadConfig().chat, false);
+  assert.equal(loadConfig().palSize, 100);
+  assert.equal(saveConfig({ palSize: 140 }).palSize, 140);
+  for (const palSize of [300, 49, 151, 120.5, 'big', null]) assert.equal(saveConfig({ palSize }).palSize, 140, `${palSize} is ignored`);
+  assert.equal(saveConfig({ chat: true }).chat, true);
+  assert.equal(saveConfig({ chat: 'yes' }).chat, true, 'only true or false');
+});
+
 test('agents.codex is the same switch as codex', () => {
   assert.equal(saveConfig({ agents: { codex: false } }).codex, false);
   assert.equal(loadConfig().agents.codex, false);

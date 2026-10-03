@@ -47,7 +47,8 @@
 //   POST /api/handoff { session, agent }   write the hand-off note and open that agent in a new
 //                        terminal, in the session's own folder; agent "copy": just the note
 //   POST /api/chat { text, session?, directory? } send a prompt to OpenCode (bridge/chat.js runs
-//                        its own `opencode serve`); no session: a new one in `directory`
+//                        its own `opencode serve`); no session: a new one in `directory`.
+//                        It and /api/chat/projects answer 409 unless Settings → chat is on.
 //   POST /api/chat/abort { session }   stop what that OpenCode session is doing
 //   POST /api/chat/answer { id, reply } | { id, answers }  answer an OpenCode permission request
 //                        (`ocask` events: once, always or reject) or question (null skips it)
@@ -196,7 +197,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (ocAsks.delete(p.requestID)) send('ocask', { id: p.requestID, session, status: 'answered' });
       }
     },
+    // OpenCode stopped: its requests went with it, so their cards close (answering one would fail).
+    onExit() {
+      for (const item of ocAsks.values()) send('ocask', { id: item.id, session: item.session, status: 'answered' });
+      ocAsks.clear();
+    },
   });
+  const CHAT_OFF = 'Chat is off. Turn it on in Dashboard → Settings → Chat with your agents.';
 
   function send(event, data) {
     const line = `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
@@ -788,6 +795,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     // Chat: project folders the agents worked in, newest first, for the
     // morning greeting's "which project?" list.
     if (req.method === 'GET' && path === '/api/chat/projects') {
+      if (!config.chat) return json(res, 409, { error: CHAT_OFF });
       const seen = new Set();
       const projects = [];
       const all = activity.all();
@@ -818,6 +826,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (enabled('claude') !== (before.agents?.claude !== false)) applyClaude();
       if (config.history && !before.history) history.save();
       applyLaya(before);
+      if (before.chat && !config.chat) chat.stop(); // turned off: no OpenCode server left running
       // A different checker (or a new key): check it's answering, right away.
       if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
       send('config', withLaya());
@@ -931,6 +940,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
           if (!sessionID) return json(res, 400, { error: 'session must be an OpenCode session' });
           return json(res, 200, { ok: await chat.abort({ sessionID, directory }) });
         }
+        // Stopping work and answering cards always work; only starting it needs chat on.
+        if (!config.chat) return json(res, 409, { error: CHAT_OFF });
         const text = typeof body?.text === 'string' ? body.text.trim() : '';
         if (!text) return json(res, 400, { error: 'Type something first' });
         if (text.length > 20_000) return json(res, 400, { error: 'That message is too long' });

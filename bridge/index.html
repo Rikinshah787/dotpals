@@ -395,6 +395,8 @@
     .chat-note:empty { display: none; }
     .chat-note.bad { color: var(--bad); }
     body.compact .chat { display: none; }
+    /* Chat is optional: until it's on (Settings), no box, button or greeting. */
+    body:not(.chat-on) .chat, body:not(.chat-on) #talk, body:not(.chat-on) #hello { display: none !important; }
     /* Small mode: the speech-bubble button opens the chat as a bubble over the pal. */
     #talk { display: none; }
     body.compact #talk { display: grid; }
@@ -464,7 +466,7 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>
       </button>
       <button id="pip" class="browser-only" type="button" title="Float the pals above other windows">Pop out ↗</button>
-      <button id="talk" class="icon" type="button" title="Chat with OpenCode" aria-label="Chat with OpenCode" aria-pressed="false">
+      <button id="talk" class="icon" type="button" title="Chat (OpenCode)" aria-label="Chat (OpenCode)" aria-pressed="false">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
       </button>
       <button id="compact" class="icon float-only" type="button" title="Just the pal" aria-label="Just the pal">
@@ -1023,20 +1025,24 @@
 
     // -- pals ------------------------------------------------------------------
     // As big as fits: shrink as more pals share the stage.
-    // The pal's size in small mode, 40–100% (scroll over it, or the tray menu).
-    let palScale = (() => { const v = Number(localStorage.getItem('dotpals.palScale')); return v >= 0.4 && v <= 1 ? v : 1; })();
-    function setPalScale(v) {
-      palScale = Math.round(Math.min(1, Math.max(0.4, v)) * 20) / 20;
-      try { localStorage.setItem('dotpals.palScale', String(palScale)); } catch {}
+    // The pal's size in small mode, 50–150%: Settings → Pal size, the tray, or Ctrl+scroll over the pal.
+    let palScale = 1;
+    function setPalScale(v, save = true) {
+      const next = Math.round(Math.min(1.5, Math.max(0.5, v)) * 10) / 10;
+      if (next === palScale) return;
+      palScale = next;
+      if (save) saveConfig({ palSize: Math.round(palScale * 100) });
+      // Above 100% the small window grows with it.
+      if (document.body.classList.contains('compact')) desktop?.setCompact?.(true);
       resizePals();
     }
-    // Scroll over the pal in small mode: up makes it bigger, down smaller.
+    // Ctrl+scroll (Cmd on macOS) over the pal in small mode: up makes it bigger, down smaller. A plain
+    // scroll is left alone, so scrolling the editor behind the pal never resizes it.
     stage.addEventListener('wheel', (e) => {
-      if (!document.body.classList.contains('compact') || !e.target.closest?.('dot-pal')) return;
+      if (!(e.ctrlKey || e.metaKey) || !document.body.classList.contains('compact') || !e.target.closest?.('dot-pal')) return;
       e.preventDefault();
-      setPalScale(palScale + (e.deltaY < 0 ? 0.05 : -0.05));
+      setPalScale(palScale + (e.deltaY < 0 ? 0.1 : -0.1));
     }, { passive: false });
-    desktop?.onPalScale?.((v) => setPalScale(v));
     const palSize = () => {
       const base = document.body.classList.contains('compact') ? Math.round(150 * palScale) : isFloat ? 100 : 160;
       const n = Math.max([...slots.values()].filter((s) => !s.el.hidden).length, 1);
@@ -1995,6 +2001,10 @@
       // How requests read by default (chosen at setup), unless you've picked a view here.
       if (!pickedView() && (config.storyView === 'simple' || config.storyView === 'detailed') && config.storyView !== recapView) { recapView = config.storyView; scheduleRecap(); }
       if (typeof config.sounds === 'boolean' && config.sounds !== sound.on) { sound.on = config.sounds; syncSoundButton(); }
+      // Chat is optional (Settings → Chat with your agents): off, its button, box and greeting go.
+      document.body.classList.toggle('chat-on', !!config.chat);
+      if (!config.chat && document.body.classList.contains('talking')) window.dotpalsSetTalking?.(false);
+      if (Number.isInteger(config.palSize)) setPalScale(config.palSize / 100, false);
       // Your own pal, made on the dashboard.
       if (config.custom) {
         registerCustom(config.custom);

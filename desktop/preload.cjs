@@ -28,11 +28,6 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   setSolidAreas: (rects) => ipcRenderer.send('window:solid-areas', rects),
   setCompact: (compact) => ipcRenderer.invoke('window:compact', compact),
   isCompact: () => ipcRenderer.invoke('window:is-compact'),
-  /** onPalScale(scale): the tray menu picked a pal size for small mode. */
-  onPalScale(callback) {
-    ipcRenderer.removeAllListeners('window:pal-scale');
-    ipcRenderer.on('window:pal-scale', (_, scale) => callback(scale));
-  },
   /** Small mode: make room above the pal for the chat bubble. */
   setTalking: (on) => ipcRenderer.invoke('window:talk', on),
   close: () => ipcRenderer.send('window:close'),

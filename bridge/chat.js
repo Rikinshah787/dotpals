@@ -24,9 +24,10 @@ function findOpencode() {
 
 /**
  * `onEvent(event)`: every event OpenCode's server sends ({ type, properties }), so the bridge
- * can show permission requests and questions from sessions started here.
+ * can show permission requests and questions from sessions started here. `onExit()`: the
+ * server stopped (crashed, or was stopped), and its open requests with it.
  */
-export function createChat({ port = Number(process.env.DOTPALS_OPENCODE_PORT) || 4196, onEvent } = {}) {
+export function createChat({ port = Number(process.env.DOTPALS_OPENCODE_PORT) || 4196, onEvent, onExit } = {}) {
   const base = `http://127.0.0.1:${port}`;
   const password = randomBytes(24).toString('base64url');
   const auth = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
@@ -36,13 +37,14 @@ export function createChat({ port = Number(process.env.DOTPALS_OPENCODE_PORT) ||
   let stopListening = () => {};
   const folders = new Map(); // request id → the folder its OpenCode instance runs in
 
-  /** Follow the server's global event stream while it runs. */
-  function listen() {
+  /** Follow the server's global event stream while it runs. `onConnected`: once the stream answers. */
+  function listen(onConnected = () => {}) {
     const ctl = new AbortController();
     (async () => {
       while (!ctl.signal.aborted && proc) {
         try {
           const res = await fetch(new URL('/global/event', base), { headers: { authorization: auth }, signal: ctl.signal });
+          if (res.ok) onConnected();
           const decoder = new TextDecoder();
           let buffer = '';
           for await (const chunk of res.body) {
@@ -94,6 +96,7 @@ export function createChat({ port = Number(process.env.DOTPALS_OPENCODE_PORT) ||
     } catch {}
     proc = null;
     ready = null;
+    onExit?.(); // its open requests go with it
   }
 
   /** Start `opencode serve` once and wait until it answers. */
@@ -111,11 +114,23 @@ export function createChat({ port = Number(process.env.DOTPALS_OPENCODE_PORT) ||
       });
       proc = child;
       child.on('error', (err) => { lastError = err; });
-      child.on('exit', () => { if (proc === child) { proc = null; ready = null; } });
-      for (let i = 0; i < 60; i++) {
+      child.on('exit', () => {
+        if (proc !== child) return;
+        proc = null;
+        ready = null;
+        // Its event stream goes too (a restarted server gets one new listener, not two),
+        // and so do its requests: the bridge closes their cards.
+        stopListening();
+        stopListening = () => {};
+        onExit?.();
+      });
+      for (const deadline = Date.now() + 30_000; Date.now() < deadline;) {
         if (lastError) throw new Error(`Couldn’t start OpenCode (${lastError.message}). Is it installed?`);
         if (proc !== child) throw new Error(`OpenCode stopped while starting. Is port ${port} already in use?`);
-        try { await call('/session', { timeout: 2000 }); stopListening = listen(); return; } catch { await sleep(500); }
+        try { await call('/session', { timeout: 2000 }); } catch { await sleep(500); continue; }
+        // Listen before the first prompt goes in, so a permission request right away isn't missed.
+        await new Promise((connected) => { stopListening = listen(connected); setTimeout(connected, 5000); });
+        return;
       }
       throw new Error('OpenCode didn’t start within 30 seconds');
     })();

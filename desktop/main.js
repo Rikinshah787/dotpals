@@ -78,7 +78,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     app.dock?.hide(); // macOS: a floating widget with a menu-bar icon, not a Dock app
     // Tray → Greet me when dotpals starts (or --start-mini): start as just the pal.
-    if (process.argv.includes('--start-mini') || loadConfig().greetOnStart) prefs.compact = true;
+    if (process.argv.includes('--start-mini') || greets()) prefs.compact = true;
     createWindow();
     win.on('show', keepOnScreen);
     win.on('resize', () => setTimeout(keepOnScreen, 50));
@@ -98,8 +98,12 @@ if (!app.requestSingleInstanceLock()) {
   // The start-of-day greeting ("what are we working on today?") and its folder picker.
   // Shown once the pal loads when Tray → Greet me when dotpals starts is on (off by
   // default), or with --greet; any time from the tray's "Start working…".
-  let helloPending = process.argv.includes('--greet') || !!loadConfig().greetOnStart;
+  // Only with chat on (Dashboard → Settings → Chat with your agents): the greeting starts a chat.
+  function greets() { const c = loadConfig(); return !!(c.chat && c.greetOnStart); }
+  let helloPending = process.argv.includes('--greet') || greets();
   const sayHello = () => { show(); win?.webContents.send('window:hello'); };
+  /** Change a setting through the bridge, so the pal and the dashboard hear about it. */
+  const setConfig = (patch) => fetch(`${bridge}/api/config`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
   ipcMain.handle('dialog:folder', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Choose a project folder', properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0] ?? null;
@@ -134,9 +138,9 @@ if (!app.requestSingleInstanceLock()) {
     const menu = () => Menu.buildFromTemplate([
       { label: 'Show / hide', accelerator: SHORTCUT, click: toggle },
       { label: 'Just the pal', type: 'checkbox', checked: !!prefs.compact, click: (item) => win?.webContents.send('window:set-compact', item.checked) },
-      // How big the pal is in small mode (the page remembers it; scrolling over the pal works too).
-      { label: 'Pal size', submenu: [['Small', 0.5], ['Medium', 0.75], ['Large', 1]].map(([label, scale]) => (
-        { label, click: () => win?.webContents.send('window:pal-scale', scale) }
+      // How big the pal is in small mode (also Dashboard → Settings, or Ctrl+scroll over the pal).
+      { label: 'Pal size', submenu: [['Small', 60], ['Normal', 100], ['Large', 140]].map(([label, palSize]) => (
+        { label, type: 'radio', checked: (loadConfig().palSize ?? 100) === palSize, click: () => setConfig({ palSize }) }
       )) },
       { label: 'Notch at the top of the screen', submenu: [
         { label: 'When the pal is hidden', type: 'radio', checked: notchMode() === 'auto', click: () => setNotchMode('auto') },
@@ -144,10 +148,11 @@ if (!app.requestSingleInstanceLock()) {
         { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
       ] },
       { label: 'Dashboard', click: openDashboard },
-      { label: 'Start working…', click: sayHello },
+      // Chat is optional (Dashboard → Settings → Chat with your agents).
+      ...(loadConfig().chat ? [{ label: 'Start working…', click: sayHello }] : []),
       { type: 'separator' },
       { label: 'Notifications', type: 'checkbox', checked: loadConfig().notifications, click: (item) => saveConfig({ notifications: item.checked }) },
-      { label: 'Greet me when dotpals starts', type: 'checkbox', checked: !!loadConfig().greetOnStart, click: (item) => saveConfig({ greetOnStart: item.checked }) },
+      ...(loadConfig().chat ? [{ label: 'Greet me when dotpals starts', type: 'checkbox', checked: !!loadConfig().greetOnStart, click: (item) => saveConfig({ greetOnStart: item.checked }) }] : []),
       { label: 'Open when I log in', type: 'checkbox', checked: app.getLoginItemSettings(loginItem()).openAtLogin, click: (item) => app.setLoginItemSettings({ ...loginItem(), openAtLogin: item.checked }) },
       { type: 'separator' },
       { label: 'Quit dotpals', click: () => app.quit() },
@@ -158,7 +163,11 @@ if (!app.requestSingleInstanceLock()) {
 
   // The size the window should be right now (never read back from Windows, which drifts with scaling).
   let talking = false; // the chat bubble is open in small mode
-  const intendedSize = () => (prefs.compact ? { ...SIZE.compact, ...(talking ? { height: SIZE.compact.height + TALK_EXTRA } : {}) } : { ...SIZE.full, height: prefs.height ?? SIZE.full.height });
+  const intendedSize = () => {
+    if (!prefs.compact) return { ...SIZE.full, height: prefs.height ?? SIZE.full.height };
+    const k = Math.max(1, (loadConfig().palSize ?? 100) / 100); // Settings → Pal size: over 100%, a bigger window
+    return { width: Math.round(SIZE.compact.width * k), height: Math.round(SIZE.compact.height * k) + (talking ? TALK_EXTRA : 0) };
+  };
 
   function createWindow() {
     const compact = !!prefs.compact;
@@ -446,9 +455,9 @@ if (!app.requestSingleInstanceLock()) {
     if (!win) return;
     const [x, y] = win.getPosition();
     const [w, h] = win.getSize();
-    talking = false; // the chat bubble closes when the mode changes
-    const next = compact ? SIZE.compact : { ...SIZE.full, height: prefs.height ?? SIZE.full.height };
+    if (!!compact !== !!prefs.compact) talking = false; // the chat bubble closes when the mode changes
     prefs.compact = !!compact;
+    const next = intendedSize(); // also when the pal's size changed: a pal over 100% needs a bigger window
     if (!compact) palAreas = null;
     palSolid = null; // re-apply for the new mode
     syncPalMouse(screen.getCursorScreenPoint());

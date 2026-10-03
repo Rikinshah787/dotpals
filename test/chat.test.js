@@ -29,27 +29,31 @@ function fakeChat() {
   const fake = {
     calls,
     emit: null, // OpenCode's events, as the real one would pass them on
-    create({ onEvent }) {
+    exit: null, // OpenCode stopped
+    create({ onEvent, onExit }) {
       fake.emit = onEvent;
+      fake.exit = onExit;
       return {
         send: async (args) => { calls.push(['send', args]); return { session: `opencode:${args.sessionID ?? 'ses_new1'}`, sessionID: args.sessionID ?? 'ses_new1' }; },
         abort: async (args) => { calls.push(['abort', args]); return true; },
         replyPermission: async (args) => { calls.push(['permission', args]); },
         replyQuestion: async (args) => { calls.push(['question', args]); },
-        stop: () => {},
+        stop: () => { calls.push(['stop']); },
       };
     },
   };
   return fake;
 }
 
-async function start(t) {
+/** A bridge with a fake OpenCode, and chat turned on (Settings → Chat with your agents) unless . */
+async function start(t, { chat: on = true } = {}) {
   const chat = fakeChat();
   for (let tries = 0; ; tries++) {
     const port = freshPort();
     try {
       const server = await startBridge({ port, log: () => {}, createChat: (o) => chat.create(o) });
       t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+      await api(port, '/api/config', { chat: on });
       return { port, chat };
     } catch (err) {
       if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err;
@@ -174,4 +178,32 @@ test('chat: the projects list has the folders agents worked in, newest first, wi
   const res = await fetch(`http://127.0.0.1:${port}/api/chat/projects`);
   const { projects } = await res.json();
   assert.deepEqual(projects, [{ path: project, name: project.split(/[\\/]/).pop() }]);
+});
+
+test('chat is off until you turn it on: no prompts and no projects list, but Stop still works', async (t) => {
+  const { port, chat } = await start(t, { chat: false });
+  const r = await api(port, '/api/chat', { text: 'hi', directory: project });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /Settings/);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/api/chat/projects`)).status, 409);
+  assert.equal((await api(port, '/api/chat/abort', { session: 'opencode:ses_new1' })).status, 200, 'stopping work is always allowed');
+  assert.ok(!chat.calls.some(([call]) => call === 'send'), 'no prompt reached OpenCode');
+});
+
+test('chat: when OpenCode stops, its cards close (answering one is a 404, not a 502)', async (t) => {
+  const { port, chat } = await start(t);
+  chat.emit({ type: 'permission.asked', properties: { id: 'per_3', sessionID: 'ses_y', permission: 'bash', patterns: ['npm test'], always: [], metadata: {} } });
+  const watching = ocAsks(port, 400);
+  await new Promise((r) => setTimeout(r, 100));
+  chat.exit();
+  assert.deepEqual((await watching).map((e) => [e.id, e.status]), [['per_3', 'pending'], ['per_3', 'answered']], 'a viewer sees it close');
+  assert.deepEqual(await ocAsks(port), [], 'and a new viewer never sees it');
+  assert.equal((await api(port, '/api/chat/answer', { id: 'per_3', reply: 'once' })).status, 404);
+  assert.equal(chat.calls.length, 0, 'nothing sent to a server that is gone');
+});
+
+test('chat: turning it off stops the OpenCode server', async (t) => {
+  const { port, chat } = await start(t);
+  assert.equal((await api(port, '/api/config', { chat: false })).status, 200);
+  assert.deepEqual(chat.calls, [['stop']]);
 });
