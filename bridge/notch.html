@@ -431,8 +431,7 @@
     const pendingAsk = (session) => [...asks.values()].find((a) => a.session === session) ?? null;
 
     // -- the state machine (bridge/ui/notch-state.js) -----------------------------------
-    // Starts minimized if you left it that way (see tuckButton).
-    let machine = { ...initialState(), tucked: (() => { try { return localStorage.getItem('dotpals.notch.tucked') === '1'; } catch { return false; } })() };
+    let machine = initialState();
     let wakeTimer = 0;
     let lastSig = '';
     const sigOf = (v) => `${v.mode}|${v.alert?.id ?? ''}|${v.by ?? ''}|${v.countdown?.start ?? ''}|${v.queued}|${machine.hover}`;
@@ -884,14 +883,20 @@
       return node;
     }
 
-    /** Replace a node's children only when `key` changed, so live nodes keep their state. */
+    /**
+     * Replace a node's children only when `key` changed, so live nodes keep their state.
+     * A block that fails to build is left out (and logged): the rest still shows.
+     */
     function keyed(parent, items) {
       const old = new Map([...parent.children].map((c) => [c.dataset.k, c]));
       const next = items.filter(Boolean).map(({ key, make }) => {
         let n = old.get(key);
-        if (!n) { n = make(); n.dataset.k = key; }
+        if (!n) {
+          try { n = make(); } catch (err) { console.error('[dotpals] couldn’t show', key.split('|')[0], err); return null; }
+          n.dataset.k = key;
+        }
         return n;
-      });
+      }).filter(Boolean);
       if (next.length !== parent.children.length || next.some((n, i) => parent.children[i] !== n)) parent.replaceChildren(...next);
     }
 
@@ -900,7 +905,6 @@
       dash: '<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>',
       palAway: '<circle cx="8" cy="9" r="5"/><path d="M5.6 9h1.4M9 9h1.4"/>', // eyes shut: the pal is put away
       tuck: '<path d="M4 8h8"/>', // minimize
-      untuck: '<rect x="3" y="5.5" width="10" height="5" rx="2.5"/>', // bring the bar back
       close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
     };
     function icon(label, path, fn) {
@@ -934,28 +938,9 @@
     }
     const setPalOn = (on) => { palOn = !!on; syncPalButton(); };
 
-    // Minimize: no bar at the top while agents work (it's remembered). Someone needing
-    // you still pops it open, and hovering the top edge still peeks.
-    let tucked = machine.tucked;
-    let tuckBtn = null;
-    function tuckButton() {
-      tuckBtn = icon('Minimize', ICONS.tuck, () => {
-        tucked = !tucked;
-        try { localStorage.setItem('dotpals.notch.tucked', tucked ? '1' : '0'); } catch {}
-        syncTuckButton();
-        send({ type: 'tuck', on: tucked });
-      });
-      syncTuckButton();
-      return tuckBtn;
-    }
-    function syncTuckButton() {
-      if (!tuckBtn) return;
-      const label = tucked ? 'Keep the bar on screen while agents work' : 'Minimize: hide the bar while agents work (hover the top edge to see it)';
-      tuckBtn.title = label;
-      tuckBtn.setAttribute('aria-label', tucked ? 'Keep the bar on screen' : 'Minimize');
-      tuckBtn.setAttribute('aria-pressed', String(tucked));
-      tuckBtn.querySelector('svg').innerHTML = tucked ? ICONS.untuck : ICONS.tuck;
-    }
+    // Minimize: closes it, and no bar at the top until the agents' current work is done.
+    // Someone needing you still pops it open, and hovering the top edge still peeks.
+    const tuckButton = () => icon('Minimize: hide the bar until the agents finish (hover the top edge to see it)', ICONS.tuck, () => send({ type: 'tuck', on: true }));
     desktop?.palShown?.().then(setPalOn, () => {});
     desktop?.onPalShown?.(setPalOn);
 
@@ -1541,7 +1526,7 @@
       }
       if (!easy && flags.length) {
         const f = el('div', 'flags');
-        for (const x of flags.slice(0, 4)) { const d = el('div', `flag ${x.level}`, x.text); d.title = sentence(x.step); f.append(d); }
+        for (const x of flags.slice(0, 4)) { const d = el('div', `flag ${x.level}`, x.text); d.title = x.step ? sentence(x.step) : x.text; f.append(d); }
         box.append(f);
       }
       const review = reviewBlock(t, { live, waiting: s.state === 'waiting' });

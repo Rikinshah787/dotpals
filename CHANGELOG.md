@@ -7,24 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-03
+
 ### Changed
 
+- **Install from npm:** `npx dotpals setup`. The package is published to npm as `dotpals`; installing straight from GitHub (`npx --allow-git=all github:rikinshah787/dotpals setup`) still works. Requires Node 20 or newer.
+- **Setup asks one question.** "Default (recommended)" sets up Blu (or keeps the pal you chose before), the notch, sounds, one-line summaries and open-at-login with nothing else to answer; "Customize" keeps the full set of questions. Every choice can be changed later in Dashboard → Settings.
 - **The notch is on by default.** A fresh install shows the island at the top of the screen right away, whether or not the pal is visible; setup's question now recommends "Always" (it used to recommend "only when the pal is hidden", so new installs saw no notch while the pal was up). Change it any time: tray → Notch, or `dotpals notch --auto` / `--off`.
 
 ### Fixed
 
-- **Updating didn't take effect while the pal was running.** `dotpals setup` on a machine with an older pal still open just brought the old window back, so the new version never ran. Setup now asks the running app to quit (`POST /api/app/quit`, desktop app only) and starts the new one.
-
-### Added
-
-- **Long sessions keep their context.** A session holds at most 1,500 steps; past that, dotpals used to drop the oldest steps, losing the original request. Now it drops look-ups first and keeps what matters: the first request and the latest four, the newest plan and its updates, the latest test run, commit and turn ending, and the steps that changed the 30 most recent files. The saved history uses the same rule. A trimmed session is still not a full record; a request from early on may keep only its prompt and a few steps.
-- **Better `/compact` notes:** the original request and constraints (multi-line kept), the last three instructions with newer ones overriding older ones, full file paths, and real test evidence (passed, failed, still running, or changed since the last run).
-
-- **How accurate is it?** 21 real requests and 145 claims, checked by hand against what happened (`test/accuracy/cases`). `npm run accuracy` prints the score and every wrong claim: 94.5% right, 4 wrong, 4 unsure, no false "risky" warnings. The tests fail if a claim that's right turns wrong. `scripts/accuracy-capture.mjs` turns your own requests into cases: one project's sessions only, prompts left out, paths, keys and emails removed.
-- **Code changed through commands counts as a change.** `sed -i`, `> file`, `>> file`, `tee` and scripts that write a file they name (`writeFileSync`, `open(…, 'w')`, `write_text`) now get a "Ready to merge?" verdict and count for "tests ran after the last change", in folders without git too.
-- **Git checks what really changed.** When a request starts, dotpals notes the state of the project's git repository; when it ends, it compares. The recap's Changed / Wrote / Deleted lists now come from git, so files changed by commands (`sed -i`, `node -e`, a code generator, a formatter) and commits show up too, marked "Changed by commands, not file tools". A request that changed code only through a command still gets a "Ready to merge?" verdict. When another agent was working in the same repository meanwhile, the card says some changes may be theirs; when the agent edited files but git shows nothing changed, it says so. Only file names and times are read, nothing is written, and it works for every agent. Switching branches isn’t counted as a change: only commits made during the request are.
-
-### Fixed
+- **The notch's Story tab could go blank in Detailed view**: a request that changed code only through a command (`sed -i`, say) and ran no tests made a "Not tested" warning with no step attached, and building its tooltip failed, which emptied the whole column (the pal's Summary had the same line). The warning now points at the command that changed the code, and the notch leaves out a block that fails to build instead of blanking the column.
+- **The dashboard and the pal froze (“Not Responding”) for a while after start** on a big history: they redrew on every one of thousands of replayed entries. The bridge now says when the replay is over, and each draws once.
+- **Ghost dotpals processes** when a second copy started (a hook launching the pal while it was already running): the second copy exits at once instead of a quit that could hang.
+- **The pal could sit half off the screen**, hiding its × and other buttons. It keeps itself inside the display now, and a one-time hint by the × says how to hide it (×, or Ctrl+Alt+P) and that it stays in the tray.
+- **Updating didn't take effect while the pal was running.** `dotpals setup` on a machine with a pal still open just brought the old window back, so the new code never ran. Setup now asks the running app to quit (`POST /api/app/quit`, desktop app only) and starts the new one, also when the version number is the same (a fix installed from a branch).
+- **The notch's minimize button sometimes needed two clicks.** It was an on/off switch whose icon changed, and only switching it on closed the island; a "just finished" alert on show also kept it open. Now – always minimizes and closes it in one click, and the bar comes back by itself the next time agents work.
+- **Setup could say the desktop runtime was installed when it wasn't.** npm finished without Electron's program files (npm 12 skipped its download step; it can also fail on files an old pal still holds). Setup now runs that step itself when they're missing and checks Electron is really there. It also no longer puts the install folder into a shell command (a `DOTPALS_HOME` with `$()` or `&` in it was unsafe), and no longer prints a Node 24 deprecation warning.
 
 Found by checking real requests by hand for the accuracy set:
 
@@ -32,6 +31,14 @@ Found by checking real requests by hand for the accuracy set:
 - **"Deleted files with a recursive delete" for a temp folder in a variable**: `T=$(mktemp -d); …; rm -rf "$T"` and `rm -rf "$S/x"` with `S` set to a temp path are now a quiet note.
 - **"Stopped trying" when the tests were fixed**: a failing single test file followed by a full test run that passes (`npm test`) now counts as fixed.
 - **A question before a last sentence** ("Shall I keep going? That's the X and the Y.") now reads as "Finished with a question for you".
+
+### Added
+
+- **Long sessions keep their context.** A session holds at most 1,500 steps; past that, dotpals used to drop the oldest steps, losing the original request. Now it drops look-ups first and keeps what matters: the first request and the latest four, the newest plan and its updates, the latest test run, commit and turn ending, and the steps that changed the 30 most recent files. The saved history uses the same rule. A trimmed session is still not a full record; a request from early on may keep only its prompt and a few steps.
+- **Better `/compact` notes:** the original request and constraints (multi-line kept), the last three instructions with newer ones overriding older ones, full file paths, and real test evidence (passed, failed, still running, or changed since the last run).
+- **How accurate is it?** 21 real requests and 145 claims, checked by hand against what happened (`test/accuracy/cases`). `npm run accuracy` prints the score and every wrong claim: 94.5% right, 4 wrong, 4 unsure, no false "risky" warnings. The tests fail if a claim that's right turns wrong. `scripts/accuracy-capture.mjs` turns your own requests into cases: one project's sessions only, prompts left out, paths, keys and emails removed.
+- **Code changed through commands counts as a change.** `sed -i`, `> file`, `>> file`, `tee` and scripts that write a file they name (`writeFileSync`, `open(…, 'w')`, `write_text`) now get a "Ready to merge?" verdict and count for "tests ran after the last change", in folders without git too.
+- **Git checks what really changed.** When a request starts, dotpals notes the state of the project's git repository; when it ends, it compares. The recap's Changed / Wrote / Deleted lists now come from git, so files changed by commands (`sed -i`, `node -e`, a code generator, a formatter) and commits show up too, marked "Changed by commands, not file tools". A request that changed code only through a command still gets a "Ready to merge?" verdict. When another agent was working in the same repository meanwhile, the card says some changes may be theirs; when the agent edited files but git shows nothing changed, it says so. Only file names and times are read, nothing is written, and it works for every agent. Switching branches isn’t counted as a change: only commits made during the request are.
 
 ## [0.9.3] - 2026-10-01
 
@@ -292,7 +299,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...v0.9.1

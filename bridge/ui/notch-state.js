@@ -42,7 +42,7 @@ export function initialState() {
     hoverAt: 0,       // when it got there
     armed: true,      // hovering may open it (false after a close, until the pointer leaves)
     peekUntil: 0,     // a peek you left stays until then
-    tucked: false,    // minimized: no bar while agents work (alerts and peeks still show)
+    tucked: false,    // minimized: no bar until the agents finish (alerts and peeks still show)
     open: null,       // opened by you: { by: 'hover' | 'peek' | 'click', at, activeAt, leftAt }
     alerts: [],       // [{ id, kind: 'need' | 'done' | 'error' | 'clash', session, text?, at, shownAt, snoozed }]
   };
@@ -101,7 +101,7 @@ export function derive(s, now, T = TIMING) {
  *                                      the island; restless: it moved a fair way (restarts a peek's dwell)
  *   { type: 'click' }                  a click on the island: opens it
  *   { type: 'close' }                  Esc, or a close button: closes, sets needs-you alerts aside
- *   { type: 'tuck', on }               minimize (on) or bring back the bar; minimizing also closes it
+ *   { type: 'tuck', on }               minimize (on): closes it, no bar until no agent is working
  *   { type: 'alert', id, kind, session, text? }   an alert to show (ignored if already queued);
  *                                      a 'clash' carries its `text`
  *   { type: 'resolve', id }            an alert is over (answered, the agent moved on)
@@ -115,6 +115,7 @@ export function reduce(prev, ev, now, T = TIMING) {
   switch (ev?.type) {
     case 'agents':
       s.running = Math.max(0, Number(ev.running) || 0);
+      if (!s.running) s.tucked = false; // minimized until the work is done: the next work shows the bar again
       break;
     case 'idle':
       s.away = Number(ev.seconds) * 1000 >= T.away;
@@ -155,7 +156,8 @@ export function reduce(prev, ev, now, T = TIMING) {
       break;
     case 'tuck':
       s.tucked = !!ev.on;
-      if (s.tucked) { s.open = null; s.peekUntil = 0; }
+      // Either way it closes, like close: news on show ("just finished") goes too, or it would keep the island open.
+      s.open = null; s.peekUntil = 0; s.alerts = s.alerts.filter((a) => !isNews(a));
       break;
     case 'alert':
       if (ev.id != null && !s.alerts.some((a) => a.id === ev.id)) {

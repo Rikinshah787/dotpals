@@ -105,7 +105,7 @@ unset ELECTRON_RUN_AS_NODE</code></pre>
 <p>If it's set in your user or system environment permanently, remove it there.</p>
 
 <h2 id="npm-allow-git">npm won't install from GitHub</h2>
-<p>npm 12 and newer don't install packages straight from git unless you allow it, which is why the install command includes <code>--allow-git=all</code>:</p>
+<p>The normal install, <code>npx dotpals setup</code>, comes from npm and doesn't touch git. This only matters if you install straight from GitHub: npm 12 and newer refuse that unless you allow it, so that command includes <code>--allow-git=all</code>:</p>
 <pre><code>npx --allow-git=all github:rikinshah787/dotpals setup</code></pre>
 <p>Older versions of npm ignore the flag, so keep it either way. If your npm settings or company policy block git installs, clone the repository and run setup from it:</p>
 <pre><code>git clone https://github.com/Rikinshah787/dotpals.git
@@ -201,8 +201,8 @@ lsof -i :5175</code></pre>
 </ul>
 
 <h2 id="command-not-found">“dotpals: command not found”</h2>
-<p>Setup installs dotpals in <code>~/.dotpals/app</code> but doesn't put a <code>dotpals</code> command on your <code>PATH</code>. Run commands with npx or from the installed copy:</p>
-<pre><code>npx --allow-git=all github:rikinshah787/dotpals status
+<p>Setup adds a <code>dotpals</code> command with npm. If that failed (setup says so), or your terminal was open before setup, open a new terminal, or run commands with npx or from the installed copy:</p>
+<pre><code>npx dotpals status
 node ~/.dotpals/app/bin/dotpals.js status</code></pre>
 
 <h2 id="shortcut">Ctrl+Alt+P does nothing</h2>

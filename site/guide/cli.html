@@ -85,8 +85,8 @@
 <p class="lead">The <code>dotpals</code> command installs dotpals, starts the pal and the dashboard, and sets up the notch and Claude Code's usage limits.</p>
 
 <h2 id="running">Running it</h2>
-<p>Setup installs dotpals in <code>~/.dotpals/app</code> but doesn't add a <code>dotpals</code> command to your <code>PATH</code>. Run commands with npx, or with Node from the installed copy:</p>
-<pre><code>npx --allow-git=all github:rikinshah787/dotpals &lt;command&gt;
+<p>Setup installs dotpals in <code>~/.dotpals/app</code> and adds a <code>dotpals</code> command. If your terminal can't find it, run commands with npx, or with Node from the installed copy:</p>
+<pre><code>npx dotpals &lt;command&gt;
 node ~/.dotpals/app/bin/dotpals.js &lt;command&gt;</code></pre>
 <p>These docs write <code>dotpals &lt;command&gt;</code> for short. Run <code>dotpals</code> with no command (or an unknown one) to print the version and this list:</p>
 <div class="g-table"><table>
