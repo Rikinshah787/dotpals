@@ -14,7 +14,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findElectron, installElectron } from '../desktop/launch.js';
+import { compareVersions, findElectron, installElectron } from '../desktop/launch.js';
 import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
@@ -36,6 +36,19 @@ const run = (cmd, args) => (platform() === 'win32'
   ? spawnSync([cmd, ...args].map(quote).join(' '), { encoding: 'utf8', shell: true })
   : spawnSync(cmd, args, { encoding: 'utf8' }));
 
+/** The running bridge's version, or null. */
+async function runningVersion() {
+  try { return (await (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).json()).version ?? null; } catch { return null; }
+}
+/** Ask the running desktop app to quit, and wait (up to 8 s) for its bridge to go. */
+async function quitRunningApp() {
+  try {
+    const r = await fetch(`${bridge}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' }, signal: AbortSignal.timeout(1500) });
+    if (!r.ok) return false;
+  } catch { return false; }
+  for (let i = 0; i < 32; i++) { await new Promise((r) => setTimeout(r, 250)); if (!(await bridgeUp())) return true; }
+  return false;
+}
 async function bridgeUp() {
   try { return (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
 }
@@ -128,12 +141,20 @@ async function setup(flags) {
   if (prefs.laya) await laya(new Set());
 
   // 7. Start the pal, open at login, show the dashboard.
-  const extra = ['--dashboard', { auto: '--notch-auto', always: '--notch', off: '--no-notch' }[prefs.notch] ?? '--notch-auto'];
+  const extra = ['--dashboard', { auto: '--notch-auto', always: '--notch', off: '--no-notch' }[prefs.notch] ?? '--notch'];
   if (!flags.has('--no-login') && prefs.login !== false) extra.push('--open-at-login');
   if (flags.has('--no-start')) skip('Not starting the pal (--no-start)');
   else if (await bridgeUp()) {
-    ok('The pal is already running');
-    openUrl(`${bridge}/dashboard`);
+    // A pal from an older install is still up: it would keep running the old code, so restart it.
+    const running = await runningVersion();
+    const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
+    if (running && installed && compareVersions(running, installed) < 0 && (await quitRunningApp())) {
+      if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
+      else warn('The old pal was closed, but the desktop runtime isn’t installed: run dotpals start');
+    } else {
+      ok('The pal is already running');
+      openUrl(`${bridge}/dashboard`);
+    }
   } else if (startApp(extra)) {
     ok(`The pal is starting${flags.has('--no-login') ? '' : ', and will open when you log in'}`);
   } else {
@@ -146,12 +167,12 @@ async function setup(flags) {
   const c = loadConfig();
   const checker = { off: 'off', local: 'Local (Laya)', cloud: `Cloud (Jev${c.checker?.keySet ? '' : ', no key yet'})` }[c.checker?.mode] ?? 'off';
   console.log(`
-  ${bold('Done.')} ${dim(`Pal: ${c.character} · notch: ${{ auto: 'when the pal is hidden', always: 'always', off: 'never' }[prefs.notch] ?? 'when the pal is hidden'} · requests read: ${c.storyView ?? 'simple'} · test checks: ${checker}`)}
+  ${bold('Done.')} ${dim(`Pal: ${c.character} · notch: ${{ auto: 'when the pal is hidden', always: 'always', off: 'never' }[prefs.notch] ?? 'always'} · requests read: ${c.storyView ?? 'simple'} · test checks: ${checker}`)}
 
   ${bold('Next')}
     1. ${has('claude') && !flags.has('--no-claude') ? 'Restart Claude Code (in VS Code: Developer: Reload Window) so it loads the dotpals plugin.' : 'Open your coding agent.'}
     2. Ask it to do something. The pal shows what it's doing, live, and sums up each request.
-    3. ${bold('Ctrl+Alt+P')} shows or hides the pal. Dashboard: ${bridge}/dashboard
+    3. The notch is the island at the top of your screen; ${bold('Ctrl+Alt+P')} shows or hides the pal. Dashboard: ${bridge}/dashboard
   ${dim('Cursor, Gemini CLI, OpenCode, Copilot CLI: Dashboard → Agents → Connect.')}
   ${dim(`Any other agent: POST events to ${bridge}/event (see the README).`)}
   ${dim('Change any choice later: Dashboard → Settings. Check what\'s connected: dotpals status')}
@@ -167,7 +188,7 @@ async function setup(flags) {
  * (scripts, CI), nothing is asked and the defaults stay.
  */
 async function preferences(flags) {
-  const answers = { notch: 'auto', login: true, statusline: false, laya: false };
+  const answers = { notch: 'always', login: true, statusline: false, laya: false };
   // DOTPALS_ASK=1 asks even without a terminal (answers piped in: tests, scripted setups).
   const terminal = process.env.DOTPALS_ASK === '1' || (process.stdin.isTTY && process.stdout.isTTY);
   if (flags.has('--yes') || flags.has('-y') || !terminal) {
@@ -208,7 +229,7 @@ async function preferences(flags) {
     const patch = {};
     patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte']], loadConfig().character ?? 'blu');
     patch.sounds = await yn('Sounds (a ping when an agent needs you, a chime when it’s done)?', true);
-    answers.notch = await pick('The notch at the top of the screen:', [['auto', 'When the pal is hidden (recommended)'], ['always', 'Always'], ['off', 'Never']], 'auto');
+    answers.notch = await pick('The notch at the top of the screen:', [['always', 'Always (recommended)'], ['auto', 'Only when the pal is hidden'], ['off', 'Never']], 'always');
     patch.storyView = await pick('How should each request read?', [['simple', 'Simple: one plain sentence (“Changed 2 files, the tests passed, and pushed.”)'], ['detailed', 'Detailed: every chapter (files, commands, tests)']], 'simple');
     patch.approvals = await yn('Approve Claude Code’s permission prompts from the pal?', false);
     patch.shareRecap = await yn('Tell each Claude Code session what your other agents did in the same project?', false);

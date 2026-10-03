@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-03
+
 ### Changed
 
 - **Install from npm:** `npx dotpals setup`. The package is published to npm as `dotpals`; installing straight from GitHub (`npx --allow-git=all github:rikinshah787/dotpals setup`) still works. Requires Node 20 or newer.
+- **The notch is on by default.** A fresh install shows the island at the top of the screen right away, whether or not the pal is visible; setup's question now recommends "Always" (it used to recommend "only when the pal is hidden", so new installs saw no notch while the pal was up). Change it any time: tray → Notch, or `dotpals notch --auto` / `--off`.
+
+### Fixed
+
+- **Updating didn't take effect while the pal was running.** `dotpals setup` on a machine with an older pal still open just brought the old window back, so the new version never ran. Setup now asks the running app to quit (`POST /api/app/quit`, desktop app only) and starts the new one.
 
 ### Added
 
@@ -288,7 +295,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rikinshah787/dotpals/compare/v0.9.0...v0.9.1

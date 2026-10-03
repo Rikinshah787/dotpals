@@ -136,7 +136,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {} } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null } = {}) {
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
@@ -843,6 +843,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (decision !== 'allow' && decision !== 'deny') return json(res, 400, { error: 'decision must be "allow" or "deny"' });
       item.resolve(decision);
       return json(res, 200, { ok: true, decision });
+    }
+    // `dotpals setup` / `dotpals update`: quit the running desktop app so a newer install can start.
+    if (path === '/api/app/quit') {
+      if (!onQuit) return json(res, 409, { error: 'This bridge isn’t the desktop app' });
+      json(res, 200, { ok: true, version });
+      setTimeout(() => { try { onQuit(); } catch {} }, 150);
+      return;
     }
     if (path === '/api/history/clear') {
       activity.clear();
