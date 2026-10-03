@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Setup didn't start the pal on a machine where a bridge was already running without it** (a Claude Code hook starts one when the desktop app isn't installed yet). Setup said "The pal is already running" and opened the dashboard in the browser, with no pal, tray icon or notch. It now starts the pal, which uses that bridge; and a bridge running on its own quits when setup asks, so the pal can take over.
+- **Setup didn't start the pal on a machine where a bridge was already running without it** (a Claude Code hook starts one when the desktop app isn't installed yet). Setup said "The pal is already running" and opened the dashboard in the browser, with no pal, tray icon or notch. A bridge running on its own (`node bridge/server.js` or `dotpals bridge`) now quits when setup asks, so the pal takes over with its own. An older bridge that can't be asked to quit (0.9.4 or before) is left running: setup starts the pal on it and says so, and the pal runs its own bridge once that one stops.
 
 ## [0.9.4] - 2026-10-03
 

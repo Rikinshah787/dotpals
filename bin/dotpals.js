@@ -152,8 +152,8 @@ async function setup(flags) {
     const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
     const quit = running && installed && compareVersions(running, installed) <= 0 ? await quitRunningApp() : false;
     if (quit === 'bridge') {
-      // Only a bridge (started by a hook before the desktop app was installed): start the pal, which uses it.
-      if (startApp(extra)) ok('The pal is starting');
+      // A bridge that can't be asked to quit (from 0.9.4 or before): the pal uses it until it stops, then runs its own.
+      if (startApp(extra)) warn(`The pal is starting, but an older bridge (${running}) is still running and can’t be closed from here. Stop it (or restart your computer) and the pal takes over.`);
       else warn('The desktop runtime isn’t installed: run dotpals start');
     } else if (quit) {
       if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
@@ -419,7 +419,8 @@ switch (command) {
     // The island at the top of the screen: every agent, its plan and your usage limits.
     if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
     break;
-  case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge()); break;
+  // Like `node bridge/server.js`: it quits when setup asks, so the pal can take over.
+  case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge({ onQuit: () => process.exit(0) })); break;
   case 'laya': await laya(flags); break;
   default:
     console.log(`dotpals ${version}
