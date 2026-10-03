@@ -145,10 +145,11 @@ async function setup(flags) {
   if (!flags.has('--no-login') && prefs.login !== false) extra.push('--open-at-login');
   if (flags.has('--no-start')) skip('Not starting the pal (--no-start)');
   else if (await bridgeUp()) {
-    // A pal from an older install is still up: it would keep running the old code, so restart it.
+    // The pal from before this install is still up: it would keep running the old code, so restart it.
+    // The same version too (a fix installed from a branch keeps the number); never a newer one.
     const running = await runningVersion();
     const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
-    if (running && installed && compareVersions(running, installed) < 0 && (await quitRunningApp())) {
+    if (running && installed && compareVersions(running, installed) <= 0 && (await quitRunningApp())) {
       if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
       else warn('The old pal was closed, but the desktop runtime isn’t installed: run dotpals start');
     } else {
