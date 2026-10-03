@@ -269,7 +269,7 @@
     .quiet { color: var(--muted); }
 
     /* -- story ------------------------------------------------------------------------ */
-    .story { max-height: 396px; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 8px; align-content: start; padding: 0 4px 18px 0; margin-right: -4px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); scrollbar-width: thin; scrollbar-color: #33333c transparent; }
+    .story { max-height: 396px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; padding: 0 4px 18px 0; margin-right: -4px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); scrollbar-width: thin; scrollbar-color: #33333c transparent; }
     .story::-webkit-scrollbar { width: 6px; } .story::-webkit-scrollbar-thumb { background: #33333c; border-radius: 6px; }
     .today { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--card); font-size: 11px; color: var(--muted); }
     .today small { color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -292,12 +292,12 @@
     .kit { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 10.5px; color: var(--faint); }
     .kit span { padding: 1px 7px; border-radius: 6px; background: #1d1d24; color: var(--soft); }
     .kit em { font-style: normal; color: var(--faint); margin-left: 4px; }
-    .note { padding: 7px 10px; border-radius: 10px; font-size: 11px; color: #ffd48a; background: rgb(245 185 74 / .08); }
+    .note { padding: 7px 10px; border-radius: 10px; font-size: 11px; color: #ffd48a; background: rgb(245 185 74 / .08); overflow-wrap: anywhere; }
     .note.ok { color: var(--muted); background: rgb(255 255 255 / .04); } .note.ok::before { content: "✓ "; color: var(--ok); }
     .note.bad { color: #ffb4b4; background: rgb(240 90 90 / .1); } .note.bad::before { content: "✕ "; }
     .note.warn::before { content: "! "; font-weight: 700; }
     .note.info { color: var(--muted); background: rgb(255 255 255 / .04); }
-    .turn { display: grid; gap: 6px; padding: 9px 10px 8px; border-radius: 12px; background: var(--card); }
+    .turn { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 9px 10px 8px; border-radius: 12px; background: var(--card); }
     .turn .asked { font-size: 11px; color: var(--soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .turn .asked small { color: var(--faint); margin-right: 4px; }
     .turn .said { margin: 0; color: var(--muted); font-size: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; user-select: text; }
@@ -309,12 +309,13 @@
     .turn .simple .mark { flex: none; font-weight: 700; }
     .turn .simple.ok .mark { color: var(--ok); } .turn .simple.failed .mark { color: var(--bad); }
     .turn .simple.unclear .mark, .turn .simple.running .mark, .turn .simple.stopped .mark { color: var(--warn); }
-    .chapters .small-steps { color: var(--faint); font-size: 10.5px; padding: 2px 0 0 10px; list-style: none; }
+    .chapters .small-steps { color: var(--faint); font-size: 10.5px; padding: 2px 0 0 10px; list-style: none; cursor: pointer; width: max-content; }
+    .chapters .small-steps:hover, .chapters .small-steps:focus-visible { color: var(--muted); text-decoration: underline; outline: none; }
     .viewseg { display: flex; justify-content: flex-end; gap: 0; }
     .viewseg button { border: 1px solid var(--line, rgb(255 255 255 / .1)); background: none; color: var(--muted); font-size: 10.5px; padding: 2px 9px; cursor: pointer; }
     .viewseg button:first-child { border-radius: 7px 0 0 7px; } .viewseg button:last-child { border-radius: 0 7px 7px 0; border-left: 0; }
     .viewseg button[aria-pressed="true"] { background: rgb(255 255 255 / .1); color: var(--text); }
-    .chapters { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+    .chapters { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
     .ch .row { display: flex; align-items: center; gap: 7px; padding: 3px 5px; margin: 0 -5px; border-radius: 7px; cursor: pointer; min-width: 0; }
     .ch .row:hover { background: #1c1c23; }
     .ch .mark { flex: none; width: 3px; align-self: stretch; border-radius: 2px; background: color-mix(in srgb, var(--h) 60%, transparent); }
@@ -1518,10 +1519,22 @@
       const { chapters, flags } = story(t, live ? stepsOf(s) : t.steps);
       if (!easy && chapters.length) {
         const ul = el('ul', 'chapters');
-        // Small steps (tool plumbing, scratch files, memory) fold away in the notch.
-        const shown = chapters.length > 1 ? chapters.filter((c) => !minorChapter(c)) : chapters;
+        // Small steps (tool plumbing, scratch files, memory) fold away in the notch; "+ N small steps" shows them.
+        const smallKey = `${t.id}:small`;
+        const all = openChapters.has(smallKey);
+        const shown = chapters.length > 1 && !all ? chapters.filter((c) => !minorChapter(c)) : chapters;
         for (const c of shown) ul.append(chapterRow(t, c));
-        if (shown.length < chapters.length) ul.append(el('li', 'small-steps', `+ ${plural(chapters.length - shown.length, 'small step')}`));
+        const hidden = chapters.filter((c) => minorChapter(c)).length;
+        if (chapters.length > 1 && hidden && (all || shown.length < chapters.length)) {
+          const more = el('li', 'small-steps', all ? 'Hide small steps' : `+ ${plural(hidden, 'small step')}`);
+          more.tabIndex = 0;
+          more.setAttribute('role', 'button');
+          more.setAttribute('aria-expanded', String(all));
+          const toggle = () => { all ? openChapters.delete(smallKey) : openChapters.add(smallKey); activity(); render(); };
+          more.onclick = toggle;
+          more.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } };
+          ul.append(more);
+        }
         box.append(ul);
       }
       if (!easy && flags.length) {
