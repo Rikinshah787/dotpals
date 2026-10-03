@@ -717,8 +717,8 @@ const lastWord = (v) => (v.state === 'passed' ? 'passed' : v.state === 'failed' 
 function testFlag(steps) {
   const t = testState(steps);
   if (!t) return null;
-  // The last change: a file tool's edit, else a command that wrote code (sed -i, > file.js).
-  const step = steps.findLast((e) => stepType(e) === 'change') ?? steps.findLast((e) => commandEdits(e).length) ?? t.last ?? steps.at(-1);
+  // The last change, whether it came from a file tool or a command that wrote code.
+  const step = steps.findLast((e) => stepType(e) === 'change' || commandEdits(e).length) ?? t.last ?? steps.at(-1);
   const names = list(t.since.map(baseName));
   if (t.state === 'untested') return { level: 'warn', text: `Not tested: changed ${plural(t.since.length, 'code file')} (${names}), and the agent ran no tests`, step };
   if (t.state === 'stale') return { level: 'warn', text: `Changed ${names} after the tests ${t.verdict.state === 'failed' ? 'last failed' : lastWord(t.verdict)}: not tested since`, step };

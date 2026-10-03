@@ -302,6 +302,15 @@ test('every flag points at a step, even when only a command changed the code (th
   assert.equal(flags[0].step, sed);
 });
 
+test('a stale-test flag points to whichever kind of code change happened last', async () => {
+  const { story } = await import('../bridge/ui/story.js');
+  const fileEdit = edit('src/b.js');
+  const test = run('npm test');
+  const commandEdit = run('sed -i s/a/b/ src/a.js');
+  const { flags } = story({ steps: [fileEdit, test, commandEdit], end: { kind: 'done' } });
+  assert.equal(flags[0].step, commandEdit);
+});
+
 test('a test run’s result comes from its output: a later part of the command failing isn’t a test failure', async () => {
   const { testPassed, testState } = await import('../bridge/ui/story.js');
   const ran = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });
