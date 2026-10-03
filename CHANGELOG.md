@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The notch's Story tab could go blank in Detailed view**: a request that changed code only through a command (`sed -i`, say) and ran no tests made a "Not tested" warning with no step attached, and building its tooltip failed, which emptied the whole column (the pal's Summary had the same line). The warning now points at the command that changed the code, and the notch leaves out a block that fails to build instead of blanking the column.
-- **The dashboard froze (“Not Responding”) for a while after start** on a big history: it re-rendered on every one of thousands of replayed entries. The bridge now says when the replay is over and the dashboard renders once.
+- **The dashboard and the pal froze (“Not Responding”) for a while after start** on a big history: they redrew on every one of thousands of replayed entries. The bridge now says when the replay is over, and each draws once.
 - **Ghost dotpals processes** when a second copy started (a hook launching the pal while it was already running): the second copy exits at once instead of a quit that could hang.
 - **The pal could sit half off the screen**, hiding its × and other buttons. It keeps itself inside the display now, and a one-time hint by the × says how to hide it (×, or Ctrl+Alt+P) and that it stays in the tray.
 - **Updating didn't take effect while the pal was running.** `dotpals setup` on a machine with a pal still open just brought the old window back, so the new code never ran. Setup now asks the running app to quit (`POST /api/app/quit`, desktop app only) and starts the new one, also when the version number is the same (a fix installed from a branch).

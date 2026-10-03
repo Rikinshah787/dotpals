@@ -996,7 +996,7 @@
       if (fresh(entry.at)) refreshBubbles();
       activitySound(entry);
       // Follow new rows, unless you've scrolled up to read.
-      const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+      const stick = !replaying && feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
       let item = entries.get(entry.id);
       if (!item) {
         feed.querySelector('.none')?.remove();
@@ -1005,6 +1005,7 @@
         insertInOrder(item);
       }
       item.entry = entry;
+      if (replaying) return; // drawn once when the replay ends (endReplay)
       renderEntry(item);
       item.el.hidden = !shown(entry.session);
       if (entry.files?.length) renderFiles();
@@ -1012,6 +1013,23 @@
       refreshCounts();
       scheduleRecap();
       if (stick) feed.scrollTop = feed.scrollHeight;
+    }
+
+    // The bridge replays its whole history when we connect (thousands of entries): drawing
+    // each one froze the window ("Not Responding"). Collect them, then draw once when the
+    // bridge says `ready` (a 6 s fallback covers an old bridge without it).
+    let replaying = true;
+    const replayFallback = setTimeout(endReplay, 6000);
+    function endReplay() {
+      if (!replaying) return;
+      replaying = false;
+      clearTimeout(replayFallback);
+      for (const item of entries.values()) { renderEntry(item); item.el.hidden = !shown(item.entry.session); }
+      renderFiles();
+      scheduleRetries();
+      refreshCounts();
+      scheduleRecap();
+      feed.scrollTop = feed.scrollHeight;
     }
 
     // History can arrive after live rows (backfill), so keep the feed in time order.
@@ -1800,6 +1818,7 @@
       : type === 'conflict' ? applyConflict(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
+      : type === 'ready' ? endReplay()
       : applyState(data);
 
     $('dash').onclick = () => (desktop?.openDashboard ? desktop.openDashboard() : window.open('/dashboard', '_blank'));
@@ -1919,6 +1938,7 @@
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
       source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
+      source.addEventListener('ready', () => onEvent({ type: 'ready' }));
     }
 
     // Float the pals in an always-on-top window (Chrome/Edge Document Picture-in-Picture).
