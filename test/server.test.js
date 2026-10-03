@@ -482,7 +482,7 @@ test('Set up Laya: answers at once, runs it on 127.0.0.1, turns on Local, and ev
     await closeBridge(server);
   });
   await api(port, '/api/config', { checker: { localUrl: 'http://localhost:9321' } }); // your own port: the managed server uses it
-  const watching = readEvents(port, 600);
+  const watching = readEvents(port, 3000); // long enough for a slow CI runner (Windows took 1.5 s)
   await new Promise((r) => setTimeout(r, 50));
   const res = await api(port, '/api/checker/laya/setup', {});
   assert.equal(res.status, 202);
