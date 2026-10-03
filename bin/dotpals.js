@@ -225,6 +225,11 @@ async function preferences(flags) {
     return a ? /^y/i.test(a) : def;
   };
   try {
+    // One question first. Default needs nothing else: Blu, the notch on, sounds, one-line
+    // summaries, no checker, open at login. Everything is changeable later in Settings.
+    console.log('');
+    const how = await pick('Set up dotpals:', [['default', 'Default (recommended): Blu, the notch on, sounds, one-line summaries, opens at login'], ['custom', 'Customize: pick the pal, the notch, the test checker and more (about 9 questions)']], 'default');
+    if (how === 'default') { skip('Using the defaults (change any of them later: Dashboard → Settings)'); return answers; }
     console.log(`\n  ${bold('A few choices')} ${dim('(Enter keeps the one in brackets; change any later: Dashboard → Settings)')}\n`);
     const patch = {};
     patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte']], loadConfig().character ?? 'blu');

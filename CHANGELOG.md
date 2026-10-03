@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Install from npm:** `npx dotpals setup`. The package is published to npm as `dotpals`; installing straight from GitHub (`npx --allow-git=all github:rikinshah787/dotpals setup`) still works. Requires Node 20 or newer.
+- **Setup asks one question.** "Default (recommended)" sets up Blu, the notch, sounds, one-line summaries and open-at-login with nothing else to answer; "Customize" keeps the full set of questions. Every choice can be changed later in Dashboard → Settings.
 - **The notch is on by default.** A fresh install shows the island at the top of the screen right away, whether or not the pal is visible; setup's question now recommends "Always" (it used to recommend "only when the pal is hidden", so new installs saw no notch while the pal was up). Change it any time: tray → Notch, or `dotpals notch --auto` / `--off`.
 
 ### Fixed
