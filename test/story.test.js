@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chapters, flags, headline, planOf, stepType } from '../bridge/ui/story.js';
+import { chapters, compactNote, contextEntries, flags, headline, planOf, stepType, testState } from '../bridge/ui/story.js';
+import { createActivityLog, trimActivity } from '../bridge/activity.js';
 
 let n = 0;
 const step = (kind, extra = {}) => ({ id: `s${n++}`, session: 's', kind, status: 'ok', at: 1000 + n, ...extra });
@@ -144,8 +145,65 @@ test('compactNote: a /compact with what to keep', async () => {
     edit('src/useTheme.ts'),
     run('npm test', 'failed'),
   ]);
-  assert.equal(note, '/compact Keep the current goal: "Add dark mode". Still to do: Add Auto option. Files changed so far: useTheme.ts. The tests are failing right now (npm test).');
+  assert.equal(note, '/compact Keep the current goal and constraints: "Add dark mode". Still to do: Add Auto option. Recent changed paths: /p/src/useTheme.ts. Test evidence: Tests failed (exit code only) (npm test).');
   assert.equal(compactNote([]), '/compact Keep the current goal and the files changed so far.');
+});
+
+test('long sessions retain original constraints, plans, file changes and stale test evidence', () => {
+  const log = createActivityLog({ limit: 1500, retain: contextEntries });
+  const original = step('prompt', { title: 'Add dark mode\nDo not change the public API' });
+  const plan = step('plan', { plan: [{ text: 'Check accessibility', status: 'pending' }] });
+  const tested = run('npm test');
+  const changed = edit('src/theme.js');
+  const latest = step('prompt', { title: 'Finish the toggle\nKeep keyboard support' });
+  for (const entry of [original, plan, tested, changed, latest]) log.upsert(entry);
+  for (let index = 0; index < 1540; index++) log.upsert(read(`src/lookup-${index}.js`));
+  assert.equal(log.all().length, 1500);
+  assert.deepEqual(log.get(original.id), original);
+  assert.deepEqual(log.get(plan.id), plan);
+  assert.equal(testState(log.all()).state, 'stale');
+  const restored = createActivityLog({ limit: 12, retain: contextEntries });
+  for (const entry of JSON.parse(JSON.stringify(trimActivity(log.all(), 8, contextEntries)))) restored.upsert(entry);
+  const note = compactNote(restored.all());
+  assert.match(note, /original request and constraints: "Add dark mode Do not change the public API"/);
+  assert.match(note, /Finish the toggle Keep keyboard support/);
+  assert.match(note, /Check accessibility/);
+  assert.match(note, /\/p\/src\/theme\.js/);
+  assert.match(note, /not tested since/);
+});
+
+test('context retention keeps task creation and updates together and separates sessions', () => {
+  const entries = [
+    step('plan', { task: { op: 'create', text: 'Write tests' } }),
+    step('plan', { task: { op: 'update', id: '1', status: 'in_progress' } }),
+    step('prompt', { session: 'other', title: 'Other project' }),
+    ...Array.from({ length: 20 }, () => read('lookup.js')),
+  ];
+  const retained = trimActivity(entries, 6, contextEntries);
+  assert.equal(planOf(retained).current.text, 'Write tests');
+  assert.ok(retained.some((entry) => entry.session === 'other'));
+  assert.doesNotMatch(compactNote(retained.filter((entry) => entry.session === 's')), /Other project/);
+});
+
+test('compaction notes preserve recent instructions and distinguish identical filenames', () => {
+  const note = compactNote([
+    step('prompt', { title: 'Build a toggle' }),
+    step('prompt', { title: 'Use the existing theme API' }),
+    step('prompt', { title: 'Finish it' }),
+    edit('client/index.js'), edit('server/index.js'),
+  ]);
+  assert.match(note, /Recent instructions.*Use the existing theme API/);
+  assert.match(note, /\/p\/client\/index\.js/);
+  assert.match(note, /\/p\/server\/index\.js/);
+  assert.match(note, /no tests run by the agent/);
+});
+
+test('compaction file lists stay bounded even when one tool changes many files', () => {
+  const paths = Array.from({ length: 100 }, (_, index) => ({ path: `/p/file-${index}.js`, change: 'edit' }));
+  const note = compactNote([run('npm test'), step('edit', { files: paths })]);
+  assert.match(note, /and 96 more files/);
+  assert.doesNotMatch(note, /file-8\.js/);
+  assert.match(note, /not tested since/);
 });
 
 test('headline: prompts are not steps, and it shortens to whole words', async () => {
@@ -543,4 +601,44 @@ test('review fixes: a request still running isn’t "cut off"; wrapper options w
   assert.deepEqual(parts('sudo -u root rm -rf /var/app'), ['rm -rf /var/app']);
   assert.deepEqual(parts('timeout -s KILL 30 npm test'), ['npm test']);
   assert.ok(flags([run('printf x | xargs -n 1 rm -rf')]).some((f) => f.text === 'Deleted files with a recursive delete'));
+});
+
+test('trimming a session with many task entries keeps the plan right and bounded (from review)', async () => {
+  const { contextEntries, planOf } = await import('../bridge/ui/story.js');
+  const { trimActivity } = await import('../bridge/activity.js');
+  const task = (t) => step('plan', { task: t });
+  const list = [
+    task({ op: 'create', text: 'A' }), task({ op: 'create', text: 'B' }), task({ op: 'update', id: '2', status: 'completed' }),
+    ...Array.from({ length: 400 }, (_, i) => task({ op: 'update', id: '1', status: i % 2 ? 'in_progress' : 'pending' })),
+    ...Array.from({ length: 50 }, (_, i) => edit(`src/x${i}.js`)),
+    ...Array.from({ length: 20 }, () => run('npm run build')),
+  ];
+  const before = planOf(list).items.map((p) => `${p.text}:${p.status}`);
+  // Room to spare: some old task entries stay (they're just the oldest unprotected), and the plan still reads right.
+  const roomy = trimActivity(list, 100, contextEntries);
+  assert.equal(roomy.length, 100);
+  assert.deepEqual(planOf(roomy).items.map((p) => `${p.text}:${p.status}`), before); // positional ids survive the fold
+  // Tight: every old task entry goes, recent edits and builds all stay, the plan is intact.
+  const tight = trimActivity(list, 71, contextEntries);
+  assert.equal(tight.filter((e) => e.task).length, 1, 'old task entries are no longer protected');
+  assert.equal(tight.filter((e) => e.kind === 'run').length, 20, 'recent work keeps its place');
+  assert.deepEqual(planOf(tight).items.map((p) => `${p.text}:${p.status}`), before);
+  // Few task entries: nothing to fold, nothing changes.
+  const small = [task({ op: 'create', text: 'Only' }), ...Array.from({ length: 5 }, (_, i) => read(`f${i}.js`))];
+  assert.deepEqual(trimActivity(small, 3, contextEntries).filter((e) => e.plan), []);
+});
+
+test('review fixes on retention: the tested commit survives, and sed edits reach the compact note', async () => {
+  const { contextEntries, compactNote, testState } = await import('../bridge/ui/story.js');
+  const { trimActivity } = await import('../bridge/activity.js');
+  const out = (command, output, status = 'ok') => ({ ...run(command, status), body: { command, output } });
+  // Tests, a commit, a failed commit attempt, then another test and lots of look-ups: after
+  // trimming, testState still says the commit was tested.
+  const list = [edit('src/a.js'), out('npm test', 'Tests: 4 passed'), run('git commit -m one'), run('git commit -m two', 'failed'), out('npm test', 'Tests: 4 passed'),
+    ...Array.from({ length: 40 }, (_, i) => read(`f${i}.js`))];
+  assert.equal(testState(list).commit.tested, true);
+  const kept = trimActivity(list, 12, contextEntries);
+  assert.equal(testState(kept).commit?.tested, true, kept.map((e) => e.title).join(' | '));
+  // A file changed only by sed shows in the note's paths.
+  assert.match(compactNote([run("sed -i 's/a/b/' src/config.js"), out('npm test', 'Tests: 4 passed')]), /src\/config\.js/);
 });

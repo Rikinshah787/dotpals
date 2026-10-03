@@ -604,3 +604,18 @@ test('a live request gets what git saw changed, also by commands, on its done en
   assert.equal(entry.git.committed, false);
   assert.deepEqual(entry.git.others, []);
 });
+
+test('generic /event: malformed files are dropped, so a trimmed session never throws (from review)', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const base = { session: 'bad-files', harness: 'my-agent' };
+  await post(port, '/event', { ...base, activity: { id: 'f1', kind: 'edit', title: 'x', status: 'ok', files: { path: 'not-a-list' } } });
+  await post(port, '/event', { ...base, activity: { id: 'f2', kind: 'edit', title: 'y', status: 'ok', files: [null, 7, { change: 'edit' }, { path: 'src/ok.js', change: 'bogus' }] } });
+  const res = await post(port, '/event', { ...base, activity: { id: 'f3', kind: 'read', title: 'z', status: 'ok', files: [{ path: 'src/ok.js', change: 'read' }] } });
+  assert.equal(res.status, 200);
+  const body = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
+  const mine = body.entries.filter((e) => e.session === 'bad-files');
+  assert.equal(mine.length, 3);
+  assert.equal(mine.find((e) => e.id.endsWith(':f1')).files, undefined);
+  assert.deepEqual(mine.find((e) => e.id.endsWith(':f2')).files, [{ path: 'src/ok.js', change: 'edit' }]);
+});

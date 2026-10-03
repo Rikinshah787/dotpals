@@ -870,6 +870,61 @@ export function overlaps(entries, since = Date.now() - 2 * 3600_000, { within = 
 // -- compacting ------------------------------------------------------------------------
 
 /**
+ * Claude Code keeps its plan as tasks, one entry per TaskCreate/TaskUpdate, and planOf()
+ * numbers tasks by their position, so dropping an early task entry corrupts the plan. Before
+ * a session is trimmed, its task history is folded: the plan as replayed so far is written
+ * onto the newest task entry as a `plan` array (the form TodoWrite, Codex and Gemini use).
+ * planOf() starts over from an array, so the older task entries are then free to go.
+ * Changes the entries in place; only called when a session is over its limit.
+ */
+export function foldTasks(list) {
+  const last = list.findLastIndex((entry) => Array.isArray(entry.plan));
+  const tasks = list.slice(last + 1).filter((entry) => entry.task);
+  if (tasks.length < 2) return;
+  const plan = planOf(list);
+  if (plan) tasks.at(-1).plan = plan.items;
+}
+
+export function contextEntries(entries) {
+  const sessions = new Map();
+  for (const entry of entries) {
+    if (!sessions.has(entry.session)) sessions.set(entry.session, []);
+    sessions.get(entry.session).push(entry);
+  }
+  const kept = new Set();
+  for (const list of sessions.values()) {
+    foldTasks(list);
+    const prompts = list.filter((entry) => entry.kind === 'prompt');
+    for (const entry of [prompts[0], ...prompts.slice(-4)]) if (entry) kept.add(entry);
+    const plan = list.findLastIndex((entry) => Array.isArray(entry.plan));
+    for (const entry of list.slice(Math.max(0, plan))) if (entry.plan || entry.task) kept.add(entry);
+    // The latest test run, the latest commit that went through, the test run before that
+    // commit (what testState() reads "the commit was tested" from), and the latest ending.
+    const isTest = (entry) => entry.kind === 'run' && stepType(entry) === 'test' && !running(entry);
+    const commit = list.findLast((entry) => entry.kind === 'run' && runs(commandOf(entry), COMMIT) && entry.status !== 'failed' && !running(entry));
+    for (const entry of [
+      list.findLast(isTest),
+      commit,
+      commit && list.findLast((entry) => isTest(entry) && entry.at < commit.at),
+      list.findLast((entry) => entry.kind === 'done' || entry.kind === 'error'),
+    ]) if (entry) kept.add(entry);
+    const paths = new Set();
+    for (let index = list.length - 1; index >= 0 && paths.size < 30; index--) {
+      const entry = list[index];
+      if (entry.status === 'failed') continue;
+      const changed = [...(entry.files ?? []).filter((file) => file.change !== 'read').map((file) => file.path), ...commandEdits(entry)];
+      for (const path of changed) {
+        const key = String(path).replace(/\\/g, '/').toLowerCase();
+        if (paths.has(key) || paths.size >= 30) continue;
+        paths.add(key);
+        kept.add(entry);
+      }
+    }
+  }
+  return [...kept];
+}
+
+/**
  * A `/compact` command with a note on what to keep, written from the session's own
  * record: the goal, what's still on the plan, the files changed and whether the
  * tests are failing. Claude Code and Codex both take `/compact <instructions>`; a
@@ -877,26 +932,36 @@ export function overlaps(entries, since = Date.now() - 2 * 3600_000, { within = 
  */
 export function compactNote(entries) {
   const list = [...entries].sort((a, b) => a.at - b.at);
-  const clipped = (s, n) => { s = String(s ?? '').split('\n')[0].trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
-  const goal = list.findLast((e) => e.kind === 'prompt')?.title;
+  const clipped = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+  const prompts = list.filter((entry) => entry.kind === 'prompt');
+  const original = prompts[0]?.title;
+  const goal = prompts.at(-1)?.title;
   const plan = planOf(list);
   const todo = plan?.items.filter((p) => p.status !== 'completed').slice(0, 4).map((p) => clipped(p.text, 60)) ?? [];
+  // The files changed, newest first: by file tools, and by commands (`sed -i`, scripts) too.
   const files = [];
   for (const e of list.slice().reverse()) {
     if (e.status === 'failed') continue;
-    for (const f of e.files ?? []) {
-      if (!['edit', 'write', 'delete'].includes(f.change)) continue;
-      const name = baseName(f.path);
+    const changed = [...(e.files ?? []).filter((f) => ['edit', 'write', 'delete'].includes(f.change)).map((f) => f.path), ...commandEdits(e)];
+    for (const path of changed) {
+      const name = String(path).replace(/\\/g, '/');
       if (!files.includes(name)) files.push(name);
+      if (files.length >= 8) break;
     }
     if (files.length >= 8) break;
   }
-  const lastTest = list.findLast((e) => e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running');
+  const tested = testState(list);
+  const tests = !tested ? null : tested.state === 'untested' ? 'no tests run by the agent after changing code'
+    : tested.state === 'running' ? 'tests are still running; no final result yet'
+    : tested.state === 'stale' ? `tests ${lastWord(tested.verdict)}, but ${tested.since.slice(0, 4).map((path) => clipped(path, 120)).join(', ')}${tested.since.length > 4 ? ` and ${tested.since.length - 4} more files` : ''} changed since; not tested since`
+    : `${testWords(tested.verdict)} (${clipped(commandOf(tested.last), 120)})`;
   const parts = [
-    goal && `Keep the current goal: "${clipped(goal, 140)}"`,
+    original && original !== goal && `Keep the original request and constraints: "${clipped(original, 800)}"`,
+    prompts.length > 2 && `recent instructions (newer ones override older ones): ${prompts.slice(-4, -1).filter((entry) => entry !== prompts[0]).map((entry) => `"${clipped(entry.title, 400)}"`).join('; ')}`,
+    goal && `Keep the current goal and constraints: "${clipped(goal, 800)}"`,
     todo.length && `still to do: ${todo.join('; ')}`,
-    files.length && `files changed so far: ${files.join(', ')}`,
-    lastTest && testPassed(lastTest) === false && `the tests are failing right now (${clipped(commandOf(lastTest), 40)})`,
+    files.length && `recent changed paths: ${files.map((path) => clipped(path, 160)).join(', ')}`,
+    tests && `test evidence: ${tests}`,
   ].filter(Boolean);
   const sentences = parts.map((x) => x[0].toUpperCase() + x.slice(1));
   return `/compact ${sentences.length ? `${sentences.join('. ')}.` : 'Keep the current goal and the files changed so far.'}`;
@@ -1235,7 +1300,8 @@ export function readiness(turn) {
   // Code git saw changed that no file tool or readable command accounts for: it can't be
   // placed before or after the tests, unless no command ran after the last test run (then
   // it can only have happened before it).
-  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at) : true;
+  // A command that can't change code (git commit, a push, a look-up, another test run) doesn't count.
+  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at && !['ship', 'explore', 'test'].includes(stepType(e))) : true;
   const gitUntimed = after && truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
     && !commandPaths.some((path) => same(path, norm(f.path))));
   const checks = [
