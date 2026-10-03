@@ -155,7 +155,8 @@ export function reduce(prev, ev, now, T = TIMING) {
       break;
     case 'tuck':
       s.tucked = !!ev.on;
-      if (s.tucked) { s.open = null; s.peekUntil = 0; }
+      // Like close: news on show ("just finished") goes too, or it would keep the island open.
+      if (s.tucked) { s.open = null; s.peekUntil = 0; s.alerts = s.alerts.filter((a) => !isNews(a)); }
       break;
     case 'alert':
       if (ev.id != null && !s.alerts.some((a) => a.id === ev.id)) {
