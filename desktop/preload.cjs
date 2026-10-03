@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   setSolidAreas: (rects) => ipcRenderer.send('window:solid-areas', rects),
   setCompact: (compact) => ipcRenderer.invoke('window:compact', compact),
   isCompact: () => ipcRenderer.invoke('window:is-compact'),
+  /** Small mode: make room above the pal for the chat bubble. */
+  setTalking: (on) => ipcRenderer.invoke('window:talk', on),
   close: () => ipcRenderer.send('window:close'),
   show: () => ipcRenderer.send('window:show'),
   /** Show the pal in small mode (just the pal). */
@@ -45,6 +47,13 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
     ipcRenderer.removeAllListeners('window:greet');
     ipcRenderer.on('window:greet', () => callback());
   },
+  /** onHello(): say good morning and ask what to work on. */
+  onHello(callback) {
+    ipcRenderer.removeAllListeners('window:hello');
+    ipcRenderer.on('window:hello', () => callback());
+  },
+  /** Ask for a project folder: its path, or null when cancelled. */
+  pickFolder: () => ipcRenderer.invoke('dialog:folder'),
   openDashboard: () => ipcRenderer.send('dashboard:open'),
   getOpenAtLogin: () => ipcRenderer.invoke('login:get'),
   setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),

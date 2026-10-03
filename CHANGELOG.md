@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Chat with your agents from the pal** (OpenCode for now; Claude Code and others are coming), from @agusalay in #13. Optional and off by default: Dashboard → Settings → *Chat with your agents*. A message box on the pal sends prompts to the OpenCode session on show, or starts one in a folder you name. The bridge starts its own `opencode serve` on `127.0.0.1` the first time you send something, with a random password only it knows, and stops it when you turn chat off. Replies come back through the OpenCode plugin like any other session. In small mode the speech-bubble button opens the box above the pal's head. `POST /api/chat`, `/api/chat/abort` (sending answers 409 while chat is off; Stop always works).
+- **Answer OpenCode from the pal.** Permission requests (Allow, Always, Deny) and questions (tap a choice, type your own, or skip) from sessions started in the pal show as cards over it, in small mode too, with a sound and a notification when the window isn't focused. If OpenCode stops, its cards close. `POST /api/chat/answer`, `ocask` events.
+- **"What are we working on today?"** With chat on, tray → *Start working…* asks which project (folders your agents worked in recently, or any folder), then what to do there, and starts an OpenCode session in that folder. Tray → *Greet me when dotpals starts* (off by default) asks every time dotpals starts. `GET /api/chat/projects`.
+- **Pal size.** Make the pal 50–150% in small mode: Dashboard → Settings → *Pal size*, tray → *Pal size* (Small, Normal, Large), or Ctrl+scroll over the pal (Cmd on macOS; a plain scroll never resizes it). Above 100% the small window grows to fit.
+
 ## [0.9.6] - 2026-10-03
 
 ### Added

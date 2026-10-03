@@ -28,6 +28,9 @@ export const DEFAULTS = {
   approvals: false,     // answer Claude Code's permission prompts from the pal (off unless you turn it on)
   approvalWait: 30,     // seconds to wait for an answer there before Claude asks in the terminal
   shareRecap: false,    // tell each Claude Code session what your other agents did in the same project
+  chat: false,          // talk to your agents from the pal (OpenCode for now; off unless you turn it on)
+  greetOnStart: false,  // with chat on: the desktop pal starts small and asks what you're working on today
+  palSize: 100,         // the pal's size in small mode, in percent (50–150)
   // Two agents, one file (bridge/guard.js): when an agent is about to change a file another
   // active session changed in the last `conflictMinutes`, 'ask' (Claude Code asks you first),
   // 'tell' (Claude is told to re-read the file) or 'off'. Other agents only get an alert.
@@ -50,9 +53,11 @@ const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte
 /** Keep only known settings with sensible values. */
 function clean(input = {}) {
   const out = {};
-  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap']) if (typeof input[key] === 'boolean') out[key] = input[key];
+  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap', 'chat', 'greetOnStart']) if (typeof input[key] === 'boolean') out[key] = input[key];
   const wait = Number(input.approvalWait);
   if (Number.isInteger(wait) && wait >= 10 && wait <= 120) out.approvalWait = wait;
+  const size = Number(input.palSize);
+  if (Number.isInteger(size) && size >= 50 && size <= 150) out.palSize = size;
   if (CHARACTERS.includes(input.character)) out.character = input.character;
   if (input.storyView === 'simple' || input.storyView === 'detailed') out.storyView = input.storyView;
   if (['ask', 'tell', 'off'].includes(input.conflictGuard)) out.conflictGuard = input.conflictGuard;

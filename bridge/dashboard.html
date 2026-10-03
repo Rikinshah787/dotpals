@@ -482,6 +482,7 @@
                 <div class="row"><div class="text">Character<small>The first pal. More sessions get the next ones.</small></div><select id="s-character" aria-label="Character"></select></div>
                 <div class="row"><div class="text">Sounds<small>A blip on prompts, a tick on saves, a ping when it needs you, a chime when done.</small></div><input type="checkbox" class="switch" id="s-sounds" aria-label="Sounds"></div>
                 <div class="row"><div class="text">Notifications<small>When a long request finishes or the agent waits for your OK.</small></div><input type="checkbox" class="switch" id="s-notifications" aria-label="Notifications"></div>
+                <div class="row"><div class="text">Pal size<small>In small mode (just the pal). Also in the tray, or Ctrl+scroll over the pal.</small></div><select id="s-pal-size" aria-label="Pal size"><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option><option value="110">110%</option><option value="120">120%</option><option value="130">130%</option><option value="140">140%</option><option value="150">150%</option></select></div>
               </div>
               <div class="preview" id="preview"></div>
             </div>
@@ -520,6 +521,11 @@
             <div class="row"><div class="text">Answer Claude Code’s permission prompts here<small>When Claude asks “Allow Bash: npm install?”, the pal and the notch show exactly what it wants to run, with Allow and Deny. It only waits while a pal, the notch or this dashboard is open; otherwise Claude asks in the terminal as usual. Claude doesn’t show its own prompt while it waits, so keep the wait short.</small></div><input type="checkbox" class="switch" id="s-approvals" aria-label="Approve from the pal"></div>
             <div class="row"><div class="text">Wait for an answer<small>Then Claude asks in the terminal instead.</small></div>
               <select id="s-approval-wait" aria-label="Wait for an answer"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option></select></div>
+          </div>
+
+          <div class="card">
+            <h2>Chat with your agents</h2>
+            <div class="row"><div class="text">Talk to your agents from the pal<small>A chat box on the pal sends prompts, and permission requests and questions show up as cards you can answer. OpenCode for now; Claude Code and others are coming. When you send something, dotpals starts its own <code>opencode serve</code> on this computer (only reachable from here). Tray → Start working… asks which project and what to do.</small></div><input type="checkbox" class="switch" id="s-chat" aria-label="Chat with your agents"></div>
           </div>
 
           <div class="card">
@@ -1652,6 +1658,8 @@
       b.onclick = () => maker.setState(b.dataset.state, { text: b.dataset.text });
     }
     $('s-sounds').onchange = (e) => save({ sounds: e.target.checked });
+    $('s-pal-size').onchange = (e) => save({ palSize: Number(e.target.value) });
+    $('s-chat').onchange = (e) => save({ chat: e.target.checked });
     $('s-notifications').onchange = (e) => save({ notifications: e.target.checked });
     $('s-approvals').onchange = (e) => save({ approvals: e.target.checked });
     $('s-share').onchange = (e) => save({ shareRecap: e.target.checked });
@@ -1931,6 +1939,8 @@
       $('s-character').value = config.character;
       if (preview.character !== config.character) preview.character = config.character;
       $('s-sounds').checked = config.sounds;
+      $('s-pal-size').value = String(config.palSize ?? 100);
+      $('s-chat').checked = !!config.chat;
       $('s-notifications').checked = config.notifications;
       $('s-approvals').checked = !!config.approvals;
       $('s-share').checked = !!config.shareRecap;

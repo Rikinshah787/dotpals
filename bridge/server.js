@@ -46,6 +46,13 @@
 //   GET  /api/handoff/agents       → { agents: [{ id, name }] } the agents a session can be handed to
 //   POST /api/handoff { session, agent }   write the hand-off note and open that agent in a new
 //                        terminal, in the session's own folder; agent "copy": just the note
+//   POST /api/chat { text, session?, directory? } send a prompt to OpenCode (bridge/chat.js runs
+//                        its own `opencode serve`); no session: a new one in `directory`.
+//                        It and /api/chat/projects answer 409 unless Settings → chat is on.
+//   POST /api/chat/abort { session }   stop what that OpenCode session is doing
+//   POST /api/chat/answer { id, reply } | { id, answers }  answer an OpenCode permission request
+//                        (`ocask` events: once, always or reject) or question (null skips it)
+//   GET  /api/chat/projects → { projects: [{ path, name }] } folders agents worked in, newest first
 //   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
@@ -71,6 +78,7 @@ import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launc
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 import { createGround } from './ground.js';
+import { createChat } from './chat.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } })();
@@ -137,7 +145,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null, createChat: makeChat = createChat } = {}) {
   const clients = new Set();
   const windows = new Map(); // the desktop app's windows following the events: response → 'pal' | 'notch'
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
@@ -163,6 +171,39 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     set: (saved) => { for (const [id, m] of Object.entries(saved ?? {})) noteSession(id, m?.cwd, m?.parent); },
   });
   const startedAt = Date.now();
+  // OpenCode's permission requests and questions, from sessions started in
+  // the pal (bridge/chat.js), shown as cards with buttons. id → { kind, session, … }
+  const ocAsks = new Map();
+  const chat = makeChat({
+    onEvent(event) {
+      const p = event?.properties ?? {};
+      if (!p.sessionID) return;
+      const session = `opencode:${p.sessionID}`;
+      const label = folderName(sessionMeta.get(session)?.cwd) || 'OpenCode';
+      if (event.type === 'permission.asked' && p.id) {
+        const item = { id: p.id, kind: 'permission', session, label, permission: p.permission, patterns: (p.patterns ?? []).slice(0, 5).map((x) => clip(String(x), 300)), canAlways: (p.always ?? []).length > 0, at: Date.now() };
+        ocAsks.set(p.id, item);
+        send('ocask', { ...item, status: 'pending' });
+      } else if (event.type === 'question.asked' && p.id) {
+        const questions = (p.questions ?? []).slice(0, 4).map((q) => ({
+          question: clip(String(q.question ?? ''), 500), header: clip(String(q.header ?? ''), 40),
+          options: (q.options ?? []).slice(0, 8).map((o) => ({ label: clip(String(o.label ?? ''), 60), description: clip(String(o.description ?? ''), 200) })),
+          multiple: !!q.multiple, custom: q.custom !== false,
+        }));
+        const item = { id: p.id, kind: 'question', session, label, questions, at: Date.now() };
+        ocAsks.set(p.id, item);
+        send('ocask', { ...item, status: 'pending' });
+      } else if (['permission.replied', 'question.replied', 'question.rejected'].includes(event.type) && p.requestID) {
+        if (ocAsks.delete(p.requestID)) send('ocask', { id: p.requestID, session, status: 'answered' });
+      }
+    },
+    // OpenCode stopped: its requests went with it, so their cards close (answering one would fail).
+    onExit() {
+      for (const item of ocAsks.values()) send('ocask', { id: item.id, session: item.session, status: 'answered' });
+      ocAsks.clear();
+    },
+  });
+  const CHAT_OFF = 'Chat is off. Turn it on in Dashboard → Settings → Chat with your agents.';
 
   function send(event, data) {
     const line = `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
@@ -751,6 +792,23 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }
     if (req.method === 'GET' && path === '/api/approvals') return json(res, 200, { approvals: [...approvals.values()].map(approvalView) });
     if (req.method === 'GET' && path === '/api/usage') return json(res, 200, await usage());
+    // Chat: project folders the agents worked in, newest first, for the
+    // morning greeting's "which project?" list.
+    if (req.method === 'GET' && path === '/api/chat/projects') {
+      if (!config.chat) return json(res, 409, { error: CHAT_OFF });
+      const seen = new Set();
+      const projects = [];
+      const all = activity.all();
+      for (let i = all.length - 1; i >= 0 && projects.length < 8; i--) {
+        const cwd = sessionMeta.get(all[i].session)?.cwd;
+        if (!cwd || seen.has(cwd.toLowerCase())) continue;
+        seen.add(cwd.toLowerCase());
+        const name = folderName(cwd);
+        // Skip drive roots ("/", "C:\"), folders that are gone and anything without a name.
+        if (name && !/^([a-z]:)?[\\/]*$/i.test(cwd) && isFolder(cwd)) projects.push({ path: cwd, name });
+      }
+      return json(res, 200, { projects });
+    }
     if (req.method === 'GET' && path === '/api/handoff/agents') return json(res, 200, { agents: installedAgents({ has: handoffOptions.has ?? onPath }) });
 
     // Changes need a custom header: browsers won't send it cross-site without
@@ -768,6 +826,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (enabled('claude') !== (before.agents?.claude !== false)) applyClaude();
       if (config.history && !before.history) history.save();
       applyLaya(before);
+      if (before.chat && !config.chat) chat.stop(); // turned off: no OpenCode server left running
       // A different checker (or a new key): check it's answering, right away.
       if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
       send('config', withLaya());
@@ -837,6 +896,63 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { ok: true, laya: removed });
     }
     if (path === '/api/handoff') return handoff(req, res);
+    // Chat (bridge/chat.js): a prompt typed in the pal goes to OpenCode.
+    // { text, session? ('opencode:ses_…' to continue it), directory? (for a new one) }
+    // Answer an OpenCode permission request or question from the pal.
+    // { id, reply: 'once' | 'always' | 'reject' } or { id, answers: [[label…]…] | null }
+    if (path === '/api/chat/answer') {
+      const origin = req.headers.origin;
+      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+      const item = typeof body?.id === 'string' ? ocAsks.get(body.id) : null;
+      if (!item) return json(res, 404, { error: 'That request has already been answered' });
+      const directory = sessionMeta.get(item.session)?.cwd;
+      try {
+        if (item.kind === 'permission') {
+          if (!['once', 'always', 'reject'].includes(body.reply)) return json(res, 400, { error: 'reply must be once, always or reject' });
+          await chat.replyPermission({ id: item.id, reply: body.reply, directory });
+        } else {
+          const answers = body.answers === null ? null
+            : Array.isArray(body.answers) && body.answers.length === item.questions.length && body.answers.every((a) => Array.isArray(a) && a.length <= 8 && a.every((s) => typeof s === 'string' && s.length <= 2000))
+              ? body.answers : undefined;
+          if (answers === undefined) return json(res, 400, { error: 'answers must be one list of choices per question' });
+          await chat.replyQuestion({ id: item.id, answers, directory });
+        }
+        ocAsks.delete(item.id);
+        send('ocask', { id: item.id, session: item.session, status: 'answered' });
+        return json(res, 200, { ok: true });
+      } catch (err) {
+        return json(res, 502, { error: err.message });
+      }
+    }
+    if (path === '/api/chat' || path === '/api/chat/abort') {
+      const origin = req.headers.origin;
+      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+      const session = typeof body?.session === 'string' && /^opencode:ses[\w-]{1,120}$/.test(body.session) ? body.session : null;
+      const sessionID = session?.slice('opencode:'.length);
+      // A session's folder comes from its own events; a new one may name an existing folder.
+      const directory = (session && sessionMeta.get(session)?.cwd) || (typeof body?.directory === 'string' && isFolder(body.directory) ? body.directory : homedir());
+      try {
+        if (path === '/api/chat/abort') {
+          if (!sessionID) return json(res, 400, { error: 'session must be an OpenCode session' });
+          return json(res, 200, { ok: await chat.abort({ sessionID, directory }) });
+        }
+        // Stopping work and answering cards always work; only starting it needs chat on.
+        if (!config.chat) return json(res, 409, { error: CHAT_OFF });
+        const text = typeof body?.text === 'string' ? body.text.trim() : '';
+        if (!text) return json(res, 400, { error: 'Type something first' });
+        if (text.length > 20_000) return json(res, 400, { error: 'That message is too long' });
+        const sent = await chat.send({ text, sessionID, directory });
+        // Known before its first event: the session's folder (labels, follow-ups, the projects list).
+        noteSession(sent.session, directory);
+        return json(res, 200, { ok: true, directory, ...sent });
+      } catch (err) {
+        return json(res, 502, { error: err.message });
+      }
+    }
     const answer = /^\/api\/approvals\/([\w-]{8,64})$/.exec(path);
     if (answer) {
       const item = approvals.get(answer[1]);
@@ -936,6 +1052,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       for (const ctx of contexts.values()) res.write(`event: context\ndata: ${JSON.stringify(ctx)}\n\n`);
       for (const session of helpers.keys()) { const list = helperList(session); if (list.length) res.write(`event: helpers\ndata: ${JSON.stringify({ session, harness: sessions.get(session)?.harness, helpers: list })}\n\n`); }
       for (const item of approvals.values()) res.write(`event: approval\ndata: ${JSON.stringify({ ...approvalView(item), status: 'pending' })}\n\n`);
+      for (const item of ocAsks.values()) res.write(`event: ocask\ndata: ${JSON.stringify({ ...item, status: 'pending' })}\n\n`);
       // Everything saved has been replayed: viewers can render once now instead of per entry.
       res.write('event: ready\ndata: {}\n\n');
       clients.add(res);
@@ -967,7 +1084,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
+  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });
