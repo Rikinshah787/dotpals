@@ -163,7 +163,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!ready) talk.webContents.once('did-finish-load', () => setTimeout(go, 400)); else go();
     }
   }
-  ipcMain.on('talk:open', () => openTalk());
+  ipcMain.on('talk:open', (_, listen) => openTalk({ listen: !!listen }));
   let talkShortcut = null; // the one that's registered
   function registerTalkShortcut() {
     const own = loadConfig().talkShortcut;

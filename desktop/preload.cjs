@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   /** Ask for a project folder: its path, or null when cancelled. */
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
   openDashboard: () => ipcRenderer.send('dashboard:open'),
+  // Talk to Blu; `listen`: start listening at once.
+  openTalk: (listen) => ipcRenderer.send('talk:open', !!listen),
   getOpenAtLogin: () => ipcRenderer.invoke('login:get'),
   setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),
   copy: (text) => ipcRenderer.send('clipboard:write', text),

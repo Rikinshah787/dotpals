@@ -265,6 +265,11 @@
     .files { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 10.5px; color: var(--faint); }
     .files span { padding: 1px 7px; border-radius: 6px; background: #1d1d24; color: var(--soft); font: 10.5px var(--mono); }
     .actions { display: flex; gap: 6px; justify-content: flex-end; }
+    /* Talk to Blu: the checks on a finished task */
+    ul.tchecks { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 11.5px; }
+    ul.tchecks li { display: flex; gap: 6px; color: var(--soft); }
+    ul.tchecks li b { flex: none; width: 12px; text-align: center; }
+    ul.tchecks li.y b { color: var(--ok); } ul.tchecks li.n b { color: var(--bad); } ul.tchecks li.m b { color: var(--muted); }
     .errtext { margin: 0; max-height: 90px; overflow: auto; padding: 7px 9px; border-radius: 9px; background: rgb(242 85 90 / .08); color: #ff9ea1; font: 11px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
     .quiet { color: var(--muted); }
 
@@ -517,6 +522,8 @@
         schedule();
       } else if (type === 'conflict') {
         onConflict(data);
+      } else if (type === 'task') {
+        onTask(data);
       } else if (type === 'reset') {
         steps.clear();
         schedule();
@@ -527,6 +534,22 @@
     function onConflict(c) {
       if (!c?.id || !c.session) return;
       send({ type: 'alert', id: `clash:${c.id}`, kind: 'clash', session: c.session, text: c.text });
+      schedule();
+    }
+
+    // Talk to Blu (bridge/tasks.js): when a task finishes, the notch opens with how Blu found
+    // it, in place of the plain "done". It rides as a news alert (it closes by itself);
+    // its id says it's a task's, and the task is kept here for its card.
+    const taskAlerts = new Map(); // alert id → task
+    function onTask(t) {
+      if (!t?.id || !t.session || ['starting', 'working'].includes(t.state)) return;
+      const at = t.verdict?.at ?? 0;
+      const id = `task:${t.id}:${at}`;
+      if (taskAlerts.has(id) || Date.now() - at > 120_000) return; // seen, or old news
+      taskAlerts.set(id, t);
+      send({ type: 'resolve', session: t.session, kind: 'done' });
+      send({ type: 'alert', id, kind: 'clash', session: t.session, text: t.words ?? '' });
+      if (t.state === 'ready') flash('done');
       schedule();
     }
 
@@ -594,7 +617,7 @@
         if (v.alert.kind === 'need') return pendingAsk(s.id) ? 'approval' : 'waiting';
         if (v.alert.kind === 'done') return 'done';
         if (v.alert.kind === 'error') return 'error';
-        if (v.alert.kind === 'clash') return 'clash';
+        if (v.alert.kind === 'clash') return v.alert.id.startsWith('task:') ? 'task' : 'clash';
       }
       if (pendingAsk(s.id)) return 'approval';
       if (s.state === 'waiting') return 'waiting';
@@ -906,6 +929,7 @@
       dash: '<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>',
       palAway: '<circle cx="8" cy="9" r="5"/><path d="M5.6 9h1.4M9 9h1.4"/>', // eyes shut: the pal is put away
       tuck: '<path d="M4 8h8"/>', // minimize
+      mic: '<rect x="6" y="2" width="4" height="7.5" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"/>', // Talk to Blu
       close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
     };
     function icon(label, path, fn) {
@@ -978,6 +1002,7 @@
           const box = el('span', 'icons');
           box.style.display = 'flex';
           box.append(
+            ...(desktop?.openTalk ? [icon('Talk to Blu: say a task (Ctrl+Shift+Space)', ICONS.mic, () => desktop.openTalk(true))] : []),
             palButton(),
             icon('Dashboard', ICONS.dash, () => desktop?.openDashboard?.()),
             tuckButton(),
@@ -1002,7 +1027,7 @@
       palState(pal, s ? (kind === 'approval' ? 'waiting' : s.state) : 'idle');
       for (const k of bigPals.keys()) if (k !== 'you' && !sessions.has(k)) bigPals.delete(k);
       box.className = `who ${s ? harnessClass(s.harness) : 'h-other'}`;
-      box.style.setProperty('--tone', TONE[kind] ?? 'var(--h)');
+      box.style.setProperty('--tone', kind === 'task' ? (taskAlerts.get(shown.v?.alert?.id)?.state === 'ready' ? 'var(--ok)' : 'var(--warn)') : TONE[kind] ?? 'var(--h)');
       const state = kind === 'approval' ? 'waiting' : s?.state;
       keyed(box, [
         { key: `pal|${id}`, make: () => { const wrap = el('div', 'stagepal'); wrap.append(pal); return wrap; } },
@@ -1055,6 +1080,9 @@
       } else if (kind === 'clash') {
         const a = shown.v?.alert;
         items.push({ key: `clash|${a?.id}`, make: () => clashCard(s, a) });
+      } else if (kind === 'task') {
+        const a = shown.v?.alert;
+        items.push({ key: `task|${a?.id}`, make: () => taskCard(a) });
       } else if (kind === 'working') {
         items.push(workItem(s));
         items.push(metaItem(s));
@@ -1310,6 +1338,30 @@
       card.append(head, el('p', 'said', a?.text ?? 'Another agent just changed this file.'));
       card.append(el('p', 'asked', 'Check they don’t undo each other’s work. Claude Code asks first (Settings → Two agents, one file); other agents can only be told after.'));
       const actions = el('div', 'actions');
+      actions.append(button('btn', 'Story', () => chooseTab('story')), button('btn', 'OK', () => send({ type: 'close' })));
+      card.append(actions);
+      return card;
+    }
+
+    /** A Talk to Blu task, checked: the verdict, each check, and where to go next. */
+    function taskCard(a) {
+      const t = taskAlerts.get(a?.id);
+      const ready = t?.state === 'ready';
+      const card = el('div', `card ${ready ? 'tone-done' : 'tone-need'}`);
+      const head = el('div', 'card-head');
+      const mark = el('span', 'mark', ready ? '✓' : '!');
+      mark.style.color = ready ? 'var(--ok)' : 'var(--warn)';
+      head.append(mark, el('b', '', `Blu checked: ${t?.title ?? 'the task'}`), el('span', 'grow'));
+      card.append(head, el('p', 'said', t?.words ?? ''));
+      const checks = el('ul', 'tchecks');
+      for (const c of (t?.verdict?.checks ?? []).slice(0, 7)) {
+        const li = el('li', c.ok === true ? 'y' : c.ok === false ? 'n' : 'm');
+        li.append(el('b', '', c.ok === true ? '✓' : c.ok === false ? '✗' : '?'), el('span', '', c.text));
+        checks.append(li);
+      }
+      if (checks.children.length) card.append(checks);
+      const actions = el('div', 'actions');
+      if (desktop?.openTalk && (ready || t?.state === 'not-ready')) actions.append(button(`btn${ready ? ' allow' : ''}`, ready ? 'Open a PR…' : 'Fix it…', () => desktop.openTalk(false)));
       actions.append(button('btn', 'Story', () => chooseTab('story')), button('btn', 'OK', () => send({ type: 'close' })));
       card.append(actions);
       return card;
