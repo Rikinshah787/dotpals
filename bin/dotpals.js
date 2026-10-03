@@ -437,8 +437,8 @@ switch (command) {
   start       open the floating pal
   dashboard   open the dashboard
   status      what's running and connected
-  notch       keep the notch at the top of the screen (--auto: only when
-              the pal is hidden, the default; --off: never)
+  notch       keep the notch at the top of the screen, the default (--auto:
+              only when the pal is hidden; --off: never)
   statusline  let Claude Code share its usage limits with dotpals (--off to undo)
   laya        set up Laya, the free checker for unclear test results that runs
               on this computer (needs Python 3.10+; --remove to delete it)

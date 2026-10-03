@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-03
+
 ### Fixed
 
 - **Setup didn't start the pal on a machine where a bridge was already running without it** (a Claude Code hook starts one when the desktop app isn't installed yet). Setup said "The pal is already running" and opened the dashboard in the browser, with no pal, tray icon or notch. A bridge running on its own (`node bridge/server.js` or `dotpals bridge`) now quits when setup asks, so the pal takes over with its own. An older bridge that can't be asked to quit (0.9.4 or before) is left running: setup starts the pal on it and says so, and the pal runs its own bridge once that one stops.
 - **`npx dotpals setup` didn't install the `dotpals` command**, though it said "The `dotpals` command works in any terminal". While npx runs, its own temporary copy is on PATH, so setup took that for an installed command and skipped installing it; after setup, `dotpals status`, `dotpals start` and the rest weren't found. Setup now doesn't count npx's temporary copy, so the command is installed.
+- `dotpals help` said the notch's default was `--auto` (only when the pal is hidden); it has been "always" since 0.9.4.
 
 ## [0.9.4] - 2026-10-03
 
@@ -304,7 +307,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rikinshah787/dotpals/compare/v0.9.1...v0.9.2
