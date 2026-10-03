@@ -144,3 +144,30 @@ test('code git saw changed by a command: tested if the tests were the last thing
   assert.equal(r.ready, false);
   assert.ok(r.problems.some((p) => /may not be tested/.test(p)), r.problems.join(' | '));
 });
+
+test('switching branches isn’t a change: only commits made during the request count (from a real recap)', async () => {
+  const { dir, git } = await repo();
+  // An older sibling branch with its own commit, made an hour before the request.
+  const base = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, stdio: 'pipe' }).toString().trim(); // main or master
+  git('checkout', '-q', '-b', 'sibling');
+  await writeFile(join(dir, 'sibling.js'), 'older work\n');
+  git('add', '.');
+  const old = new Date(Date.now() - 3600_000).toISOString();
+  execFileSync('git', ['commit', '-q', '-m', 'older work'], { cwd: dir, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: old, GIT_COMMITTER_DATE: old } });
+  git('checkout', '-q', base);
+  const a = await snapshot(dir); // the request starts on the main branch
+  git('checkout', '-q', 'sibling'); // …switches branches…
+  await writeFile(join(dir, 'new.js'), 'this request’s work\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'this request');
+  const changes = await changesBetween(a, await snapshot(dir));
+  assert.equal(changes.committed, true);
+  assert.deepEqual(changes.files, [{ path: 'new.js', change: 'write' }]); // not sibling.js
+});
+
+test('a commit or a look-up after the tests doesn’t make git’s changes "untimed"', () => {
+  const gitDone = done({ files: [{ path: 'src/a.js', change: 'edit' }], committed: true, others: [] });
+  const tests = { ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } };
+  const steps = [{ ...run('node scripts/generate.js'), at: 1 }, { ...tests, at: 2 }, { ...run('git add -A && git commit -m x && git push'), at: 3 }, { ...run('git status --short'), at: 4 }];
+  assert.equal(readiness({ steps, end: gitDone }).ready, true);
+});
