@@ -1224,6 +1224,8 @@ const lastTestVerdict = (steps) => {
 /** Failures the agent tried again and never fixed. */
 const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) => c.outcome === 'failing' && c.attempts.length > 1);
 /** Whether a request changed code (not docs, images or lockfiles, not scratch files outside the project). */
+// Command parts that can't change a project's code: looking, testing, and git's bookkeeping (not merge, rebase, cherry-pick, checkout or pull, which can).
+const HARMLESS = /^(?:git\s+(?:status|log|diff|show|branch|fetch|ls-remote|rev-parse|remote|tag|add|commit|push|stash\s+list)\b|gh\s|ls\b|dir\b|cat\b|type\b|grep\b|rg\b|find\b|echo\b|printf\b|head\b|tail\b|wc\b|pwd\b|which\b|where\b|sleep\b|true\b|exit\b|cd\b|npm\s+(?:test|run\s+test)\b|node\s+--test\b|pytest\b|jest\b|vitest\b|go\s+test\b|cargo\s+test\b)/i;
 const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
   && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
 
@@ -1300,8 +1302,10 @@ export function readiness(turn) {
   // Code git saw changed that no file tool or readable command accounts for: it can't be
   // placed before or after the tests, unless no command ran after the last test run (then
   // it can only have happened before it).
-  // A command that can't change code (git commit, a push, a look-up, another test run) doesn't count.
-  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at && !['ship', 'explore', 'test'].includes(stepType(e))) : true;
+  // Only a command that could have changed code counts: every part of it must be one that
+  // can't (a commit, a push, a look-up, a test run). `git merge`, `git rebase` and
+  // `node scripts/generate.js && git commit` can, and do.
+  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at && !parts(commandOf(e)).every((p) => HARMLESS.test(p))) : true;
   const gitUntimed = after && truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
     && !commandPaths.some((path) => same(path, norm(f.path))));
   const checks = [

@@ -91,16 +91,26 @@ export async function changesBetween(a, b, { git = runGit } = {}) {
   for (const path of Object.keys(before)) if (!after[path]) out.set(path, 'edit');
   const committed = !!(b.head && a.head !== b.head);
   if (committed && a.head) {
-    // The commits this request made: new since the first snapshot (with a minute's slack for clocks).
-    const since = Math.floor((a.at ?? Date.now()) / 1000) - 60;
-    const log = await git(['log', '--format=%H %ct', `${a.head}..${b.head}`], b.root);
-    const mine = String(log ?? '').split('\n').map((l) => l.trim().split(' ')).filter(([h, ct]) => h && Number(ct) >= since).map(([h]) => h);
-    for (const hash of mine) {
-      const diff = await git(['-c', 'core.quotepath=off', 'diff-tree', '--no-commit-id', '-r', '--name-status', '-z', '--no-renames', hash], b.root);
+    // The commits this request made: committed after the first snapshot (no slack: a sibling
+    // branch's commit from a minute ago isn't this request's), oldest first, each diffed
+    // against its first parent so a merge's changes count too.
+    // Git's commit time is whole seconds: a commit from the snapshot's own second is treated as
+    // before it (a sibling branch's commit from that second isn't the request's; a request can't
+    // commit within its first second).
+    const since = Math.floor((a.at ?? Date.now()) / 1000);
+    const log = await git(['log', '--reverse', '--format=%H %ct %P', `${a.head}..${b.head}`], b.root);
+    const mine = String(log ?? '').split('\n').map((l) => l.trim().split(' ')).filter(([h, ct]) => h && Number(ct) > since);
+    for (const [hash, , parent] of mine) {
+      const diff = parent
+        ? await git(['-c', 'core.quotepath=off', 'diff', '--name-status', '-z', '--no-renames', parent, hash], b.root)
+        : await git(['-c', 'core.quotepath=off', 'ls-tree', '-r', '--name-only', '-z', hash], b.root);
       const parts = String(diff ?? '').split('\0').filter(Boolean);
+      if (!parent) { for (const path of parts) if (!out.has(path)) out.set(path, 'write'); continue; }
       for (let i = 0; i + 1 < parts.length; i += 2) {
         const change = parts[i][0] === 'A' ? 'write' : parts[i][0] === 'D' ? 'delete' : 'edit';
-        if (!out.has(parts[i + 1])) out.set(parts[i + 1], change);
+        const path = parts[i + 1];
+        // Net state across the request's commits: written then edited is still "written"; deleted wins.
+        if (change === 'delete' || !out.has(path) || out.get(path) !== 'write') out.set(path, change);
       }
     }
   } else if (committed) {
