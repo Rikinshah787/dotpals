@@ -372,6 +372,64 @@
     @keyframes ask-time { to { transform: scaleX(0); } }
     .ask.gone { opacity: .6; pointer-events: none; }
 
+    /* -- chat with OpenCode (bridge/chat.js) ------------------------------------------ */
+    .chat { flex: none; display: grid; gap: 5px; padding: 8px 10px 10px; border-top: 1px solid var(--line); -webkit-app-region: no-drag; }
+    .chat-meta { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .chat-meta span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-meta button { padding: 1px 8px; font-size: 11px; background: transparent; }
+    .chat-dir, .chat textarea { width: 100%; font: inherit; color: var(--text); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+    .chat-dir { font: 11px/1.4 var(--mono); }
+    .chat-dir[hidden] { display: none; }
+    .chat-row { display: flex; gap: 6px; align-items: stretch; }
+    .chat textarea { flex: 1; resize: none; min-height: 38px; max-height: 120px; }
+    .chat :is(textarea, .chat-dir):focus-visible { outline: 2px solid var(--k-read); outline-offset: 0; }
+    .chat button[type="submit"] { padding: 0 14px; font-weight: 600; background: var(--ok); border-color: var(--ok); color: #06140a; }
+    .chat button[disabled] { opacity: .55; cursor: default; }
+    .chat-note { margin: 0; color: var(--muted); font-size: 11px; }
+    .chat-note:empty { display: none; }
+    .chat-note.bad { color: var(--bad); }
+    body.compact .chat { display: none; }
+    /* Small mode: the speech-bubble button opens the chat as a bubble over the pal. */
+    #talk { display: none; }
+    body.compact #talk { display: grid; }
+    body.compact.talking #talk { background: var(--k-read); color: var(--bg); }
+    /* A speech bubble above the pal's head (the window grows upward to make room: desktop/main.js). */
+    body.compact.talking .chat { display: grid; position: absolute; left: 8px; right: 8px; bottom: calc(100% - var(--pill-top, 200px) + 12px); z-index: 9; padding: 8px; border: 1px solid color-mix(in srgb, var(--k-read) 55%, var(--line)); border-radius: 14px; background: #16161c; box-shadow: 0 8px 22px rgb(0 0 0 / .45); animation: ask-in .3s cubic-bezier(.2, 1.3, .35, 1); overflow: visible; }
+    body.compact.talking .chat::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px; margin-left: -6px; background: #16161c; border-right: 1px solid color-mix(in srgb, var(--k-read) 55%, var(--line)); border-bottom: 1px solid color-mix(in srgb, var(--k-read) 55%, var(--line)); transform: rotate(45deg); }
+    body.compact.talking .chat-dir { display: none; }
+    body.compact.talking .chat textarea { min-height: 34px; }
+
+    /* OpenCode's requests: fit the small window and scroll if needed. */
+    .asks { max-height: calc(100% - 16px); overflow-y: auto; scrollbar-width: thin; }
+    body.compact .asks { top: 6px; left: 6px; right: 6px; }
+    .ask.oc { border-color: color-mix(in srgb, var(--k-read) 60%, var(--line)); box-shadow: 0 10px 30px rgb(0 0 0 / .55), 0 0 0 4px rgb(108 182 255 / .08); }
+    .ask.oc small { color: var(--k-read); }
+    .ask.oc .row { margin-top: 6px; flex-wrap: wrap; }
+    .ask.oc .oc-fill { flex: 1; }
+    .oc-opts { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 6px; }
+    .oc-opts button { padding: 3px 10px; font-size: 12px; font-weight: 500; border-radius: 999px; }
+    .oc-opts button[aria-pressed="true"] { background: var(--k-read); border-color: var(--k-read); color: var(--bg); }
+    .oc-custom { width: 100%; font: inherit; font-size: 12px; color: var(--text); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; margin-bottom: 2px; }
+    .oc-custom:focus-visible { outline: 2px solid var(--k-read); outline-offset: 0; }
+    .oc-note { color: var(--bad); font-size: 11px; }
+    .oc-note:empty { display: none; }
+
+    /* -- start-of-day greeting ------------------------------------------------------ */
+    .hello { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 11; display: grid; gap: 7px; padding: 11px 12px; border-radius: 14px; background: #16161c; border: 1px solid color-mix(in srgb, var(--k-read) 55%, var(--line)); box-shadow: 0 10px 30px rgb(0 0 0 / .55); animation: ask-in .35s cubic-bezier(.2, 1.3, .35, 1); -webkit-app-region: no-drag; }
+    .hello[hidden] { display: none; }
+    .hello b { font-size: 13px; }
+    .hello p { margin: 0; color: var(--muted); font-size: 12px; }
+    .hello .projects { display: grid; gap: 4px; max-height: 120px; overflow-y: auto; scrollbar-width: thin; }
+    .hello .projects button { text-align: left; padding: 4px 9px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hello .projects button small { color: var(--faint); margin-left: 6px; font-size: 10.5px; }
+    .hello textarea { width: 100%; resize: none; min-height: 48px; font: inherit; color: var(--text); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+    .hello textarea:focus-visible { outline: 2px solid var(--k-read); outline-offset: 0; }
+    .hello .row { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+    .hello .row em { flex: 1; font-style: normal; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hello .go { background: var(--ok); border-color: var(--ok); color: #06140a; font-weight: 600; }
+    .hello .later { background: transparent; }
+    .hello .bad { color: var(--bad); }
+
     @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
   </style>
 </head>
@@ -400,6 +458,9 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>
       </button>
       <button id="pip" class="browser-only" type="button" title="Float the pals above other windows">Pop out ↗</button>
+      <button id="talk" class="icon" type="button" title="Chat with OpenCode" aria-label="Chat with OpenCode" aria-pressed="false">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
+      </button>
       <button id="compact" class="icon float-only" type="button" title="Just the pal" aria-label="Just the pal">
         <svg class="shrink" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 10h4v4M13 6H9V2M9 7l5-5M7 9l-5 5"/></svg>
         <svg class="grow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 2h4v4M6 14H2v-4M14 2L9 7M2 14l5-5"/></svg>
@@ -420,6 +481,22 @@
     <div class="filters" id="filters" role="group" aria-label="Show" hidden></div>
     <ol class="panel" id="feed" role="tabpanel" aria-labelledby="tab-feed" data-show="key" hidden><li class="none">Every tool call shows up here as your agent works. Click one to see exactly what it did.</li></ol>
     <ul class="panel" id="files" role="tabpanel" aria-labelledby="tab-files" hidden><li class="none">Files your agent reads or changes show up here.</li></ul>
+    <!-- Start-of-day greeting: pick a project, say what to do. -->
+    <section class="hello" id="hello" role="dialog" aria-labelledby="hello-title" hidden></section>
+    <!-- Chat with OpenCode from the pal (bridge/chat.js). -->
+    <form class="chat" id="chat" autocomplete="off">
+      <div class="chat-meta">
+        <span id="chat-target">New OpenCode session</span>
+        <button type="button" id="chat-new" hidden>New session</button>
+        <button type="button" id="chat-stop" hidden>Stop</button>
+      </div>
+      <input type="text" id="chat-dir" class="chat-dir" placeholder="Project folder (empty: your home folder)" aria-label="Project folder for a new session" spellcheck="false">
+      <div class="chat-row">
+        <textarea id="chat-text" rows="2" placeholder="Message OpenCode… (Enter to send, Shift+Enter for a new line)" aria-label="Message OpenCode"></textarea>
+        <button type="submit" id="chat-send">Send</button>
+      </div>
+      <p class="chat-note" id="chat-note" role="status" aria-live="polite"></p>
+    </form>
     <!-- Permission requests you can answer here (Settings → Approve from the pal). -->
     <div class="asks" id="asks" aria-live="assertive"></div>
   </div>
@@ -772,7 +849,117 @@
         card.append(row, time);
         return card;
       }));
+      box.append(...ocCards()); // OpenCode's requests (below)
       if (isFloat) refreshDragRegions();
+    }
+
+    // -- OpenCode permission requests and questions ----------------------------------------
+    // From sessions started in the pal (bridge/chat.js). They show as cards over the pal,
+    // in small mode too, with the buttons to answer them right there.
+    const ocAsks = new Map();     // id → request
+    const ocCardEls = new Map();  // id → its card, kept so typed answers survive re-renders
+    const ocApi = location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:5175';
+    function applyOcAsk(a) {
+      if (a.status === 'pending') {
+        if (ocAsks.has(a.id)) return;
+        ocAsks.set(a.id, a);
+        sound.play('waiting');
+        slots.get(a.session)?.pal.say?.(a.kind === 'question' ? 'Quick question first…' : 'Can I go ahead?', { duration: 4000 });
+        if (!document.hasFocus()) desktop?.notify?.('OpenCode needs you', a.kind === 'question' ? (a.questions?.[0]?.question ?? '') : `Permission: ${a.permission}`);
+      } else {
+        ocAsks.delete(a.id);
+        ocCardEls.delete(a.id);
+      }
+      renderAsks();
+    }
+    async function answerOc(a, body, card, note) {
+      card.classList.add('gone');
+      note.textContent = '';
+      try {
+        const res = await fetch(`${ocApi}/api/chat/answer`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ id: a.id, ...body }) });
+        const r = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(r.error || `The bridge answered ${res.status}`);
+        ocAsks.delete(a.id);
+        ocCardEls.delete(a.id);
+        renderAsks();
+        const pal = slots.get(a.session)?.pal;
+        if (body.reply === 'reject' || body.answers === null) pal?.play?.('shake'); else pal?.play?.('nod');
+      } catch (err) {
+        card.classList.remove('gone');
+        note.textContent = err.message;
+      }
+    }
+    function ocCards() {
+      return [...ocAsks.values()].slice(0, 2).map((a) => {
+        if (ocCardEls.has(a.id)) return ocCardEls.get(a.id);
+        const card = el('div', 'ask oc');
+        card.setAttribute('role', 'alertdialog');
+        const note = el('div', 'oc-note');
+        note.setAttribute('role', 'status');
+        const button = (cls, text, fn) => { const b = el('button', cls, text); b.type = 'button'; b.onclick = fn; return b; };
+        const head = el('small', '', a.kind === 'question' ? 'OpenCode asks' : 'OpenCode wants permission');
+        head.append(el('span', '', ` · ${a.label ?? ''}`));
+        card.append(head);
+
+        if (a.kind === 'permission') {
+          card.setAttribute('aria-label', `OpenCode wants permission: ${a.permission}`);
+          card.append(el('b', '', a.permission));
+          if (a.patterns?.length) card.append(el('pre', '', a.patterns.join('\n')));
+          const row = el('div', 'row');
+          row.append(el('span', 'oc-fill'), button('deny', 'Deny', () => answerOc(a, { reply: 'reject' }, card, note)));
+          if (a.canAlways) row.append(button('', 'Always', () => answerOc(a, { reply: 'always' }, card, note)));
+          row.append(button('allow', 'Allow', () => answerOc(a, { reply: 'once' }, card, note)));
+          card.append(row, note);
+        } else {
+          card.setAttribute('aria-label', 'OpenCode asks');
+          const picks = a.questions.map(() => new Set());
+          const typed = [];
+          // One question, one choice: tapping an option answers it straight away.
+          const quick = a.questions.length === 1 && !a.questions[0].multiple;
+          const submit = () => {
+            const answers = a.questions.map((q, i) => {
+              const text = typed[i]?.value.trim();
+              return text ? [...picks[i], text] : [...picks[i]];
+            });
+            if (answers.some((x) => !x.length)) { note.textContent = 'Pick or type an answer first'; return; }
+            answerOc(a, { answers }, card, note);
+          };
+          a.questions.forEach((q, i) => {
+            card.append(el('b', '', q.question || q.header));
+            const opts = el('div', 'oc-opts');
+            opts.setAttribute('role', 'group');
+            opts.setAttribute('aria-label', q.header || q.question);
+            for (const o of q.options) {
+              const b = button('', o.label, () => {
+                if (quick) { answerOc(a, { answers: [[o.label]] }, card, note); return; }
+                const on = !picks[i].has(o.label);
+                if (!q.multiple) { picks[i].clear(); for (const x of opts.children) x.setAttribute('aria-pressed', 'false'); }
+                if (on) picks[i].add(o.label); else picks[i].delete(o.label);
+                b.setAttribute('aria-pressed', String(on));
+              });
+              b.setAttribute('aria-pressed', 'false');
+              if (o.description) b.title = o.description;
+              opts.append(b);
+            }
+            card.append(opts);
+            if (q.custom) {
+              const input = document.createElement('input');
+              input.type = 'text';
+              input.className = 'oc-custom';
+              input.placeholder = 'Or type your answer…';
+              input.setAttribute('aria-label', `Answer to: ${q.question || q.header}`);
+              input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submit(); } });
+              typed[i] = input;
+              card.append(input);
+            }
+          });
+          const row = el('div', 'row');
+          row.append(el('span', 'oc-fill'), button('deny', 'Skip', () => answerOc(a, { answers: null }, card, note)), button('allow', 'Send', submit));
+          card.append(row, note);
+        }
+        ocCardEls.set(a.id, card);
+        return card;
+      });
     }
     setInterval(() => {
       for (const [id, a] of asks) if (Date.now() > a.expiresAt + 2000) asks.delete(id); // the bridge has given up by now
@@ -830,8 +1017,22 @@
 
     // -- pals ------------------------------------------------------------------
     // As big as fits: shrink as more pals share the stage.
+    // The pal's size in small mode, 40–100% (scroll over it, or the tray menu).
+    let palScale = (() => { const v = Number(localStorage.getItem('dotpals.palScale')); return v >= 0.4 && v <= 1 ? v : 1; })();
+    function setPalScale(v) {
+      palScale = Math.round(Math.min(1, Math.max(0.4, v)) * 20) / 20;
+      try { localStorage.setItem('dotpals.palScale', String(palScale)); } catch {}
+      resizePals();
+    }
+    // Scroll over the pal in small mode: up makes it bigger, down smaller.
+    stage.addEventListener('wheel', (e) => {
+      if (!document.body.classList.contains('compact') || !e.target.closest?.('dot-pal')) return;
+      e.preventDefault();
+      setPalScale(palScale + (e.deltaY < 0 ? 0.05 : -0.05));
+    }, { passive: false });
+    desktop?.onPalScale?.((v) => setPalScale(v));
     const palSize = () => {
-      const base = document.body.classList.contains('compact') ? 150 : isFloat ? 100 : 160;
+      const base = document.body.classList.contains('compact') ? Math.round(150 * palScale) : isFloat ? 100 : 160;
       const n = Math.max([...slots.values()].filter((s) => !s.el.hidden).length, 1);
       const fit = Math.floor((stage.clientWidth - 24 - 12 * (n - 1)) / n);
       return Math.max(56, Math.min(base - Math.min(n - 1, 3) * 20, fit || base));
@@ -1790,6 +1991,7 @@
       type === 'activity' ? applyActivity(data)
       : type === 'context' ? applyContext(data)
       : type === 'approval' ? applyApproval(data)
+      : type === 'ocask' ? applyOcAsk(data)
       : type === 'helpers' ? applyHelpers(data)
       : type === 'conflict' ? applyConflict(data)
       : type === 'config' ? applyConfig(data)
@@ -1797,6 +1999,88 @@
       : applyState(data);
 
     $('dash').onclick = () => (desktop?.openDashboard ? desktop.openDashboard() : window.open('/dashboard', '_blank'));
+
+    // -- chat with OpenCode (bridge/chat.js) ---------------------------------------------
+    // Replies to the OpenCode session you're looking at, or starts a new one. The answer
+    // arrives like any other activity, through the dotpals OpenCode plugin.
+    {
+      const api = sameOrigin ? '' : 'http://127.0.0.1:5175';
+      const text = $('chat-text');
+      const dir = $('chat-dir');
+      const note = $('chat-note');
+      let fresh = false; // "New session" pressed: ignore the picked session once
+      try { dir.value = localStorage.getItem('dotpals.chatDir') ?? ''; } catch {}
+      const target = () => (!fresh && typeof picked === 'string' && picked.startsWith('opencode:') && sessions.has(picked) ? picked : null);
+      const say = (msg, bad = false) => { note.textContent = msg; note.classList.toggle('bad', bad); };
+      const post = async (path, body) => {
+        const res = await fetch(`${api}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `The bridge answered ${res.status}`);
+        return data;
+      };
+      function syncChat() {
+        const t = target();
+        const s = t && sessions.get(t);
+        $('chat-target').textContent = t ? `Replying to OpenCode · ${s?.label || t.slice(9, 21)}` : 'New OpenCode session';
+        $('chat-new').hidden = !t;
+        $('chat-stop').hidden = !t || !['working', 'thinking', 'waiting'].includes(s?.state);
+        dir.hidden = !!t;
+      }
+      setInterval(() => {
+        syncChat();
+        // Left small mode with the bubble open: forget it (the app already shrank back).
+        if (!document.body.classList.contains('compact') && document.body.classList.contains('talking')) {
+          document.body.classList.remove('talking');
+          $('talk').setAttribute('aria-pressed', 'false');
+        }
+      }, 700);
+      syncChat();
+      // Small mode: the speech-bubble button opens the chat over the pal; Esc closes it.
+      const setTalking = async (on) => {
+        // Grow the window upward first, so the bubble lands above the head, not on it.
+        await desktop?.setTalking?.(on);
+        document.body.classList.toggle('talking', on);
+        $('talk').setAttribute('aria-pressed', String(on));
+        if (on) text.focus();
+        resizePals();
+      };
+      window.dotpalsSetTalking = setTalking;
+      $('talk').onclick = () => setTalking(!document.body.classList.contains('talking'));
+      text.addEventListener('keydown', (e) => { if (e.key === 'Escape') setTalking(false); });
+      $('chat-new').onclick = () => { fresh = true; syncChat(); text.focus(); };
+      $('chat-stop').onclick = async () => {
+        const t = target();
+        if (!t) return;
+        try { await post('/api/chat/abort', { session: t }); say('Stopped.'); } catch (err) { say(err.message, true); }
+      };
+      text.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('chat').requestSubmit(); }
+      });
+      $('chat').onsubmit = async (e) => {
+        e.preventDefault();
+        const message = text.value.trim();
+        if (!message) return;
+        const session = target();
+        const folder = dir.value.trim();
+        try { localStorage.setItem('dotpals.chatDir', folder); } catch {}
+        $('chat-send').disabled = true;
+        say(session ? 'Sending…' : 'Starting OpenCode…');
+        try {
+          const r = await post('/api/chat', { text: message, session: session ?? undefined, directory: session ? undefined : folder || undefined });
+          text.value = '';
+          fresh = false;
+          say(session ? '' : `Started in ${r.directory}`);
+          // Follow the session once its first event arrives.
+          for (let i = 0; i < 40 && !sessions.has(r.session); i++) await new Promise((ok) => setTimeout(ok, 250));
+          if (sessions.has(r.session)) pick(r.session, true);
+          syncChat();
+        } catch (err) {
+          say(err.message, true);
+        } finally {
+          $('chat-send').disabled = false;
+        }
+      };
+    }
 
     // On the desktop the app reports the cursor everywhere on screen (relative to this
     // window), so the pals keep watching it outside the window too.
@@ -1838,6 +2122,8 @@
         };
         add(document.querySelector('.bar'));
         for (const card of document.querySelectorAll('.asks .ask')) add(card);
+        if (!$('hello').hidden) add($('hello'));
+        if (document.body.classList.contains('talking')) add($('chat'));
         for (const slot of slots.values()) {
           if (slot.el.hidden) continue;
           add(slot.pal);
@@ -1898,9 +2184,93 @@
       source.addEventListener('config', (e) => onEvent({ type: 'config', data: JSON.parse(e.data) }));
       source.addEventListener('context', (e) => onEvent({ type: 'context', data: JSON.parse(e.data) }));
       source.addEventListener('approval', (e) => onEvent({ type: 'approval', data: JSON.parse(e.data) }));
+      source.addEventListener('ocask', (e) => onEvent({ type: 'ocask', data: JSON.parse(e.data) }));
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
       source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
+    }
+
+    // -- start-of-day greeting ------------------------------------------------------------
+    // When dotpals starts (tray → Greet me when dotpals starts) or from the tray ("Start working…"): say hello,
+    // ask which project, then what to do there. The answer starts an OpenCode session in that folder.
+    {
+      const box = $('hello');
+      const api = sameOrigin ? '' : 'http://127.0.0.1:5175';
+      const greeting = () => {
+        const h = new Date().getHours();
+        return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+      };
+      const close = () => { box.hidden = true; box.replaceChildren(); };
+      const btn = (cls, text, onclick) => { const b = el('button', cls, text); b.type = 'button'; b.onclick = onclick; return b; };
+
+      function askTask(project) {
+        const text = document.createElement('textarea');
+        text.placeholder = 'e.g. finish the login feature, then run the tests';
+        text.setAttribute('aria-label', `What should we do in ${project.name}?`);
+        const note = el('em', '', project.path);
+        const go = btn('go', 'Start', async () => {
+          const message = text.value.trim();
+          if (!message) { text.focus(); return; }
+          go.disabled = true;
+          note.className = '';
+          note.textContent = 'Starting OpenCode…';
+          try {
+            const res = await fetch(`${api}/api/chat`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ text: message, directory: project.path }) });
+            const r = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(r.error || `The bridge answered ${res.status}`);
+            try { localStorage.setItem('dotpals.chatDir', project.path); } catch {}
+            $('chat-dir').value = project.path;
+            close();
+            for (let i = 0; i < 40 && !sessions.has(r.session); i++) await new Promise((ok) => setTimeout(ok, 250));
+            if (sessions.has(r.session)) { pick(r.session, true); slots.get(r.session)?.pal.say?.('On it!', { duration: 3500 }); }
+          } catch (err) {
+            note.className = 'bad';
+            note.textContent = err.message;
+            go.disabled = false;
+          }
+        });
+        text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); go.click(); } });
+        const title = el('b', '', `What should we do in ${project.name}?`);
+        title.id = 'hello-title';
+        const row = el('div', 'row');
+        row.append(note, btn('later', 'Other project', () => askProject()), go);
+        box.replaceChildren(title, text, row);
+        text.focus();
+      }
+
+      async function askProject() {
+        const title = el('b', '', `${greeting()}! What are we working on today?`);
+        title.id = 'hello-title';
+        const list = el('div', 'projects');
+        const row = el('div', 'row');
+        box.replaceChildren(title, el('p', '', 'Which project?'), list, row);
+        box.hidden = false;
+        row.append(
+          btn('later', 'Not now', close),
+          btn('', 'Choose a folder…', async () => {
+            const path = desktop?.pickFolder ? await desktop.pickFolder() : prompt('Project folder path:');
+            if (path) askTask({ path, name: path.split(/[\\/]/).filter(Boolean).pop() || path });
+          }),
+        );
+        let projects = [];
+        try { projects = (await (await fetch(`${api}/api/chat/projects`)).json()).projects ?? []; } catch {}
+        let last = '';
+        try { last = localStorage.getItem('dotpals.chatDir') ?? ''; } catch {}
+        if (last && !projects.some((p) => p.path.toLowerCase() === last.toLowerCase())) projects.unshift({ path: last, name: last.split(/[\\/]/).filter(Boolean).pop() || last });
+        if (!projects.length) list.append(el('p', '', 'No recent projects yet. Choose a folder.'));
+        for (const p of projects) {
+          const b = btn('', p.name, () => askTask(p));
+          b.append(el('small', '', p.path));
+          b.title = p.path;
+          list.append(b);
+        }
+        // The first pal on show waves and says it too.
+        const slot = [...slots.values()].find((s) => !s.el.hidden);
+        if (slot) { slot.pal.greet?.(); slot.pal.say?.(`${greeting()}! What are we working on today?`, { duration: 5000 }); }
+      }
+
+      desktop?.onHello?.(() => askProject());
+      addEventListener('keydown', (e) => { if (e.key === 'Escape' && !box.hidden) close(); });
     }
 
     // Float the pals in an always-on-top window (Chrome/Edge Document Picture-in-Picture).

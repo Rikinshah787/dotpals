@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chat with OpenCode from the pal.** A message box under the pal sends prompts to OpenCode: to the OpenCode session on show, or a new one in a folder you name. The bridge starts its own `opencode serve` on `127.0.0.1` the first time you send something, with a random password only it knows, and replies come back through the OpenCode plugin like any other session. In small mode, the speech-bubble button opens the box as a bubble above the pal's head (the window grows upward to make room). `POST /api/chat`, `/api/chat/abort`.
+- **Answer OpenCode from the pal.** Permission requests (Allow, Always, Deny) and questions (tap a choice, type your own, or skip) from sessions started in the pal show as cards over it, in small mode too, with a sound and a notification when the window isn't focused. `POST /api/chat/answer`, `ocask` events.
+- **"What are we working on today?"** Tray → Start working… asks which project (folders your agents worked in recently, or any folder), then what to do there, and starts an OpenCode session in that folder. Tray → Greet me when dotpals starts (off by default) asks every time dotpals starts, starting as just the pal. `GET /api/chat/projects`.
+- **Pal size in small mode.** Scroll over the pal to make it bigger or smaller (40–100%), or pick Small, Medium or Large in the tray menu. Remembered.
+
 - **Long sessions keep their context.** A session holds at most 1,500 steps; past that, dotpals used to drop the oldest steps, losing the original request. Now it drops look-ups first and keeps what matters: the first request and the latest four, the newest plan and its updates, the latest test run, commit and turn ending, and the steps that changed the 30 most recent files. The saved history uses the same rule. A trimmed session is still not a full record; a request from early on may keep only its prompt and a few steps.
 - **Better `/compact` notes:** the original request and constraints (multi-line kept), the last three instructions with newer ones overriding older ones, full file paths, and real test evidence (passed, failed, still running, or changed since the last run).
 

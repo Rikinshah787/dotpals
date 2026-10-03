@@ -5,7 +5,7 @@
 //
 // Closing hides it to the tray; Ctrl+Alt+P (Cmd+Option+P on macOS) shows or
 // hides it from anywhere. Quit from the tray menu.
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ const page = fileURLToPath(new URL('../bridge/index.html', import.meta.url));
 const notchPage = fileURLToPath(new URL('../bridge/notch.html', import.meta.url));
 const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height: 600 } };
 const MARGIN = 16;
+const TALK_EXTRA = 190; // small mode: extra height above the pal for the chat bubble
 const SHORTCUT = 'CommandOrControl+Alt+P';
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
@@ -75,6 +76,8 @@ if (!app.requestSingleInstanceLock()) {
       if (err.code !== 'EADDRINUSE') console.error('[dotpals] bridge failed to start:', err.message);
     }
     app.dock?.hide(); // macOS: a floating widget with a menu-bar icon, not a Dock app
+    // Tray → Greet me when dotpals starts (or --start-mini): start as just the pal.
+    if (process.argv.includes('--start-mini') || loadConfig().greetOnStart) prefs.compact = true;
     createWindow();
     createTray();
     syncNotch();
@@ -88,6 +91,16 @@ if (!app.requestSingleInstanceLock()) {
 
   // When run as electron.exe + main.js (npm run float, setup), log-in needs the script too.
   const loginItem = () => (app.isPackaged ? {} : { path: process.execPath, args: [fileURLToPath(import.meta.url)] });
+
+  // The start-of-day greeting ("what are we working on today?") and its folder picker.
+  // Shown once the pal loads when Tray → Greet me when dotpals starts is on (off by
+  // default), or with --greet; any time from the tray's "Start working…".
+  let helloPending = process.argv.includes('--greet') || !!loadConfig().greetOnStart;
+  const sayHello = () => { show(); win?.webContents.send('window:hello'); };
+  ipcMain.handle('dialog:folder', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose a project folder', properties: ['openDirectory'] });
+    return r.canceled ? null : r.filePaths[0] ?? null;
+  });
   ipcMain.handle('login:get', () => app.getLoginItemSettings(loginItem()).openAtLogin);
   ipcMain.handle('login:set', (_, on) => { app.setLoginItemSettings({ ...loginItem(), openAtLogin: !!on }); return !!on; });
 
@@ -118,14 +131,20 @@ if (!app.requestSingleInstanceLock()) {
     const menu = () => Menu.buildFromTemplate([
       { label: 'Show / hide', accelerator: SHORTCUT, click: toggle },
       { label: 'Just the pal', type: 'checkbox', checked: !!prefs.compact, click: (item) => win?.webContents.send('window:set-compact', item.checked) },
+      // How big the pal is in small mode (the page remembers it; scrolling over the pal works too).
+      { label: 'Pal size', submenu: [['Small', 0.5], ['Medium', 0.75], ['Large', 1]].map(([label, scale]) => (
+        { label, click: () => win?.webContents.send('window:pal-scale', scale) }
+      )) },
       { label: 'Notch at the top of the screen', submenu: [
         { label: 'When the pal is hidden', type: 'radio', checked: notchMode() === 'auto', click: () => setNotchMode('auto') },
         { label: 'Always', type: 'radio', checked: notchMode() === 'always', click: () => setNotchMode('always') },
         { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
       ] },
       { label: 'Dashboard', click: openDashboard },
+      { label: 'Start working…', click: sayHello },
       { type: 'separator' },
       { label: 'Notifications', type: 'checkbox', checked: loadConfig().notifications, click: (item) => saveConfig({ notifications: item.checked }) },
+      { label: 'Greet me when dotpals starts', type: 'checkbox', checked: !!loadConfig().greetOnStart, click: (item) => saveConfig({ greetOnStart: item.checked }) },
       { label: 'Open when I log in', type: 'checkbox', checked: app.getLoginItemSettings(loginItem()).openAtLogin, click: (item) => app.setLoginItemSettings({ ...loginItem(), openAtLogin: item.checked }) },
       { type: 'separator' },
       { label: 'Quit dotpals', click: () => app.quit() },
@@ -135,7 +154,8 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   // The size the window should be right now (never read back from Windows, which drifts with scaling).
-  const intendedSize = () => (prefs.compact ? { ...SIZE.compact } : { ...SIZE.full, height: prefs.height ?? SIZE.full.height });
+  let talking = false; // the chat bubble is open in small mode
+  const intendedSize = () => (prefs.compact ? { ...SIZE.compact, ...(talking ? { height: SIZE.compact.height + TALK_EXTRA } : {}) } : { ...SIZE.full, height: prefs.height ?? SIZE.full.height });
 
   function createWindow() {
     const compact = !!prefs.compact;
@@ -221,6 +241,11 @@ if (!app.requestSingleInstanceLock()) {
     });
     win.on('closed', () => { clearInterval(hover); win = null; });
 
+    win.webContents.once('did-finish-load', () => {
+      if (!helloPending) return;
+      helloPending = false;
+      setTimeout(() => win?.webContents.send('window:hello'), 1500);
+    });
     win.loadURL(`${bridge}/?float=1`).catch(() => win.loadFile(page, { query: { float: '1' } }));
   }
 
@@ -399,6 +424,7 @@ if (!app.requestSingleInstanceLock()) {
     if (!win) return;
     const [x, y] = win.getPosition();
     const [w, h] = win.getSize();
+    talking = false; // the chat bubble closes when the mode changes
     const next = compact ? SIZE.compact : { ...SIZE.full, height: prefs.height ?? SIZE.full.height };
     prefs.compact = !!compact;
     if (!compact) palAreas = null;
@@ -412,6 +438,18 @@ if (!app.requestSingleInstanceLock()) {
     savePrefs();
   });
   ipcMain.handle('window:is-compact', () => !!prefs.compact);
+  // Small mode with the chat bubble open grows the window upward (bottom
+  // edge stays put), so the bubble sits above the pal's head instead of covering it.
+  ipcMain.handle('window:talk', (_, on) => {
+    if (!win || !prefs.compact || talking === !!on) { talking = !!on && !!prefs.compact; return; }
+    const [x, y] = win.getPosition();
+    const [w, h] = win.getSize();
+    talking = !!on;
+    const next = intendedSize();
+    win.setResizable(true);
+    win.setBounds({ x: x + w - next.width, y: y + h - next.height, ...next });
+    win.setResizable(false);
+  });
   // Click-through for the transparent parts of the small window. The page sends the
   // areas that should take clicks (the round bar, a request card, the pals and their
   // bubbles); the app checks the real cursor against them ~30 times a second (see the
