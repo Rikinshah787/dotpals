@@ -47,6 +47,9 @@
     /* -- top bar -------------------------------------------------------- */
     .bar { order: -2; display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 44px; }
     .bar b { font-size: 14px; white-space: nowrap; }
+    /* A long title shrinks (…) so the buttons, × included, always fit. */
+    .bar :is(b, .status) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .bar > :is(button, select, #handoff) { flex: none; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
     .dot.on { background: var(--ok); }
     .status { color: var(--muted); margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
