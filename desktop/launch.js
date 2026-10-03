@@ -69,7 +69,8 @@ export function launchFloat(electron = findElectron(), { app = root } = {}) {
 export function installElectron() {
   mkdirSync(shared, { recursive: true });
   console.log(`Installing Electron into ${shared} (about 100 MB, one time)…`);
-  const { status } = spawnSync('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--prefix', shared, 'electron'], { stdio: 'inherit', shell: true });
+  // One command string: Node 24 warns about an argument list with `shell: true`. The path is quoted (spaces in user names).
+  const { status } = spawnSync(`npm install --no-save --no-audit --no-fund --prefix "${shared}" electron`, { stdio: 'inherit', shell: true });
   return status === 0;
 }
 
