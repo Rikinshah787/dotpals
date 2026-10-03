@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-03
+
 ### Added
 
 - **`dotpals doctor`**: no pal or notch on screen? It checks and fixes what it can. It says when another program holds the port, installs the desktop runtime (Electron) again when it's missing or won't run, restarts an older pal still running from before an update, and starts the pal and the notch when they aren't running. When the installed copy is too old to say whether the pal is up, it says to update it with `npx dotpals@latest setup`. When something still won't open, it shows the end of the desktop app's log (`~/.dotpals/desktop.log`) saying why.
@@ -323,7 +325,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/rikinshah787/dotpals/compare/v0.9.2...v0.9.3
