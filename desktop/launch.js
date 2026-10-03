@@ -69,8 +69,16 @@ export function launchFloat(electron = findElectron(), { app = root } = {}) {
 export function installElectron() {
   mkdirSync(shared, { recursive: true });
   console.log(`Installing Electron into ${shared} (about 100 MB, one time)…`);
-  const { status } = spawnSync('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--prefix', shared, 'electron'], { stdio: 'inherit', shell: true });
-  return status === 0;
+  // Run inside the folder with `--prefix .`: no path in the command line, so nothing in it is
+  // interpreted by a shell. (npm_config_prefix from the environment doesn't set where a local install goes.)
+  const args = 'install --no-save --no-audit --no-fund --prefix . electron';
+  if (process.platform === 'win32') spawnSync('cmd.exe', ['/d', '/s', '/c', `npm.cmd ${args}`], { cwd: shared, stdio: 'inherit' });
+  else spawnSync('npm', args.split(' '), { cwd: shared, stdio: 'inherit' });
+  // npm can finish without the binary (npm 12 skipped Electron's download step; or it failed on
+  // files a running pal held): run that step ourselves.
+  const dir = join(shared, 'node_modules', 'electron');
+  if (!existsSync(join(dir, 'path.txt'))) spawnSync(process.execPath, [join(dir, 'install.js')], { cwd: dir, stdio: 'inherit' });
+  return !!findElectron();
 }
 
 const invoked = process.argv[1] && (() => { try { return realpathSync(process.argv[1]); } catch { return ''; } })();

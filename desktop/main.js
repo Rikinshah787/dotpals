@@ -32,7 +32,8 @@ app.setAppUserModelId?.('dev.dotpals.desktop'); // Windows shows notifications o
 process.on('uncaughtException', (err) => console.error('[dotpals]', err));
 
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  // The running copy gets our arguments (its 'second-instance' handler); nothing else to do here.
+  app.exit(0);
 } else {
   const prefsFile = join(app.getPath('userData'), 'window.json');
   let prefs = {};
@@ -71,7 +72,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     // Run the bridge in this process, unless one is already running.
     try {
-      await startBridge({ port, log: () => {} });
+      await startBridge({ port, log: () => {}, onQuit: () => app.quit() });
     } catch (err) {
       if (err.code !== 'EADDRINUSE') console.error('[dotpals] bridge failed to start:', err.message);
     }
@@ -79,6 +80,8 @@ if (!app.requestSingleInstanceLock()) {
     // Tray → Greet me when dotpals starts (or --start-mini): start as just the pal.
     if (process.argv.includes('--start-mini') || loadConfig().greetOnStart) prefs.compact = true;
     createWindow();
+    win.on('show', keepOnScreen);
+    win.on('resize', () => setTimeout(keepOnScreen, 50));
     createTray();
     syncNotch();
     handleArgs(process.argv);
@@ -259,6 +262,7 @@ if (!app.requestSingleInstanceLock()) {
   let notchSize = { w: 220, h: 6 }; // the size we last gave it (never read back: scaling drifts)
   let notchIsland = null;           // { w, h } of the island, hanging from the top centre; null: nothing to click
   let notchSolid = null;            // whether it takes clicks right now
+  let notchRestarts = 0;            // after a crash; it gives up after a few
   const notchArea = () => screen.getPrimaryDisplay().workArea;
   function createNotch() {
     if (notch && !notch.isDestroyed()) { if (!notch.isVisible()) notch.showInactive(); return; }
@@ -285,12 +289,23 @@ if (!app.requestSingleInstanceLock()) {
     notch.on('hide', applyNotchKeys);
     notch.webContents.on('did-start-loading', () => { notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
     notch.webContents.on('did-finish-load', tellNotchPal);
-    notch.webContents.on('render-process-gone', () => { notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
+    // A notch page that crashed (or was killed) comes back by itself, a few times.
+    notch.webContents.on('render-process-gone', (_, details) => {
+      notchKeysWanted = { escape: false, approval: false }; applyNotchKeys();
+      console.error('[dotpals] the notch stopped:', details?.reason);
+      // Always closed (so `dotpals doctor` sees it's gone); made again only the first few times.
+      const gone = notch;
+      const again = ++notchRestarts <= 3;
+      setTimeout(() => { if (!gone.isDestroyed()) gone.destroy(); if (again) syncNotch(); }, 1000);
+    });
     notch.on('closed', () => { notch = null; notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
-    notch.loadURL(`${bridge}/bridge/notch.html`).catch(() => notch?.loadFile(notchPage));
+    notch.loadURL(`${bridge}/bridge/notch.html`).catch((err) => {
+      console.error('[dotpals] the notch page didn’t load from the bridge:', err.message);
+      notch?.loadFile(notchPage);
+    });
   }
-  // When it shows: 'auto' (whenever the pal is hidden, the default), 'always' or 'off'.
-  const notchMode = () => prefs.notchMode ?? (prefs.notch === true ? 'always' : 'auto');
+  // When it shows: 'always' (the default: people install dotpals for the notch), 'auto' (whenever the pal is hidden) or 'off'.
+  const notchMode = () => prefs.notchMode ?? (prefs.notch === false ? 'off' : 'always');
   function syncNotch() {
     const mode = notchMode();
     const want = mode === 'always' || (mode === 'auto' && !(win && !win.isDestroyed() && win.isVisible()));
@@ -408,6 +423,13 @@ if (!app.requestSingleInstanceLock()) {
   }
   ipcMain.handle('usage', () => readUsage().catch(() => ({ agents: [] })));
 
+  /** Nudge the pal back inside its display's work area (its buttons were off the right edge for a user). */
+  function keepOnScreen() {
+    if (!win || win.isDestroyed()) return;
+    const b = win.getBounds();
+    const p = onScreen(b.x, b.y, b);
+    if (p && (p.x !== b.x || p.y !== b.y)) { win.setPosition(p.x, p.y); [prefs.x, prefs.y] = [p.x, p.y]; savePrefs(); }
+  }
   // Keep a saved position if it's still on a connected screen, nudged fully onto it.
   function onScreen(x, y, { width, height }) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
@@ -539,12 +561,14 @@ if (!app.requestSingleInstanceLock()) {
   // Follow the bridge's event stream and hand each event to the page.
   ipcMain.on('bridge:connect', (event) => {
     const id = event.sender.id;
+    // Which window it is, so the bridge can tell `dotpals doctor` the pal and the notch are up.
+    const is = (w) => !!w && !w.isDestroyed() && event.sender === w.webContents;
     following.get(id)?.();
-    following.set(id, follow(event.sender));
+    following.set(id, follow(event.sender, is(notch) ? 'notch' : is(win) ? 'pal' : null));
     event.sender.once('destroyed', () => { following.get(id)?.(); following.delete(id); });
   });
 
-  function follow(target) {
+  function follow(target, kind) {
     let controller = new AbortController();
     let stopped = false;
     const send = (channel, data) => { if (!target.isDestroyed()) target.send(channel, data); };
@@ -552,7 +576,7 @@ if (!app.requestSingleInstanceLock()) {
     (async () => {
       while (!stopped && !target.isDestroyed()) {
         try {
-          const res = await fetch(`${bridge}/events?answers=1`, { signal: controller.signal });
+          const res = await fetch(`${bridge}/events?answers=1${kind ? `&window=${kind}` : ''}`, { signal: controller.signal });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           send('bridge:status', true);
           const decoder = new TextDecoder();
@@ -579,7 +603,7 @@ if (!app.requestSingleInstanceLock()) {
         send('bridge:status', false);
         await new Promise((r) => setTimeout(r, 1500));
         // If the bridge we were using went away, take over.
-        await startBridge({ port, log: () => {} }).catch(() => {});
+        await startBridge({ port, log: () => {}, onQuit: () => app.quit() }).catch(() => {});
         controller = new AbortController();
       }
     })();

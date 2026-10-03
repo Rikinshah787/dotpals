@@ -47,6 +47,9 @@
     /* -- top bar -------------------------------------------------------- */
     .bar { order: -2; display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 44px; }
     .bar b { font-size: 14px; white-space: nowrap; }
+    /* A long title shrinks (…) so the buttons, × included, always fit. */
+    .bar :is(b, .status) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .bar > :is(button, select, #handoff) { flex: none; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
     .dot.on { background: var(--ok); }
     .status { color: var(--muted); margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -54,6 +57,9 @@
     .icon:hover { background: var(--raise); color: var(--text); }
     .icon svg { width: 14px; height: 14px; }
     .float-only { display: none; }
+    .hint { position: absolute; right: 10px; top: 44px; z-index: 30; max-width: 250px; padding: 10px 12px; border-radius: 10px; background: var(--text); color: var(--bg); font-size: 12.5px; line-height: 1.35; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+    .hint::before { content: ''; position: absolute; right: 12px; top: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--text); }
+    .hint b { font-weight: 700; }
     #compact .grow, #sound .off { display: none; }
     #sound[aria-pressed="false"] .on { display: none; }
     #sound[aria-pressed="false"] .off { display: block; }
@@ -1191,7 +1197,7 @@
       if (fresh(entry.at)) refreshBubbles();
       activitySound(entry);
       // Follow new rows, unless you've scrolled up to read.
-      const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+      const stick = !replaying && feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
       let item = entries.get(entry.id);
       if (!item) {
         feed.querySelector('.none')?.remove();
@@ -1200,6 +1206,7 @@
         insertInOrder(item);
       }
       item.entry = entry;
+      if (replaying) return; // drawn once when the replay ends (endReplay)
       renderEntry(item);
       item.el.hidden = !shown(entry.session);
       if (entry.files?.length) renderFiles();
@@ -1207,6 +1214,29 @@
       refreshCounts();
       scheduleRecap();
       if (stick) feed.scrollTop = feed.scrollHeight;
+    }
+
+    // The bridge replays its whole history when we connect (thousands of entries): drawing
+    // each one froze the window ("Not Responding"). Collect them, then draw once when the
+    // bridge says `ready` (a 6 s fallback covers an old bridge without it).
+    // Again on every (re)connect: the bridge replays everything each time.
+    let replaying = true;
+    let replayFallback = setTimeout(endReplay, 6000);
+    function beginReplay() {
+      replaying = true;
+      clearTimeout(replayFallback);
+      replayFallback = setTimeout(endReplay, 6000);
+    }
+    function endReplay() {
+      if (!replaying) return;
+      replaying = false;
+      clearTimeout(replayFallback);
+      for (const item of entries.values()) { renderEntry(item); item.el.hidden = !shown(item.entry.session); }
+      renderFiles();
+      scheduleRetries();
+      refreshCounts();
+      scheduleRecap();
+      feed.scrollTop = feed.scrollHeight;
     }
 
     // History can arrive after live rows (backfill), so keep the feed in time order.
@@ -1672,7 +1702,7 @@
       }
       if (!easy && flags.length) {
         const box = el('div', 'flags');
-        box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = sentence(f.step); return d; }));
+        box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = f.step ? sentence(f.step) : f.text; return d; }));
         li.append(box);
       }
       const review = reviewBlock(t, { live, waiting: state === 'waiting' });
@@ -1954,6 +1984,7 @@
 
     // -- connection ---------------------------------------------------------------
     function setOnline(on) {
+      if (on) beginReplay();
       $('dot').classList.toggle('on', on);
       $('status').textContent = on ? 'live' : 'bridge offline, retrying…';
     }
@@ -1996,6 +2027,7 @@
       : type === 'conflict' ? applyConflict(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
+      : type === 'ready' ? endReplay()
       : applyState(data);
 
     $('dash').onclick = () => (desktop?.openDashboard ? desktop.openDashboard() : window.open('/dashboard', '_blank'));
@@ -2175,6 +2207,18 @@
         if (dragged) { e.stopPropagation(); dragged = false; }
       }, true);
       $('close').onclick = () => desktop.close();
+      // Once, the first time the desktop pal shows: how to hide it, and where it goes.
+      try {
+        if (document.body.classList.contains('float') && !localStorage.getItem('dotpals.hint.hide')) {
+          const hint = document.createElement('div');
+          hint.className = 'hint';
+          hint.innerHTML = '<b>Hide me with ×</b> (or Ctrl+Alt+P). I stay in the tray. Click to dismiss.';
+          hint.onclick = () => hint.remove();
+          document.body.append(hint);
+          setTimeout(() => hint.remove(), 12000);
+          localStorage.setItem('dotpals.hint.hide', '1');
+        }
+      } catch {}
     } else {
       const source = new EventSource('/events?answers=1'); // this page shows approval cards
       source.onopen = () => setOnline(true);
@@ -2188,6 +2232,7 @@
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
       source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
+      source.addEventListener('ready', () => onEvent({ type: 'ready' }));
     }
 
     // -- start-of-day greeting ------------------------------------------------------------

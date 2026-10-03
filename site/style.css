@@ -370,7 +370,7 @@ h1 em { padding-right: .06em; }
 .copy-btn:hover { background: #26252e; } /* inside the dark terminal */
 .copy-btn.ok { color: var(--green); border-color: rgb(74 222 128 / .5); }
 .fine { margin-top: 1rem; color: var(--dim); font-size: .9rem; }
-.fine code { font-size: .8rem; }
+.fine code { font-size: .8rem; overflow-wrap: anywhere; }
 /* The visitor count under the install line (hidden until the number arrives). */
 .visitors { display: inline-flex; align-items: center; gap: .45rem; margin-top: .8rem; padding: .3rem .8rem; border-radius: 999px; border: 1px solid var(--line); background: var(--wash-soft); color: var(--dim); font-size: .85rem; }
 .visitors[hidden] { display: none; }

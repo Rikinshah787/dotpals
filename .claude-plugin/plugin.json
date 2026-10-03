@@ -1,6 +1,6 @@
 {
   "name": "dotpals",
-  "version": "0.9.3",
+  "version": "0.9.6",
   "description": "A floating pal that shows what your coding agent is doing: every tool call, command and file change, live. Works with Claude Code and Codex.",
   "author": {
     "name": "dotpals contributors"

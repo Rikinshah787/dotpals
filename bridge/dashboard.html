@@ -585,7 +585,7 @@
             <h2>About</h2>
             <div class="row"><div class="text">Version<small id="about-version"></small></div><a href="https://github.com/Rikinshah787/dotpals" target="_blank" rel="noopener">GitHub ↗</a></div>
             <div class="row"><div class="text">Files<small id="about-files" class="mono"></small></div></div>
-            <div class="row"><div class="text">Set up on another machine<small class="mono">npx --allow-git=all github:rikinshah787/dotpals setup</small></div></div>
+            <div class="row"><div class="text">Set up on another machine<small class="mono">npx dotpals@latest setup</small></div></div>
           </div>
         </div>
       </section>
@@ -624,16 +624,27 @@
 
     // -- data ---------------------------------------------------------------------
     let renderTimer;
-    const scheduleRender = () => { clearTimeout(renderTimer); renderTimer = setTimeout(render, 150); };
+    // While the bridge replays its history (thousands of entries in a burst) nothing renders;
+    // the bridge sends `ready` at the end (a 6 s fallback covers an old bridge without it).
+    let replaying = true;
+    let replayFallback;
+    const beginReplay = () => {
+      replaying = true;
+      clearTimeout(replayFallback);
+      replayFallback = setTimeout(() => { replaying = false; render(); }, 6000);
+    };
+    beginReplay();
+    const scheduleRender = () => { if (replaying) return; clearTimeout(renderTimer); renderTimer = setTimeout(render, 150); };
 
     const source = new EventSource('/events');
-    source.onopen = () => { $('dot').classList.add('on'); $('live').textContent = 'live'; };
+    source.onopen = () => { beginReplay(); $('dot').classList.add('on'); $('live').textContent = 'live'; };
     source.onerror = () => { $('dot').classList.remove('on'); $('live').textContent = 'offline, retrying…'; };
     source.addEventListener('activity', (e) => { const a = JSON.parse(e.data); entries.set(a.id, a); scheduleRender(); });
     // Settings changed (or the checker's health did): the Overview's tiles show some of it too.
     source.addEventListener('config', (e) => { config = JSON.parse(e.data); renderSettings(); if (current === 'overview') scheduleRender(); });
     // Laya on this computer, set up by dotpals: install and start progress, live.
     source.addEventListener('laya', (e) => { if (config?.checker) { config.checker.laya = JSON.parse(e.data); renderChecker(); } });
+    source.addEventListener('ready', () => { clearTimeout(replayFallback); replaying = false; render(); });
     source.addEventListener('reset', () => { entries.clear(); render(); });
     source.addEventListener('agents', (e) => { if (status) { status.agents = JSON.parse(e.data); renderAgents(); } });
 

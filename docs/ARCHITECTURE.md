@@ -384,7 +384,8 @@ Everything lives in `~/.dotpals` (or `DOTPALS_HOME`):
 | `claude-limits.json` | `bridge/statusline.js` | Claude's `rate_limits`, the latest context window, the model name, and window sizes for the newest 30 sessions. Nothing from the conversation. |
 | `statusline.json` | `dotpals statusline` | `{ previous }`: the status line you had before, so it keeps showing and `--off` can restore it. |
 | `app/` | `dotpals setup` | A permanent copy of dotpals (npx runs from a temporary folder). Hook commands point here. |
-| `node_modules/` | `desktop/launch.js --install`, `dotpals setup` | The Electron runtime (about 100 MB). |
+| `node_modules/` | `desktop/launch.js --install`, `dotpals setup`, `dotpals doctor` | The Electron runtime (about 100 MB). `dotpals doctor` installs it again when it won't run. |
+| `desktop.log` | the desktop app, when `dotpals` starts it | What it printed (errors, the notch crashing). `dotpals doctor` and setup show its end when the pal doesn't open. Started over past 500 KB. |
 
 Also:
 

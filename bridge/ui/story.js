@@ -717,7 +717,8 @@ const lastWord = (v) => (v.state === 'passed' ? 'passed' : v.state === 'failed' 
 function testFlag(steps) {
   const t = testState(steps);
   if (!t) return null;
-  const step = steps.findLast((e) => stepType(e) === 'change') ?? t.last;
+  // The last change, whether it came from a file tool or a command that wrote code.
+  const step = steps.findLast((e) => stepType(e) === 'change' || commandEdits(e).length) ?? t.last ?? steps.at(-1);
   const names = list(t.since.map(baseName));
   if (t.state === 'untested') return { level: 'warn', text: `Not tested: changed ${plural(t.since.length, 'code file')} (${names}), and the agent ran no tests`, step };
   if (t.state === 'stale') return { level: 'warn', text: `Changed ${names} after the tests ${t.verdict.state === 'failed' ? 'last failed' : lastWord(t.verdict)}: not tested since`, step };
@@ -1224,6 +1225,8 @@ const lastTestVerdict = (steps) => {
 /** Failures the agent tried again and never fixed. */
 const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) => c.outcome === 'failing' && c.attempts.length > 1);
 /** Whether a request changed code (not docs, images or lockfiles, not scratch files outside the project). */
+// Command parts that can't change a project's code: looking, testing, and git's bookkeeping (not merge, rebase, cherry-pick, checkout or pull, which can).
+const HARMLESS = /^(?:git\s+(?:status|log|diff|show|branch|fetch|ls-remote|rev-parse|remote|tag|add|commit|push|stash\s+list)\b|gh\s|ls\b|dir\b|cat\b|type\b|grep\b|rg\b|find\b|echo\b|printf\b|head\b|tail\b|wc\b|pwd\b|which\b|where\b|sleep\b|true\b|exit\b|cd\b|npm\s+(?:test|run\s+test)\b|node\s+--test\b|pytest\b|jest\b|vitest\b|go\s+test\b|cargo\s+test\b)/i;
 const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
   && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
 
@@ -1300,7 +1303,10 @@ export function readiness(turn) {
   // Code git saw changed that no file tool or readable command accounts for: it can't be
   // placed before or after the tests, unless no command ran after the last test run (then
   // it can only have happened before it).
-  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at) : true;
+  // Only a command that could have changed code counts: every part of it must be one that
+  // can't (a commit, a push, a look-up, a test run). `git merge`, `git rebase` and
+  // `node scripts/generate.js && git commit` can, and do.
+  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at && !parts(commandOf(e)).every((p) => HARMLESS.test(p))) : true;
   const gitUntimed = after && truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
     && !commandPaths.some((path) => same(path, norm(f.path))));
   const checks = [

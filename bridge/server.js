@@ -26,7 +26,8 @@
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
-//   GET  /api/status     → what's connected, where things are stored
+//   GET  /api/status     → what's connected, where things are stored; desktop: { pal, notch }, whether
+//                          the desktop app's windows are following the events (/events?window=pal|notch)
 //   GET  /api/config, POST /api/config, POST /api/history/clear
 //   GET  /api/agents     → { agents: [...] } every integration: detected, connected, on/off, last event
 //   POST /api/agents/<id>/connect      add dotpals to that agent's config (backs it up first)
@@ -143,8 +144,9 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, createChat: makeChat = createChat } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null, createChat: makeChat = createChat } = {}) {
   const clients = new Set();
+  const windows = new Map(); // the desktop app's windows following the events: response → 'pal' | 'notch'
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
   const activity = createActivityLog({ limit: 1500, retain: contextEntries });
@@ -755,6 +757,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         generic: { endpoint: `http://127.0.0.1:${port}/event`, lastEventAt: Object.entries(lastSeen).filter(([h]) => h !== 'claude' && h !== 'codex').reduce((m, [, t]) => Math.max(m, t), 0) || null },
       },
       agents: agents(),
+      desktop: { pal: [...windows.values()].includes('pal'), notch: [...windows.values()].includes('notch') },
     };
   }
 
@@ -949,6 +952,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       item.resolve(decision);
       return json(res, 200, { ok: true, decision });
     }
+    // `dotpals setup` / `dotpals update`: quit the running desktop app so a newer install can start.
+    if (path === '/api/app/quit') {
+      if (!onQuit) return json(res, 409, { error: 'This bridge isn’t the desktop app' });
+      json(res, 200, { ok: true, version });
+      setTimeout(() => { try { onQuit(); } catch {} }, 150);
+      return;
+    }
     if (path === '/api/history/clear') {
       activity.clear();
       backfilled.clear();
@@ -1032,13 +1042,18 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       for (const session of helpers.keys()) { const list = helperList(session); if (list.length) res.write(`event: helpers\ndata: ${JSON.stringify({ session, harness: sessions.get(session)?.harness, helpers: list })}\n\n`); }
       for (const item of approvals.values()) res.write(`event: approval\ndata: ${JSON.stringify({ ...approvalView(item), status: 'pending' })}\n\n`);
       for (const item of ocAsks.values()) res.write(`event: ocask\ndata: ${JSON.stringify({ ...item, status: 'pending' })}\n\n`);
+      // Everything saved has been replayed: viewers can render once now instead of per entry.
+      res.write('event: ready\ndata: {}\n\n');
       clients.add(res);
       if (url.searchParams.get('answers') === '1') answerers.add(res);
+      const kind = url.searchParams.get('window');
+      if (kind === 'pal' || kind === 'notch') windows.set(res, kind);
       const ping = setInterval(() => res.write(': ping\n\n'), 15000);
       req.on('close', () => {
         clearInterval(ping);
         clients.delete(res);
         answerers.delete(res);
+        windows.delete(res);
       });
       return;
     }
@@ -1076,7 +1091,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 // Run directly (`node bridge/server.js`, or the `dotpals-bridge` bin, which may be a symlink).
 const invoked = process.argv[1] && (() => { try { return realpathSync(process.argv[1]); } catch { return ''; } })();
 if (invoked && invoked === realpathSync(fileURLToPath(import.meta.url))) {
-  startBridge().catch((err) => {
+  // Run on its own (by a hook, or setup without the desktop app), it quits when setup asks, so the pal can take over.
+  startBridge({ onQuit: () => process.exit(0) }).catch((err) => {
     console.error(err.code === 'EADDRINUSE' ? 'The dotpals bridge is already running.' : err.message);
     process.exit(err.code === 'EADDRINUSE' ? 0 : 1);
   });

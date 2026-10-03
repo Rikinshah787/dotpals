@@ -70,8 +70,11 @@ const kindOf = (code) => (code === '??' || code.includes('A') ? 'write' : code.i
 /**
  * What changed between two snapshots of the same repository:
  *   { files: [{ path, change: 'write' | 'edit' | 'delete' }], committed, tooMany? }
- * `committed`: HEAD moved (a commit, or a checkout). Committed files come from
- * the HEAD diff, or the new tree when the repository had no prior HEAD.
+ * `committed`: HEAD moved (a commit, or a checkout). Committed files come from the
+ * commits made during the request (reachable from the new HEAD, not the old one, and no
+ * older than the first snapshot): switching to a sibling branch moves HEAD too, and that
+ * branch's older commits aren't this request's work. A repository with no prior HEAD
+ * gets the new tree.
  */
 export async function changesBetween(a, b, { git = runGit } = {}) {
   if (!a || !b || a.root !== b.root) return null;
@@ -87,19 +90,32 @@ export async function changesBetween(a, b, { git = runGit } = {}) {
   // Changed when it started, unchanged now: undone (or committed, see below).
   for (const path of Object.keys(before)) if (!after[path]) out.set(path, 'edit');
   const committed = !!(b.head && a.head !== b.head);
-  if (committed) {
-    const diff = a.head
-      ? await git(['-c', 'core.quotepath=off', 'diff', '--name-status', '-z', '--no-renames', a.head, b.head], b.root)
-      : await git(['-c', 'core.quotepath=off', 'ls-tree', '-r', '--name-only', '-z', b.head], b.root);
-    const parts = String(diff ?? '').split('\0').filter(Boolean);
-    if (a.head) {
+  if (committed && a.head) {
+    // The commits this request made: committed after the first snapshot (no slack: a sibling
+    // branch's commit from a minute ago isn't this request's), oldest first, each diffed
+    // against its first parent so a merge's changes count too.
+    // Git's commit time is whole seconds: a commit from the snapshot's own second is treated as
+    // before it (a sibling branch's commit from that second isn't the request's; a request can't
+    // commit within its first second).
+    const since = Math.floor((a.at ?? Date.now()) / 1000);
+    const log = await git(['log', '--reverse', '--format=%H %ct %P', `${a.head}..${b.head}`], b.root);
+    const mine = String(log ?? '').split('\n').map((l) => l.trim().split(' ')).filter(([h, ct]) => h && Number(ct) > since);
+    for (const [hash, , parent] of mine) {
+      const diff = parent
+        ? await git(['-c', 'core.quotepath=off', 'diff', '--name-status', '-z', '--no-renames', parent, hash], b.root)
+        : await git(['-c', 'core.quotepath=off', 'ls-tree', '-r', '--name-only', '-z', hash], b.root);
+      const parts = String(diff ?? '').split('\0').filter(Boolean);
+      if (!parent) { for (const path of parts) if (!out.has(path)) out.set(path, 'write'); continue; }
       for (let i = 0; i + 1 < parts.length; i += 2) {
         const change = parts[i][0] === 'A' ? 'write' : parts[i][0] === 'D' ? 'delete' : 'edit';
-        if (!out.has(parts[i + 1])) out.set(parts[i + 1], change);
+        const path = parts[i + 1];
+        // Net state across the request's commits: written then edited is still "written"; deleted wins.
+        if (change === 'delete' || !out.has(path) || out.get(path) !== 'write') out.set(path, change);
       }
-    } else {
-      for (const path of parts) if (!out.has(path)) out.set(path, 'write');
     }
+  } else if (committed) {
+    const tree = await git(['-c', 'core.quotepath=off', 'ls-tree', '-r', '--name-only', '-z', b.head], b.root);
+    for (const path of String(tree ?? '').split('\0').filter(Boolean)) if (!out.has(path)) out.set(path, 'write');
   }
   const files = [...out].map(([path, change]) => ({ path, change })).sort((x, y) => x.path.localeCompare(y.path));
   return { files, committed };

@@ -482,7 +482,7 @@ test('Set up Laya: answers at once, runs it on 127.0.0.1, turns on Local, and ev
     await closeBridge(server);
   });
   await api(port, '/api/config', { checker: { localUrl: 'http://localhost:9321' } }); // your own port: the managed server uses it
-  const watching = readEvents(port, 600);
+  const watching = readEvents(port, 3000); // long enough for a slow CI runner (Windows took 1.5 s)
   await new Promise((r) => setTimeout(r, 50));
   const res = await api(port, '/api/checker/laya/setup', {});
   assert.equal(res.status, 202);
@@ -618,4 +618,56 @@ test('generic /event: malformed files are dropped, so a trimmed session never th
   assert.equal(mine.length, 3);
   assert.equal(mine.find((e) => e.id.endsWith(':f1')).files, undefined);
   assert.deepEqual(mine.find((e) => e.id.endsWith(':f2')).files, [{ path: 'src/ok.js', change: 'edit' }]);
+});
+
+test('POST /api/app/quit asks the desktop app to quit (header required; 409 when there is no app)', async (t) => {
+  let quits = 0;
+  const port = freshPort();
+  const server = await startBridge({ port, log: () => {}, onQuit: () => { quits++; } });
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  assert.equal((await post(port, '/api/app/quit', {})).status, 403); // no x-dotpals header
+  const res = await fetch(`http://127.0.0.1:${port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).ok, true);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(quits, 1);
+  const bare = await startBridge({ port: freshPort(), log: () => {} });
+  t.after(async () => { bare.closeAllConnections?.(); await new Promise((r) => bare.close(r)); });
+  const r2 = await fetch(`http://127.0.0.1:${bare.address().port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } });
+  assert.equal(r2.status, 409);
+});
+
+for (const [name, args] of [['node bridge/server.js', ['bridge/server.js']], ['dotpals bridge', ['bin/dotpals.js', 'bridge']]]) {
+  test(`${name}, run on its own, quits when setup asks (so the pal can take over)`, async (t) => {
+    const { spawn } = await import('node:child_process');
+    const port = freshPort();
+    const child = spawn(process.execPath, args, { cwd: join(import.meta.dirname, '..'), env: { ...process.env, DOTPALS_PORT: String(port) }, stdio: 'ignore' });
+    const exited = new Promise((r) => child.once('exit', (code) => r(code)));
+    t.after(() => child.kill());
+    let res;
+    for (let i = 0; i < 40 && !res; i++) {
+      await new Promise((r) => setTimeout(r, 150));
+      res = await fetch(`http://127.0.0.1:${port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } }).catch(() => null);
+    }
+    assert.equal(res?.status, 200);
+    assert.equal(await exited, 0);
+  });
+}
+
+test('/api/status says whether the desktop pal and notch follow the events (for dotpals doctor)', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const desktop = async () => (await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).desktop;
+  const follow = (path) => new Promise((ok) => get({ host: '127.0.0.1', port, path }, ok));
+  assert.deepEqual(await desktop(), { pal: false, notch: false });
+  const browser = await follow('/events');
+  const pal = await follow('/events?answers=1&window=pal');
+  assert.deepEqual(await desktop(), { pal: true, notch: false });
+  const notch = await follow('/events?answers=1&window=notch');
+  assert.deepEqual(await desktop(), { pal: true, notch: true });
+  pal.destroy();
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepEqual(await desktop(), { pal: false, notch: true });
+  notch.destroy();
+  browser.destroy();
 });

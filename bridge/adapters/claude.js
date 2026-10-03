@@ -338,7 +338,8 @@ export function watchClaude(log, { emit, state, context = () => {}, cwd = () => 
           if (file.reader.cwd) cwd(session, file.reader.cwd);
           const out = lines.flatMap((line) => (line.trim() ? file.reader.line(line) : []));
           if (out.length) emit(out);
-          if (live && file.reader.state) state(session, file.reader.label, file.reader.state, file.reader.at);
+          // Also by the event's own time: on Windows a transcript that's still open reports a stale mtime.
+          if ((live || Date.now() - (file.reader.at ?? 0) < LIVE) && file.reader.state) state(session, file.reader.label, file.reader.state, file.reader.at);
         } catch {} finally {
           await fh?.close();
         }
