@@ -483,6 +483,7 @@
                 <div class="row"><div class="text">Sounds<small>A blip on prompts, a tick on saves, a ping when it needs you, a chime when done.</small></div><input type="checkbox" class="switch" id="s-sounds" aria-label="Sounds"></div>
                 <div class="row"><div class="text">Notifications<small>When a long request finishes or the agent waits for your OK.</small></div><input type="checkbox" class="switch" id="s-notifications" aria-label="Notifications"></div>
                 <div class="row"><div class="text">Pal size<small>In small mode (just the pal). Also in the tray, or Ctrl+scroll over the pal.</small></div><select id="s-pal-size" aria-label="Pal size"><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option><option value="110">110%</option><option value="120">120%</option><option value="130">130%</option><option value="140">140%</option><option value="150">150%</option></select></div>
+                <div class="row"><div class="text">Your name (for greetings)<small>The morning greeting says “Good morning, Ade!” when you have a name.</small></div><input type="text" id="s-name" aria-label="Your name (for greetings)" maxlength="30" placeholder="e.g. Ade" autocomplete="off" spellcheck="false"></div>
               </div>
               <div class="preview" id="preview"></div>
             </div>
@@ -1659,6 +1660,7 @@
     }
     $('s-sounds').onchange = (e) => save({ sounds: e.target.checked });
     $('s-pal-size').onchange = (e) => save({ palSize: Number(e.target.value) });
+    $('s-name').onchange = (e) => save({ name: e.target.value });
     $('s-chat').onchange = (e) => save({ chat: e.target.checked });
     $('s-notifications').onchange = (e) => save({ notifications: e.target.checked });
     $('s-approvals').onchange = (e) => save({ approvals: e.target.checked });
@@ -1940,6 +1942,7 @@
       if (preview.character !== config.character) preview.character = config.character;
       $('s-sounds').checked = config.sounds;
       $('s-pal-size').value = String(config.palSize ?? 100);
+      $('s-name').value = config.name ?? '';
       $('s-chat').checked = !!config.chat;
       $('s-notifications').checked = config.notifications;
       $('s-approvals').checked = !!config.approvals;
