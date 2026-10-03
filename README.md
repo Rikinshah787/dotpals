@@ -126,7 +126,7 @@ That's all. It:
 3. picks up Codex automatically, if it's installed,
 4. starts the pal, turns on *open when I log in*, and opens the dashboard.
 
-`--allow-git=all` lets npm 12 and newer install straight from GitHub; older npm ignores it. Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
+Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
 
 ### Only the Claude Code plugin
 

@@ -145,7 +145,7 @@
 <pre><code>npx dotpals setup --no-login</code></pre>
 
 <div class="g-note info">
-  <p><code>--allow-git=all</code> lets npm 12 and newer install straight from GitHub. Older versions of npm ignore it, so the same command works everywhere.</p>
+  <p>To install straight from GitHub instead of npm (for example to try the <code>next</code> branch): <code>npx --allow-git=all github:rikinshah787/dotpals setup</code>. The <code>--allow-git=all</code> flag lets npm 12 and newer install from git; older versions ignore it.</p>
 </div>
 <p><strong>To update</strong>, run the same command again. It replaces <code>~/.dotpals/app</code> and keeps your settings and history.</p>
 <p>If Electron can't be installed, setup says so, starts only the bridge and opens the dashboard in your browser. See <a href="#without-the-desktop-app">Without the desktop app</a>.</p>
