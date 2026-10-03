@@ -1919,7 +1919,7 @@
         if (document.body.classList.contains('float') && !localStorage.getItem('dotpals.hint.hide')) {
           const hint = document.createElement('div');
           hint.className = 'hint';
-          hint.innerHTML = '<b>Hide me with ×</b> (or Ctrl+Alt+P). I stay in the tray; the notch at the top keeps watching. Click to dismiss.';
+          hint.innerHTML = '<b>Hide me with ×</b> (or Ctrl+Alt+P). I stay in the tray. Click to dismiss.';
           hint.onclick = () => hint.remove();
           document.body.append(hint);
           setTimeout(() => hint.remove(), 12000);
