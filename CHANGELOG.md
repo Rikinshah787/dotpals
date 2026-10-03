@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The notch is on by default.** A fresh install shows the island at the top of the screen right away, whether or not the pal is visible; setup's question now recommends "Always" (it used to recommend "only when the pal is hidden", so new installs saw no notch while the pal was up). Change it any time: tray → Notch, or `dotpals notch --auto` / `--off`.
+
+### Fixed
+
+- **Updating didn't take effect while the pal was running.** `dotpals setup` on a machine with an older pal still open just brought the old window back, so the new version never ran. Setup now asks the running app to quit (`POST /api/app/quit`, desktop app only) and starts the new one.
+
 ### Added
 
 - **Long sessions keep their context.** A session holds at most 1,500 steps; past that, dotpals used to drop the oldest steps, losing the original request. Now it drops look-ups first and keeps what matters: the first request and the latest four, the newest plan and its updates, the latest test run, commit and turn ending, and the steps that changed the 30 most recent files. The saved history uses the same rule. A trimmed session is still not a full record; a request from early on may keep only its prompt and a few steps.
