@@ -73,6 +73,7 @@ test('a file changed before and again during the request counts; a commit during
   const { dir, git } = await repo();
   await writeFile(join(dir, 'a.js'), 'a, my own edit\n');
   const a = await snapshot(dir);
+  await new Promise((r) => setTimeout(r, 1100)); // a commit in the snapshot's own second doesn't count
   await writeFile(join(dir, 'a.js'), 'a, my own edit, and the agent’s longer one\n');
   await writeFile(join(dir, 'c.js'), 'c\n');
   git('add', 'c.js');
