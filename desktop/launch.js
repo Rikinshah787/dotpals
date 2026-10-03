@@ -70,8 +70,10 @@ export function installElectron() {
   mkdirSync(shared, { recursive: true });
   console.log(`Installing Electron into ${shared} (about 100 MB, one time)…`);
   // One command string: Node 24 warns about an argument list with `shell: true`. The path is quoted (spaces in user names).
-  const { status } = spawnSync(`npm install --no-save --no-audit --no-fund --prefix "${shared}" electron`, { stdio: 'inherit', shell: true });
-  return status === 0;
+  spawnSync(`npm install --no-save --no-audit --no-fund --prefix "${shared}" electron`, { stdio: 'inherit', shell: true });
+  // npm can report success without the binary (its download step failed, say on files a running pal held): try that step once more.
+  if (!findElectron()) spawnSync(process.execPath, [join(shared, 'node_modules', 'electron', 'install.js')], { cwd: join(shared, 'node_modules', 'electron'), stdio: 'inherit' });
+  return !!findElectron();
 }
 
 const invoked = process.argv[1] && (() => { try { return realpathSync(process.argv[1]); } catch { return ''; } })();
