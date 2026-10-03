@@ -1018,8 +1018,14 @@
     // The bridge replays its whole history when we connect (thousands of entries): drawing
     // each one froze the window ("Not Responding"). Collect them, then draw once when the
     // bridge says `ready` (a 6 s fallback covers an old bridge without it).
+    // Again on every (re)connect: the bridge replays everything each time.
     let replaying = true;
-    const replayFallback = setTimeout(endReplay, 6000);
+    let replayFallback = setTimeout(endReplay, 6000);
+    function beginReplay() {
+      replaying = true;
+      clearTimeout(replayFallback);
+      replayFallback = setTimeout(endReplay, 6000);
+    }
     function endReplay() {
       if (!replaying) return;
       replaying = false;
@@ -1777,6 +1783,7 @@
 
     // -- connection ---------------------------------------------------------------
     function setOnline(on) {
+      if (on) beginReplay();
       $('dot').classList.toggle('on', on);
       $('status').textContent = on ? 'live' : 'bridge offline, retrying…';
     }
