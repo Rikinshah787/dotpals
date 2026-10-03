@@ -1474,7 +1474,7 @@
       }
       if (!easy && flags.length) {
         const box = el('div', 'flags');
-        box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = sentence(f.step); return d; }));
+        box.append(...flags.map((f) => { const d = el('div', `flag ${f.level}`, f.text); d.title = f.step ? sentence(f.step) : f.text; return d; }));
         li.append(box);
       }
       const review = reviewBlock(t, { live, waiting: state === 'waiting' });
