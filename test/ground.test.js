@@ -156,6 +156,7 @@ test('switching branches isn’t a change: only commits made during the request 
   execFileSync('git', ['commit', '-q', '-m', 'older work'], { cwd: dir, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: old, GIT_COMMITTER_DATE: old } });
   git('checkout', '-q', base);
   const a = await snapshot(dir); // the request starts on the main branch
+  await new Promise((r) => setTimeout(r, 1100));
   git('checkout', '-q', 'sibling'); // …switches branches…
   await writeFile(join(dir, 'new.js'), 'this request’s work\n');
   git('add', '.');
@@ -170,4 +171,38 @@ test('a commit or a look-up after the tests doesn’t make git’s changes "unti
   const tests = { ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } };
   const steps = [{ ...run('node scripts/generate.js'), at: 1 }, { ...tests, at: 2 }, { ...run('git add -A && git commit -m x && git push'), at: 3 }, { ...run('git status --short'), at: 4 }];
   assert.equal(readiness({ steps, end: gitDone }).ready, true);
+});
+
+test('review fixes: no slack for sibling commits, merges count, written-then-edited stays written, only harmless commands are ignored', async () => {
+  const { dir, git } = await repo();
+  const base = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, stdio: 'pipe' }).toString().trim();
+  // A sibling commit made 20 s before the request: not this request's work.
+  git('checkout', '-q', '-b', 'sib');
+  await writeFile(join(dir, 'sib.js'), 'x\n');
+  git('add', '.');
+  const recent = new Date(Date.now() - 20_000).toISOString();
+  execFileSync('git', ['commit', '-q', '-m', 'sibling'], { cwd: dir, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: recent, GIT_COMMITTER_DATE: recent } });
+  git('checkout', '-q', base);
+  await new Promise((r) => setTimeout(r, 1100)); // the snapshot's second must be after the sibling commit's
+  const a = await snapshot(dir);
+  await new Promise((r) => setTimeout(r, 1100)); // commits in the snapshot's own second don't count
+  // A merge of that branch, made during the request: its files count (diffed against the first parent).
+  git('merge', '-q', '--no-ff', '-m', 'merge sibling', 'sib');
+  // Written, then edited, in two commits: still "written".
+  await writeFile(join(dir, 'n.js'), '1\n'); git('add', '.'); git('commit', '-q', '-m', 'add n');
+  await writeFile(join(dir, 'n.js'), '2\n'); git('add', '.'); git('commit', '-q', '-m', 'edit n');
+  const changes = await changesBetween(a, await snapshot(dir));
+  assert.deepEqual(changes.files, [{ path: 'n.js', change: 'write' }, { path: 'sib.js', change: 'write' }]);
+  // The sibling commit alone (a branch switch, no merge) still doesn't count.
+  git('checkout', '-q', 'sib');
+  await new Promise((r) => setTimeout(r, 1100));
+  const b = await snapshot(dir);
+  git('checkout', '-q', base);
+  assert.deepEqual((await changesBetween(b, await snapshot(dir))).files, []);
+
+  const gitDone = done({ files: [{ path: 'src/a.js', change: 'edit' }], committed: true, others: [] });
+  const tests = { ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } };
+  assert.equal(readiness({ steps: [{ ...run('node scripts/generate.js'), at: 1 }, { ...tests, at: 2 }, { ...run('git merge feature'), at: 3 }], end: gitDone }).ready, false);
+  assert.equal(readiness({ steps: [{ ...run('node scripts/generate.js'), at: 1 }, { ...tests, at: 2 }, { ...run('git status && node scripts/generate.js && git commit -m x'), at: 3 }], end: gitDone }).ready, false);
+  assert.equal(readiness({ steps: [{ ...run('node scripts/generate.js'), at: 1 }, { ...tests, at: 2 }, { ...run('git add -A && git commit -m x && git push'), at: 3 }], end: gitDone }).ready, true);
 });
