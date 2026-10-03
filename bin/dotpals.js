@@ -29,6 +29,12 @@ const ok = (s) => console.log(`  ${process.stdout.isTTY ? '\x1b[32m✓\x1b[39m' 
 const skip = (s) => console.log(`  ${dim('–')} ${dim(s)}`);
 const warn = (s) => console.log(`  ${process.stdout.isTTY ? '\x1b[33m!\x1b[39m' : '!'} ${s}`);
 const has = (cmd) => spawnSync(platform() === 'win32' ? 'where' : 'which', [cmd], { stdio: 'ignore' }).status === 0;
+// A `dotpals` command that stays after setup. npx puts its own temporary copy on PATH while
+// setup runs (in its cache's node_modules/.bin), so that one doesn't count.
+const hasLastingCommand = () => {
+  const found = spawnSync(platform() === 'win32' ? 'where' : 'which', platform() === 'win32' ? ['dotpals'] : ['-a', 'dotpals'], { encoding: 'utf8' });
+  return found.status === 0 && `${found.stdout}`.split(/\r?\n/).some((p) => p.trim() && !/[\\/]_npx[\\/]|[\\/]node_modules[\\/]\.bin[\\/]/.test(p));
+};
 // On Windows, npm and claude are .cmd files, which need a shell: pass one quoted
 // command line (Node warns about separate args with a shell).
 const quote = (a) => (/^[\w@./:=\\-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '\\"')}"`);
@@ -40,10 +46,11 @@ const run = (cmd, args) => (platform() === 'win32'
 async function runningVersion() {
   try { return (await (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).json()).version ?? null; } catch { return null; }
 }
-/** Ask the running desktop app to quit, and wait (up to 8 s) for its bridge to go. */
+/** Ask the running desktop app to quit, and wait (up to 8 s) for its bridge to go. 'bridge': only a bridge is running (it can't quit). */
 async function quitRunningApp() {
   try {
     const r = await fetch(`${bridge}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' }, signal: AbortSignal.timeout(1500) });
+    if (r.status === 409) return 'bridge';
     if (!r.ok) return false;
   } catch { return false; }
   for (let i = 0; i < 32; i++) { await new Promise((r) => setTimeout(r, 250)); if (!(await bridgeUp())) return true; }
@@ -98,7 +105,7 @@ async function setup(flags) {
 
   // The `dotpals` command, in any terminal: link the installed copy as a global npm package.
   if (flags.has('--no-path')) skip('Not adding the dotpals command (--no-path)');
-  else if (has('dotpals')) ok('The `dotpals` command works in any terminal');
+  else if (hasLastingCommand()) ok('The `dotpals` command works in any terminal');
   else {
     const linked = run('npm', ['install', '--global', '--no-audit', '--no-fund', appDir]);
     if (linked.status === 0) ok('The `dotpals` command works in any terminal');
@@ -149,7 +156,12 @@ async function setup(flags) {
     // The same version too (a fix installed from a branch keeps the number); never a newer one.
     const running = await runningVersion();
     const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
-    if (running && installed && compareVersions(running, installed) <= 0 && (await quitRunningApp())) {
+    const quit = running && installed && compareVersions(running, installed) <= 0 ? await quitRunningApp() : false;
+    if (quit === 'bridge') {
+      // A bridge that can't be asked to quit (from 0.9.4 or before): the pal uses it until it stops, then runs its own.
+      if (startApp(extra)) warn(`The pal is starting, but an older bridge (${running}) is still running and can’t be closed from here. Stop it (or restart your computer) and the pal takes over.`);
+      else warn('The desktop runtime isn’t installed: run dotpals start');
+    } else if (quit) {
       if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
       else warn('The old pal was closed, but the desktop runtime isn’t installed: run dotpals start');
     } else {
@@ -413,7 +425,8 @@ switch (command) {
     // The island at the top of the screen: every agent, its plan and your usage limits.
     if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
     break;
-  case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge()); break;
+  // Like `node bridge/server.js`: it quits when setup asks, so the pal can take over.
+  case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge({ onQuit: () => process.exit(0) })); break;
   case 'laya': await laya(flags); break;
   default:
     console.log(`dotpals ${version}
@@ -424,8 +437,8 @@ switch (command) {
   start       open the floating pal
   dashboard   open the dashboard
   status      what's running and connected
-  notch       keep the notch at the top of the screen (--auto: only when
-              the pal is hidden, the default; --off: never)
+  notch       keep the notch at the top of the screen, the default (--auto:
+              only when the pal is hidden; --off: never)
   statusline  let Claude Code share its usage limits with dotpals (--off to undo)
   laya        set up Laya, the free checker for unclear test results that runs
               on this computer (needs Python 3.10+; --remove to delete it)

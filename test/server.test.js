@@ -636,3 +636,20 @@ test('POST /api/app/quit asks the desktop app to quit (header required; 409 when
   const r2 = await fetch(`http://127.0.0.1:${bare.address().port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } });
   assert.equal(r2.status, 409);
 });
+
+for (const [name, args] of [['node bridge/server.js', ['bridge/server.js']], ['dotpals bridge', ['bin/dotpals.js', 'bridge']]]) {
+  test(`${name}, run on its own, quits when setup asks (so the pal can take over)`, async (t) => {
+    const { spawn } = await import('node:child_process');
+    const port = freshPort();
+    const child = spawn(process.execPath, args, { cwd: join(import.meta.dirname, '..'), env: { ...process.env, DOTPALS_PORT: String(port) }, stdio: 'ignore' });
+    const exited = new Promise((r) => child.once('exit', (code) => r(code)));
+    t.after(() => child.kill());
+    let res;
+    for (let i = 0; i < 40 && !res; i++) {
+      await new Promise((r) => setTimeout(r, 150));
+      res = await fetch(`http://127.0.0.1:${port}/api/app/quit`, { method: 'POST', headers: { 'x-dotpals': '1' } }).catch(() => null);
+    }
+    assert.equal(res?.status, 200);
+    assert.equal(await exited, 0);
+  });
+}
