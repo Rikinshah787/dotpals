@@ -6,6 +6,7 @@
 // Closing hides it to the tray; Ctrl+Alt+P (Cmd+Option+P on macOS) shows or
 // hides it from anywhere. Quit from the tray menu.
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
+import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,7 @@ const page = fileURLToPath(new URL('../bridge/index.html', import.meta.url));
 const notchPage = fileURLToPath(new URL('../bridge/notch.html', import.meta.url));
 const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height: 600 } };
 const MARGIN = 16;
-const TALK_EXTRA = 190; // small mode: extra height above the pal for the chat bubble
+const TALK_EXTRA = 270; // small mode: extra height above the pal for the chat bubble
 const SHORTCUT = 'CommandOrControl+Alt+P';
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
@@ -69,13 +70,53 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => { quitting = true; });
   app.on('will-quit', () => globalShortcut.unregisterAll());
 
-  app.whenReady().then(async () => {
-    // Run the bridge in this process, unless one is already running.
+  // The bridge runs in a process of its own (this Electron binary as plain Node), so its
+  // work (history, recaps, OpenCode's event stream) can never freeze the pal's window.
+  // In this process only when that fails. A bridge that's already running is used as is.
+  let bridgeProc = null;
+  const QUIT_APP = 75; // the bridge's exit code when `dotpals setup` asks the app to quit (bridge/server.js)
+  const bridgeUp = () => fetch(`${bridge}/api/agents`, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false);
+  async function ensureBridge() {
+    if (await bridgeUp()) return;
+    if (!bridgeProc) {
+      try {
+        const child = spawn(process.execPath, [fileURLToPath(new URL('../bridge/server.js', import.meta.url))], {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DOTPALS_PORT: String(port), DOTPALS_DESKTOP_CHILD: '1' },
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        bridgeProc = child;
+        child.on('error', () => { if (bridgeProc === child) bridgeProc = null; });
+        child.on('exit', (code) => {
+          if (bridgeProc === child) bridgeProc = null;
+          if (code === QUIT_APP) app.quit();
+        });
+      } catch {}
+    }
+    for (let i = 0; i < 40 && bridgeProc; i++) {
+      if (await bridgeUp()) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (await bridgeUp()) return;
     try {
       await startBridge({ port, log: () => {}, onQuit: () => app.quit() });
     } catch (err) {
       if (err.code !== 'EADDRINUSE') console.error('[dotpals] bridge failed to start:', err.message);
     }
+  }
+  // Quitting takes the bridge we started (and the OpenCode server it started) with it.
+  app.on('will-quit', () => {
+    const child = bridgeProc;
+    bridgeProc = null;
+    if (!child) return;
+    try {
+      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+      else child.kill();
+    } catch {}
+  });
+
+  app.whenReady().then(async () => {
+    await ensureBridge();
     app.dock?.hide(); // macOS: a floating widget with a menu-bar icon, not a Dock app
     // Tray → Greet me when dotpals starts (or --start-mini): start as just the pal.
     if (process.argv.includes('--start-mini') || greets()) prefs.compact = true;
@@ -477,8 +518,10 @@ if (!app.requestSingleInstanceLock()) {
     const [w, h] = win.getSize();
     talking = !!on;
     const next = intendedSize();
+    // Grow upward, but never past the top of the screen (then the pal moves down a little).
+    const area = screen.getDisplayMatching(win.getBounds()).workArea;
     win.setResizable(true);
-    win.setBounds({ x: x + w - next.width, y: y + h - next.height, ...next });
+    win.setBounds({ x: x + w - next.width, y: Math.max(area.y, y + h - next.height), ...next });
     win.setResizable(false);
   });
   // Click-through for the transparent parts of the small window. The page sends the
@@ -611,8 +654,8 @@ if (!app.requestSingleInstanceLock()) {
         if (stopped) return;
         send('bridge:status', false);
         await new Promise((r) => setTimeout(r, 1500));
-        // If the bridge we were using went away, take over.
-        await startBridge({ port, log: () => {}, onQuit: () => app.quit() }).catch(() => {});
+        // If the bridge we were using went away, start another one.
+        if (!quitting) await ensureBridge().catch(() => {});
         controller = new AbortController();
       }
     })();

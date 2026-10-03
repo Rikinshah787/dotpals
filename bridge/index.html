@@ -80,7 +80,9 @@
     .slot[hidden] { display: none; }
     .slot span { font-size: 11px; color: var(--muted); padding: 4px 8px 8px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #stage.solo .slot span { display: none; }
-    .empty { color: var(--muted); align-self: center; text-align: center; max-width: 300px; margin: 0; }
+    .empty { color: var(--muted); text-align: center; max-width: 300px; margin: 0; }
+    .empty[hidden] { display: none; }
+    body.compact .empty span { display: none; }
 
     /* -- tabs ----------------------------------------------------------- */
     .tabs { display: flex; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); }
@@ -393,6 +395,13 @@
     .chat button[disabled] { opacity: .55; cursor: default; }
     .chat-note { margin: 0; color: var(--muted); font-size: 11px; }
     .chat-note:empty { display: none; }
+    /* OpenCode's answer, right in the small-mode bubble (the full view has the feed). */
+    .chat-reply { max-height: 130px; overflow-y: auto; padding: 6px 8px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
+    .chat-reply[hidden] { display: none; }
+    .chat-reply small { display: block; color: var(--faint); font-size: 10.5px; margin-bottom: 2px; font-style: normal; }
+    .chat-reply.working { color: var(--muted); font-style: italic; }
+    .chat-reply.bad { color: var(--bad); }
+    body:not(.compact) .chat-reply { display: none; }
     .chat-note.bad { color: var(--bad); }
     body.compact .chat { display: none; }
     /* Chat is optional: until it's on (Settings), no box, button or greeting. */
@@ -444,7 +453,8 @@
 <body>
   <div class="card">
     <main id="stage">
-      <p class="empty" id="empty">Waiting for your agent…<br>Send a prompt in Claude Code or Codex and your pal will appear here.</p>
+      <!-- A pal waits here from the start (also in small mode), until an agent's own pal takes over. -->
+      <div class="empty slot" id="empty"><dot-pal id="empty-pal" idle="float"></dot-pal><span id="empty-text">Waiting for your agent…</span></div>
     </main>
 
     <!-- The bars come after the stage on purpose: on Windows, Electron applies drag regions in
@@ -499,6 +509,7 @@
         <button type="button" id="chat-stop" hidden>Stop</button>
       </div>
       <input type="text" id="chat-dir" class="chat-dir" placeholder="Project folder (empty: your home folder)" aria-label="Project folder for a new session" spellcheck="false">
+      <div class="chat-reply" id="chat-reply" role="log" aria-live="polite" aria-label="OpenCode's reply" hidden></div>
       <div class="chat-row">
         <textarea id="chat-text" rows="2" placeholder="Message OpenCode… (Enter to send, Shift+Enter for a new line)" aria-label="Message OpenCode"></textarea>
         <button type="submit" id="chat-send">Send</button>
@@ -662,12 +673,14 @@
     if (!cast.includes(first)) first = 'blu';
     for (const name of cast) $('first').add(new Option(name, name));
     $('first').value = first;
+    $('empty-pal').character = first;
     $('first').onchange = (e) => {
       first = e.target.value;
       try { localStorage.setItem('dotpals.first', first); } catch {}
       saveConfig({ character: first });
       const firstSlot = slots.values().next().value;
       if (firstSlot) firstSlot.pal.character = first;
+      $('empty-pal').character = first;
     };
 
     // -- sessions ----------------------------------------------------------------
@@ -1053,7 +1066,7 @@
     function slotFor(update) {
       let slot = slots.get(update.session);
       if (slot) return slot;
-      $('empty')?.remove();
+      $('empty').hidden = true; // back when the last agent's pal leaves
       const i = slots.size;
       const box = el('div', 'slot');
       const pal = document.createElement('dot-pal');
@@ -1096,7 +1109,8 @@
       if (!document.body.classList.contains('compact')) return;
       const bar = document.querySelector('.bar');
       let top = Infinity;
-      for (const slot of slots.values()) {
+      const waiting = $('empty').hidden ? [] : [{ el: $('empty'), pal: $('empty-pal') }];
+      for (const slot of [...slots.values(), ...waiting]) {
         if (slot.el.hidden) continue;
         const pal = slot.pal;
         const r = pal.getBoundingClientRect();
@@ -1112,6 +1126,7 @@
     setInterval(placePill, 300);
 
     function resizePals() {
+      $('empty-pal').setAttribute('size', String(palSize()));
       const visible = [...slots.values()].filter((s) => !s.el.hidden);
       stage.classList.toggle('solo', visible.length <= 1);
       for (const [id, slot] of slots) {
@@ -1165,6 +1180,7 @@
         setTimeout(() => {
           slot.el.remove();
           slots.delete(update.session);
+          if (!slots.size) $('empty').hidden = false;
           resizePals();
           renderSessions();
         }, 6000);
@@ -1220,6 +1236,8 @@
       refreshCounts();
       scheduleRecap();
       if (stick) feed.scrollTop = feed.scrollHeight;
+      // A turn just ended: the chat shows its answer (small mode has no feed to read it in).
+      if ((entry.kind === 'done' || entry.kind === 'error') && fresh(entry.at)) window.dotpalsChatDone?.(entry);
     }
 
     // The bridge replays its whole history when we connect (thousands of entries): drawing
@@ -2019,7 +2037,9 @@
         $('first').value = first;
         const firstSlot = slots.values().next().value;
         if (firstSlot) firstSlot.pal.character = first;
+        $('empty-pal').character = first;
       }
+      $('empty-text').textContent = config.chat ? 'Ready. Click 💬 to start' : 'Waiting for your agent…';
     }
     function resetAll() {
       entries.clear();
@@ -2087,6 +2107,32 @@
         resizePals();
       };
       window.dotpalsSetTalking = setTalking;
+
+      // OpenCode's answer in the chat, so small mode doesn't need the full view: what it's
+      // doing while it works, then its reply (the bubble opens by itself to show it).
+      const reply = $('chat-reply');
+      let waitingFor = null; // the session we sent to and haven't seen finish yet
+      const showReply = (cls, label, body) => {
+        reply.hidden = false;
+        reply.className = `chat-reply${cls ? ` ${cls}` : ''}`;
+        reply.replaceChildren(el('small', '', label), document.createTextNode(body));
+        reply.scrollTop = 0;
+      };
+      setInterval(() => {
+        if (!waitingFor) return;
+        const s = sessions.get(waitingFor);
+        showReply('working', 'OpenCode', s?.state === 'waiting' ? 'Waiting for your answer above…' : s?.text || 'Working on it…');
+      }, 1000);
+      window.dotpalsChatSent = (session) => { waitingFor = session; showReply('working', 'OpenCode', 'Working on it…'); };
+      window.dotpalsChatDone = (entry) => {
+        if (!document.body.classList.contains('chat-on') || !entry.session?.startsWith('opencode:')) return;
+        if (entry.session !== waitingFor && entry.session !== target()) return;
+        waitingFor = null;
+        const bad = entry.kind === 'error';
+        showReply(bad ? 'bad' : '', `OpenCode · ${sessions.get(entry.session)?.label || 'reply'}`, bad ? entry.title || 'Stopped with an error' : entry.summary || 'Done (no reply text).');
+        if (document.body.classList.contains('compact') && !document.body.classList.contains('talking')) setTalking(true);
+        slots.get(entry.session)?.pal.say?.(bad ? 'Something went wrong, see the bubble' : 'Here’s the answer ↑', { duration: 3500 });
+      };
       $('talk').onclick = () => setTalking(!document.body.classList.contains('talking'));
       text.addEventListener('keydown', (e) => { if (e.key === 'Escape') setTalking(false); });
       $('chat-new').onclick = () => { fresh = true; syncChat(); text.focus(); };
@@ -2111,6 +2157,7 @@
           const r = await post('/api/chat', { text: message, session: session ?? undefined, directory: session ? undefined : folder || undefined });
           text.value = '';
           fresh = false;
+          window.dotpalsChatSent?.(r.session);
           say(session ? '' : `Started in ${r.directory}`);
           // Follow the session once its first event arrives.
           for (let i = 0; i < 40 && !sessions.has(r.session); i++) await new Promise((ok) => setTimeout(ok, 250));
@@ -2171,6 +2218,7 @@
           add(slot.pal);
           add(slot.pal.shadowRoot?.querySelector('.dp-bubble.dp-show'));
         }
+        if (!$('empty').hidden) { add($('empty-pal')); add($('empty-pal').shadowRoot?.querySelector('.dp-bubble.dp-show')); }
         const key = JSON.stringify(rects);
         if (key !== lastAreas) { lastAreas = key; desktop.setSolidAreas?.(rects); }
       }
@@ -2275,6 +2323,7 @@
             if (!res.ok) throw new Error(r.error || `The bridge answered ${res.status}`);
             try { localStorage.setItem('dotpals.chatDir', project.path); } catch {}
             $('chat-dir').value = project.path;
+            window.dotpalsChatSent?.(r.session);
             close();
             for (let i = 0; i < 40 && !sessions.has(r.session); i++) await new Promise((ok) => setTimeout(ok, 250));
             if (sessions.has(r.session)) { pick(r.session, true); slots.get(r.session)?.pal.say?.('On it!', { duration: 3500 }); }
@@ -2320,7 +2369,7 @@
           list.append(b);
         }
         // The first pal on show waves and says it too.
-        const slot = [...slots.values()].find((s) => !s.el.hidden);
+        const slot = [...slots.values()].find((s) => !s.el.hidden) ?? ($('empty').hidden ? null : { pal: $('empty-pal') });
         if (slot) { slot.pal.greet?.(); slot.pal.say?.(`${greeting()}! What are we working on today?`, { duration: 5000 }); }
       }
 

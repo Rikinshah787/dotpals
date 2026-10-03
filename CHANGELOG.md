@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The pal disappeared when the bridge crashed.** The desktop app now runs the bridge as a separate process (`ELECTRON_RUN_AS_NODE=1`) instead of in-process. If the bridge crashes, the app restarts it and the pal stays on screen. `POST /api/app/quit` (the bridge exits with code 75 when the desktop app is running) lets the bridge tell the app to quit cleanly.
+- **The first chat message waited for OpenCode to start.** With chat on, the bridge now warms up OpenCode (`opencode serve`) about a second after the bridge starts, so the first message goes out immediately instead of waiting for the server to boot. Opt out with `DOTPALS_OPENCODE_WARM=0`. Turning chat on from off also triggers the warm-up.
+- **The pal was empty until the first activity.** The empty state now shows the pal itself (`<dot-pal id="empty-pal">`) instead of a blank div, so the pal is visible from the moment the window opens.
+- **Chat replies showed as full speech bubbles.** Replies in small mode now use a compact `.chat-reply` bubble (`.chat-reply` class) that fits in the small window without pushing the pal off screen. The `dotpalsChatDone` and `dotpalsChatSent` hooks let the notch close or update the bubble.
+- **The talk window could be pushed off the top edge of the screen.** `window:talk` now clamps its Y position to the work area, and `TALK_EXTRA` was raised from 190 to 270 so the window doesn't overlap the pal.
+
 - **The notch's Story tab scrolled sideways.** A long file name or chapter title stretched every request card past the edge of the column, so a horizontal scrollbar appeared and the ends of lines ("Continue in ▾", "…was also changed by…") were cut off. Long titles now end in "…" and notes wrap, so everything fits the column.
 - **"+ N small steps" in the notch couldn't be opened.** It only said that steps were hidden. Click it (or press Enter) to show them; "Hide small steps" folds them again.
 

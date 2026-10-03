@@ -30,6 +30,7 @@ function fakeChat() {
     calls,
     emit: null, // OpenCode's events, as the real one would pass them on
     exit: null, // OpenCode stopped
+    warms: 0,   // times the bridge started OpenCode ahead of time
     create({ onEvent, onExit }) {
       fake.emit = onEvent;
       fake.exit = onExit;
@@ -39,6 +40,7 @@ function fakeChat() {
         replyPermission: async (args) => { calls.push(['permission', args]); },
         replyQuestion: async (args) => { calls.push(['question', args]); },
         stop: () => { calls.push(['stop']); },
+        warm: async () => { fake.warms++; }, // counted apart from `calls`, which tests read by position
       };
     },
   };
@@ -206,4 +208,27 @@ test('chat: turning it off stops the OpenCode server', async (t) => {
   const { port, chat } = await start(t);
   assert.equal((await api(port, '/api/config', { chat: false })).status, 200);
   assert.deepEqual(chat.calls, [['stop']]);
+});
+
+test('chat: with chat on, the bridge starts OpenCode ahead of time, not on the first message', async (t) => {
+  const { chat } = await start(t);
+  await new Promise((r) => setTimeout(r, 1300));
+  assert.ok(chat.warms >= 1, 'started in the background');
+  assert.equal(chat.calls.length, 0, 'no prompt was sent to do it');
+});
+
+test('chat: off (or DOTPALS_OPENCODE_WARM=0), OpenCode is not started ahead of time', async (t) => {
+  const off = await start(t, { chat: false });
+  process.env.DOTPALS_OPENCODE_WARM = '0';
+  t.after(() => { delete process.env.DOTPALS_OPENCODE_WARM; });
+  const optedOut = await start(t);
+  await new Promise((r) => setTimeout(r, 1300));
+  assert.equal(off.chat.warms, 0);
+  assert.equal(optedOut.chat.warms, 0);
+});
+
+test('chat: turning it on starts OpenCode right away', async (t) => {
+  const { port, chat } = await start(t, { chat: false });
+  assert.equal((await api(port, '/api/config', { chat: true })).status, 200);
+  assert.equal(chat.warms, 1);
 });
