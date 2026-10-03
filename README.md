@@ -12,7 +12,7 @@ A small floating pal that watches Claude Code, Codex or any agent and tells you,
 npx dotpals setup
 ```
 
-<sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer.</sub>
+<sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
 
 [![CI](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml/badge.svg)](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
