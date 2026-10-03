@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // dotpals command line.
 //
-//   npx dotpals setup     one command: install, connect your agents, start
+//   npx dotpals setup                         one command: install, connect your agents, start
 //   dotpals start                             open the floating pal
 //   dotpals dashboard                         open the dashboard
 //   dotpals status                            what's running and connected
@@ -229,7 +229,8 @@ async function preferences(flags) {
     // One question first. Default needs nothing else: Blu, the notch on, sounds, one-line
     // summaries, no checker, open at login. Everything is changeable later in Settings.
     console.log('');
-    const how = await pick('Set up dotpals:', [['default', 'Default (recommended): Blu, the notch on, sounds, one-line summaries, opens at login'], ['custom', 'Customize: pick the pal, the notch, the test checker and more (about 9 questions)']], 'default');
+    const pal = loadConfig().character ?? 'blu'; // a reinstall keeps the pal you chose
+    const how = await pick('Set up dotpals:', [['default', `Default (recommended): ${pal[0].toUpperCase()}${pal.slice(1)}, the notch on, sounds, one-line summaries, opens at login`], ['custom', 'Customize: pick the pal, the notch, the test checker and more (about 9 questions)']], 'default');
     if (how === 'default') { skip('Using the defaults (change any of them later: Dashboard → Settings)'); return answers; }
     console.log(`\n  ${bold('A few choices')} ${dim('(Enter keeps the one in brackets; change any later: Dashboard → Settings)')}\n`);
     const patch = {};

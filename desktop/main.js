@@ -386,7 +386,6 @@ if (!app.requestSingleInstanceLock()) {
   }
   ipcMain.handle('usage', () => readUsage().catch(() => ({ agents: [] })));
 
-  // Keep a saved position if it's still on a connected screen, nudged fully onto it.
   /** Nudge the pal back inside its display's work area (its buttons were off the right edge for a user). */
   function keepOnScreen() {
     if (!win || win.isDestroyed()) return;
@@ -394,6 +393,7 @@ if (!app.requestSingleInstanceLock()) {
     const p = onScreen(b.x, b.y, b);
     if (p && (p.x !== b.x || p.y !== b.y)) { win.setPosition(p.x, p.y); [prefs.x, prefs.y] = [p.x, p.y]; savePrefs(); }
   }
+  // Keep a saved position if it's still on a connected screen, nudged fully onto it.
   function onScreen(x, y, { width, height }) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
     const { workArea: a } = screen.getDisplayMatching({ x, y, width, height });
