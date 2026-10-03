@@ -26,7 +26,8 @@
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
-//   GET  /api/status     → what's connected, where things are stored
+//   GET  /api/status     → what's connected, where things are stored; desktop: { pal, notch }, whether
+//                          the desktop app's windows are following the events (/events?window=pal|notch)
 //   GET  /api/config, POST /api/config, POST /api/history/clear
 //   GET  /api/agents     → { agents: [...] } every integration: detected, connected, on/off, last event
 //   POST /api/agents/<id>/connect      add dotpals to that agent's config (backs it up first)
@@ -138,6 +139,7 @@ const SLEEP_AFTER_WAITING = 60 * 60_000;
 
 export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null } = {}) {
   const clients = new Set();
+  const windows = new Map(); // the desktop app's windows following the events: response → 'pal' | 'notch'
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
   const activity = createActivityLog({ limit: 1500, retain: contextEntries });
@@ -721,6 +723,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         generic: { endpoint: `http://127.0.0.1:${port}/event`, lastEventAt: Object.entries(lastSeen).filter(([h]) => h !== 'claude' && h !== 'codex').reduce((m, [, t]) => Math.max(m, t), 0) || null },
       },
       agents: agents(),
+      desktop: { pal: [...windows.values()].includes('pal'), notch: [...windows.values()].includes('notch') },
     };
   }
 
@@ -937,11 +940,14 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       res.write('event: ready\ndata: {}\n\n');
       clients.add(res);
       if (url.searchParams.get('answers') === '1') answerers.add(res);
+      const kind = url.searchParams.get('window');
+      if (kind === 'pal' || kind === 'notch') windows.set(res, kind);
       const ping = setInterval(() => res.write(': ping\n\n'), 15000);
       req.on('close', () => {
         clearInterval(ping);
         clients.delete(res);
         answerers.delete(res);
+        windows.delete(res);
       });
       return;
     }

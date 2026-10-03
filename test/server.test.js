@@ -653,3 +653,21 @@ for (const [name, args] of [['node bridge/server.js', ['bridge/server.js']], ['d
     assert.equal(await exited, 0);
   });
 }
+
+test('/api/status says whether the desktop pal and notch follow the events (for dotpals doctor)', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const desktop = async () => (await (await fetch(`http://127.0.0.1:${port}/api/status`)).json()).desktop;
+  const follow = (path) => new Promise((ok) => get({ host: '127.0.0.1', port, path }, ok));
+  assert.deepEqual(await desktop(), { pal: false, notch: false });
+  const browser = await follow('/events');
+  const pal = await follow('/events?answers=1&window=pal');
+  assert.deepEqual(await desktop(), { pal: true, notch: false });
+  const notch = await follow('/events?answers=1&window=notch');
+  assert.deepEqual(await desktop(), { pal: true, notch: true });
+  pal.destroy();
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepEqual(await desktop(), { pal: false, notch: true });
+  notch.destroy();
+  browser.destroy();
+});
