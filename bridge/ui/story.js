@@ -1235,7 +1235,8 @@ export function readiness(turn) {
   // Code git saw changed that no file tool or readable command accounts for: it can't be
   // placed before or after the tests, unless no command ran after the last test run (then
   // it can only have happened before it).
-  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at) : true;
+  // A command that can't change code (git commit, a push, a look-up, another test run) doesn't count.
+  const after = tested?.last ? turn.steps.some((e) => e.kind === 'run' && e.at > tested.last.at && !['ship', 'explore', 'test'].includes(stepType(e))) : true;
   const gitUntimed = after && truth?.files.some((f) => !NOT_CODE.test(f.path) && !f.byTool
     && !commandPaths.some((path) => same(path, norm(f.path))));
   const checks = [
