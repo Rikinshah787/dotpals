@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Setup didn't start the pal on a machine where a bridge was already running without it** (a Claude Code hook starts one when the desktop app isn't installed yet). Setup said "The pal is already running" and opened the dashboard in the browser, with no pal, tray icon or notch. A bridge running on its own (`node bridge/server.js` or `dotpals bridge`) now quits when setup asks, so the pal takes over with its own. An older bridge that can't be asked to quit (0.9.4 or before) is left running: setup starts the pal on it and says so, and the pal runs its own bridge once that one stops.
+- **`npx dotpals setup` didn't install the `dotpals` command**, though it said "The `dotpals` command works in any terminal". While npx runs, its own temporary copy is on PATH, so setup took that for an installed command and skipped installing it; after setup, `dotpals status`, `dotpals start` and the rest weren't found. Setup now doesn't count npx's temporary copy, so the command is installed.
 
 ## [0.9.4] - 2026-10-03
 

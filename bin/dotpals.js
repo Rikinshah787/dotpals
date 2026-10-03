@@ -29,6 +29,12 @@ const ok = (s) => console.log(`  ${process.stdout.isTTY ? '\x1b[32m✓\x1b[39m' 
 const skip = (s) => console.log(`  ${dim('–')} ${dim(s)}`);
 const warn = (s) => console.log(`  ${process.stdout.isTTY ? '\x1b[33m!\x1b[39m' : '!'} ${s}`);
 const has = (cmd) => spawnSync(platform() === 'win32' ? 'where' : 'which', [cmd], { stdio: 'ignore' }).status === 0;
+// A `dotpals` command that stays after setup. npx puts its own temporary copy on PATH while
+// setup runs (in its cache's node_modules/.bin), so that one doesn't count.
+const hasLastingCommand = () => {
+  const found = spawnSync(platform() === 'win32' ? 'where' : 'which', platform() === 'win32' ? ['dotpals'] : ['-a', 'dotpals'], { encoding: 'utf8' });
+  return found.status === 0 && `${found.stdout}`.split(/\r?\n/).some((p) => p.trim() && !/[\\/]_npx[\\/]|[\\/]node_modules[\\/]\.bin[\\/]/.test(p));
+};
 // On Windows, npm and claude are .cmd files, which need a shell: pass one quoted
 // command line (Node warns about separate args with a shell).
 const quote = (a) => (/^[\w@./:=\\-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '\\"')}"`);
@@ -99,7 +105,7 @@ async function setup(flags) {
 
   // The `dotpals` command, in any terminal: link the installed copy as a global npm package.
   if (flags.has('--no-path')) skip('Not adding the dotpals command (--no-path)');
-  else if (has('dotpals')) ok('The `dotpals` command works in any terminal');
+  else if (hasLastingCommand()) ok('The `dotpals` command works in any terminal');
   else {
     const linked = run('npm', ['install', '--global', '--no-audit', '--no-fund', appDir]);
     if (linked.status === 0) ok('The `dotpals` command works in any terminal');
