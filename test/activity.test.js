@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clip, clipEnds, clipText, createActivityLog, folderName, relative, toPatch } from '../bridge/activity.js';
+import { clip, clipEnds, clipText, createActivityLog, folderName, relative, toPatch, trimActivity } from '../bridge/activity.js';
 import { testVerdict } from '../bridge/ui/story.js';
 
 test('clipEnds keeps the start and the end of long output, so a test summary survives', () => {
@@ -113,4 +113,20 @@ test('limit drops the oldest entries; forget clears a session', () => {
   assert.equal(log.has('s'), false);
   assert.equal(log.get('b'), undefined);
   assert.deepEqual(log.all(), []);
+});
+
+test('retained context survives overflow without exceeding the activity limit', () => {
+  const log = createActivityLog({ limit: 3, retain: (entries) => entries.filter((entry) => entry.kind === 'prompt') });
+  log.upsert({ id: 'goal', session: 's', at: 1, kind: 'prompt', title: 'Keep the API compatible' });
+  for (let index = 2; index <= 8; index++) log.upsert({ id: `read-${index}`, session: 's', at: index, kind: 'read' });
+  assert.deepEqual(log.all().map((entry) => entry.id), ['goal', 'read-7', 'read-8']);
+  log.upsert({ id: 'late', session: 's', at: 0, kind: 'read' });
+  assert.equal(log.get('late'), undefined);
+  log.forget('s');
+  assert.deepEqual(log.all(), []);
+});
+
+test('retention never exceeds the limit even when every entry is retained', () => {
+  const entries = [1, 2, 3].map((at) => ({ id: String(at), at }));
+  assert.deepEqual(trimActivity(entries, 2, (list) => list).map((entry) => entry.id), ['2', '3']);
 });

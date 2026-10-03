@@ -62,12 +62,28 @@ export function toPatch(before, after, max = 6000) {
 
 const FINAL = new Set(['ok', 'failed']);
 
+export function trimActivity(entries, limit, retain = () => []) {
+  if (entries.length <= limit) return entries;
+  const kept = new Set(retain(entries).map((entry) => entry.id));
+  const removed = new Set();
+  let excess = entries.length - limit;
+  for (const entry of entries) {
+    if (!excess) break;
+    if (!kept.has(entry.id)) { removed.add(entry.id); excess--; }
+  }
+  for (const entry of entries) {
+    if (!excess) break;
+    if (!removed.has(entry.id)) { removed.add(entry.id); excess--; }
+  }
+  return entries.filter((entry) => !removed.has(entry.id));
+}
+
 /**
  * Keeps the activity history for every session. Entries are merged by id, so
  * sources can report a tool call in pieces (start, approval, result) and in any
  * order: hooks run as separate processes, so a result can arrive before its start.
  */
-export function createActivityLog({ limit = 800 } = {}) {
+export function createActivityLog({ limit = 800, retain } = {}) {
   const bySession = new Map(); // session → entries (oldest first)
   const byId = new Map();      // entry id → entry
 
@@ -75,14 +91,19 @@ export function createActivityLog({ limit = 800 } = {}) {
     const entry = byId.get(patch.id);
     if (!entry) {
       const fresh = { ...patch };
-      const list = bySession.get(fresh.session) ?? [];
+      let list = bySession.get(fresh.session) ?? [];
       // Keep each session's entries in time order, even when history is backfilled late.
       let i = list.length;
       while (i > 0 && list[i - 1].at > fresh.at) i--;
       list.splice(i, 0, fresh);
-      if (list.length > limit) byId.delete(list.shift().id);
+      if (list.length > limit) {
+        const trimmed = trimActivity(list, limit, retain);
+        const ids = new Set(trimmed.map((item) => item.id));
+        for (const item of list) if (!ids.has(item.id)) byId.delete(item.id);
+        list = trimmed;
+      }
       bySession.set(fresh.session, list);
-      byId.set(fresh.id, fresh);
+      if (list.includes(fresh)) byId.set(fresh.id, fresh);
       return fresh;
     }
     const { status, at, ...rest } = patch;

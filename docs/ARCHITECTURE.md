@@ -102,7 +102,7 @@ Merging rules (`createActivityLog().upsert`):
 - A final status (`ok`, `failed`) never regresses. This matters because hooks run as separate processes, so a tool's result can arrive before its start.
 - Each session's entries are kept in time order, even when history is backfilled late.
 - `settle(session)` marks the session's `running` and `waiting` entries as `stopped` when a turn ends.
-- The bridge keeps at most 1500 entries per session in memory (`createActivityLog({ limit: 1500 })`).
+- The bridge keeps at most 1500 entries per session in memory. On overflow it removes older unprotected steps first, retaining the original prompt, the latest four prompts, the newest plan and its task updates, the latest test, commit and turn ending, and changes to up to 30 recent file paths (`contextEntries` in `story.js`). Claude Code's plan arrives as one task entry per TaskCreate/TaskUpdate, numbered by position, so before trimming, the task history is folded into a `plan` array on the newest task entry (`foldTasks`); the older task entries then need no protection and the plan still reads right. If protected entries alone exceed the cap, the oldest of those are removed too. This is bounded context retention, not a complete archive.
 
 Viewers group entries into **requests** (`buildTurns` in `recap.js`): a `prompt`, the steps after it, and the `done` or `error` entry that ended it.
 
@@ -204,7 +204,7 @@ The bridge alone decides when a session is over. Viewers never end a session on 
 - **`headline(steps, plan)`** is the pal's speech bubble while it works: the plan step ("2/4 · Detecting the system setting") or the current chapter ("Changing files · 4 so far"), shortened to whole words. It only changes when that changes, so you can read it.
 - **`toolkit(entries)`** lists the skills, plugins, MCP tools and helper agents a session used (the "Using" row). Plugin skills are named `plugin:skill`; plugin MCP servers `plugin_<plugin>_<server>`.
 - **`overlaps(entries, since, { within })`** finds files that two or more sessions changed at around the same time: edits within 30 minutes of each other, in the last 2 hours by default. The pal shows a note; the dashboard's Map lists them.
-- **`compactNote(entries)`** writes a `/compact <instructions>` from the session's own record: the goal, what's still on the plan, the files changed so far and whether the tests are failing. Claude Code and Codex both accept `/compact` with instructions. Neither lets another program compact a running session, so the views copy the command for you to paste.
+- **`compactNote(entries)`** writes a `/compact <instructions>` from the session's own record: bounded excerpts of the original and recent requests (including multiline constraints), the current goal, unfinished plan items, changed file paths, and whether tests passed, failed, are unclear, are still running, or became stale after edits. Newer instructions take precedence over older ones. Claude Code and Codex both accept `/compact` with instructions. Neither lets another program compact a running session, so the views copy the command for you to paste. Unrecorded decisions and older instructions outside the retained prompts cannot be recovered; review the note before using it.
 - **`story(turn, sessionSteps)`** bundles chapters, de-duplicated flags and the plan.
 
 `bridge/ui/recap.js` has the rest: `buildTurns`, `facts` (tallies), `sentence` (one step as a short sentence), `turnMarkdown`/`recapMarkdown` (Copy and Export), `summarizeSessions`, agent names and colors.
@@ -380,7 +380,7 @@ Everything lives in `~/.dotpals` (or `DOTPALS_HOME`):
 | Path | Written by | Contents |
 | --- | --- | --- |
 | `config.json` | `bridge/config.js` (Settings, Agents page, tray, `dotpals setup`) | Only known keys with valid values. See [Configuration](https://rikinshah787.github.io/dotpals/guide/configuration.html). |
-| `history.json` | the bridge | `{ version: 1, entries }`: the last `historyDays` days, at most 5000 entries. Written 2 s after the last change via a `.tmp` file and a rename. On load, entries that were still running become `stopped`. Not written when `history` is off. |
+| `history.json` | the bridge | `{ version: 1, entries }`: the last `historyDays` days, at most 5000 entries. Uses the same context-retention priorities as the live log, within the age limit. Written 2 s after the last change via a `.tmp` file and a rename. On load, entries that were still running become `stopped`. Not written when `history` is off. |
 | `claude-limits.json` | `bridge/statusline.js` | Claude's `rate_limits`, the latest context window, the model name, and window sizes for the newest 30 sessions. Nothing from the conversation. |
 | `statusline.json` | `dotpals statusline` | `{ previous }`: the status line you had before, so it keeps showing and `--off` can restore it. |
 | `app/` | `dotpals setup` | A permanent copy of dotpals (npx runs from a temporary folder). Hook commands point here. |

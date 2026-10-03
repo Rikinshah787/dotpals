@@ -57,9 +57,9 @@ import { homedir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
-import { clip, clipEnds, createActivityLog, folderName } from './activity.js';
+import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, lastReply, watchClaude } from './adapters/claude.js';
-import { crossRecap, flags as riskFlags, stepType } from './ui/story.js';
+import { contextEntries, crossRecap, flags as riskFlags, stepType } from './ui/story.js';
 import { sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -76,6 +76,7 @@ const version = (() => { try { return JSON.parse(readFileSync(join(root, 'packag
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.png': 'image/png' };
 const KINDS = new Set(['prompt', 'read', 'edit', 'write', 'run', 'search', 'web', 'agent', 'mcp', 'skill', 'plan', 'tool', 'done', 'error', 'compact']);
 const STATUSES = new Set(['running', 'waiting', 'ok', 'failed', 'stopped', 'info']);
+const CHANGES = new Set(['read', 'edit', 'write', 'delete']);
 const DAY = 86_400_000;
 
 /**
@@ -105,7 +106,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
       if (!getConfig().history) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const entries = activity.all().filter((e) => Date.now() - e.at < keep()).slice(-5000);
+        const entries = trimActivity(activity.all().filter((e) => Date.now() - e.at < keep()), 5000, contextEntries);
         writing = writing.then(async () => {
           try {
             await mkdir(home(), { recursive: true });
@@ -139,7 +140,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const clients = new Set();
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
   const contexts = new Map(); // session id → how full its context window is (replayed too)
-  const activity = createActivityLog({ limit: 1500 });
+  const activity = createActivityLog({ limit: 1500, retain: contextEntries });
   const backfilled = new Set();
   const hooked = new Set();    // Claude sessions that send hook events
   const lastSeen = {};        // harness → time of its last event
@@ -568,9 +569,14 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const known = activity.get(id);
       // Long output keeps its start and its end (where test summaries are).
       const body = a.body && typeof a.body === 'object' && typeof a.body.output === 'string' ? { ...a.body, output: clipEnds(a.body.output, 3000) } : a.body;
+      // Only well-formed files: everything downstream reads `file.path` and `file.change`.
+      const files = Array.isArray(a.files)
+        ? a.files.filter((f) => f && typeof f === 'object' && typeof f.path === 'string' && f.path).map((f) => ({ path: f.path.slice(0, 1000), change: CHANGES.has(f.change) ? f.change : 'edit' }))
+        : undefined;
       return activity.upsert({
         ...a,
         body,
+        files,
         check: undefined, // only the bridge's own checker says this
         git: undefined, // and only the bridge says what git saw
 
