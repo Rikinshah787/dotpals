@@ -9,7 +9,7 @@
 A small floating pal that watches Claude Code, Codex or any agent and tells you, in plain words, what happened: which files changed, which commands ran, what failed, and what the agent says it did.
 
 ```bash
-npx dotpals setup
+npx dotpals@latest setup
 ```
 
 <sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
@@ -114,7 +114,7 @@ In your own app it's one call: `registerCustom({ name: 'Pip', shape: 'bean', eye
 ### One command
 
 ```bash
-npx dotpals setup
+npx dotpals@latest setup
 ```
 
 (Needs Node 20 or newer. To install straight from GitHub instead: `npx --allow-git=all github:rikinshah787/dotpals setup`.)
@@ -180,6 +180,7 @@ From a terminal, after setup (or with `npx dotpals <command>`):
 dotpals start       # open the floating pal
 dotpals dashboard   # open the dashboard
 dotpals status      # what's running and connected
+dotpals doctor      # no pal or notch? checks and fixes it (setup runs the same check at the end)
 dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dashboard at http://127.0.0.1:5175/dashboard
 ```
 

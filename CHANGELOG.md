@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`dotpals doctor`**: no pal or notch on screen? It checks and fixes what it can. It says when another program holds the port, installs the desktop runtime (Electron) again when it's missing or won't run, restarts an older pal still running from before an update, and starts the pal and the notch when they aren't running. When the installed copy is too old to say whether the pal is up, it says to update it with `npx dotpals@latest setup`. When something still won't open, it shows the end of the desktop app's log (`~/.dotpals/desktop.log`) saying why.
+- **Setup checks the pal really opened.** It waits for the pal (and the notch, when it's always on) to connect. If they don't, setup shows the log, installs the desktop runtime again (or restarts the app when only the notch is missing) and tries once more, instead of saying "The pal is starting" when it never did.
+- **The notch comes back by itself** when its page crashes (up to 3 times), and says so in the log.
+
+### Changed
+
+- The install command is now `npx dotpals@latest setup` everywhere it's shown (README, website, guide, dashboard and the CLI's hints). Setup is also how you update, and older versions of npm reuse the copy npx cached the first time unless you ask for `@latest`.
+
+### Fixed
+
+- **The notch stayed empty on Windows while Claude Code or Codex was working** (#18). Windows reports a stale modified time for a log file an agent keeps open, so the session never counted as live. A session is now also live when its latest event is recent.
+- **Setup still said "The pal is already running" with no pal or notch** when the bridge on the port wasn't one it restarts (newer than the install, or it didn't stop when asked). It only opened the dashboard in the browser. Setup now opens the pal in that case too: a pal that's already running comes forward, otherwise a new one starts on the running bridge.
+- When another program (not dotpals) is using the port, setup says so and how to pick another port, instead of reporting that the pal is running and opening that program's page.
+
 ## [0.9.5] - 2026-10-03
 
 ### Fixed

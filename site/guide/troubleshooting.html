@@ -105,7 +105,7 @@ unset ELECTRON_RUN_AS_NODE</code></pre>
 <p>If it's set in your user or system environment permanently, remove it there.</p>
 
 <h2 id="npm-allow-git">npm won't install from GitHub</h2>
-<p>The normal install, <code>npx dotpals setup</code>, comes from npm and doesn't touch git. This only matters if you install straight from GitHub: npm 12 and newer refuse that unless you allow it, so that command includes <code>--allow-git=all</code>:</p>
+<p>The normal install, <code>npx dotpals@latest setup</code>, comes from npm and doesn't touch git. This only matters if you install straight from GitHub: npm 12 and newer refuse that unless you allow it, so that command includes <code>--allow-git=all</code>:</p>
 <pre><code>npx --allow-git=all github:rikinshah787/dotpals setup</code></pre>
 <p>Older versions of npm ignore the flag, so keep it either way. If your npm settings or company policy block git installs, clone the repository and run setup from it:</p>
 <pre><code>git clone https://github.com/Rikinshah787/dotpals.git

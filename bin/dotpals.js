@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 // dotpals command line.
 //
-//   npx dotpals setup                         one command: install, connect your agents, start
+//   npx dotpals@latest setup                  one command: install, connect your agents, start
 //   dotpals start                             open the floating pal
 //   dotpals dashboard                         open the dashboard
 //   dotpals status                            what's running and connected
+//   dotpals doctor                            check the pal and the notch work, and fix what it can
 //   dotpals notch [--off]                     the island at the top of the screen
 //   dotpals statusline [--off]                share Claude Code's usage limits (for the notch)
 //   dotpals bridge                            run only the bridge (no window)
 //   dotpals laya [--remove]                   set up Laya, the free local test checker (or delete it)
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,7 @@ import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
+const logFile = join(home(), 'desktop.log'); // what the desktop app printed, for `dotpals doctor`
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
 const version = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version;
@@ -65,15 +67,143 @@ function openUrl(url) {
   spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
 }
 
-/** Start the desktop pal from the installed copy (or this one). */
+/** Start the desktop pal from the installed copy (or this one). What it prints goes to desktop.log. */
 function startApp(extra = []) {
   const electron = findElectron();
   if (!electron) return false;
   const main = existsSync(join(appDir, 'desktop', 'main.js')) ? join(appDir, 'desktop', 'main.js') : join(here, 'desktop', 'main.js');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  spawn(electron, [main, ...extra], { detached: true, stdio: 'ignore', env }).unref();
+  mkdirSync(home(), { recursive: true });
+  const log = openSync(logFile, existsSync(logFile) && statSync(logFile).size > 500_000 ? 'w' : 'a');
+  writeSync(log, `--- ${new Date().toLocaleString()}: starting dotpals ${version} ${extra.join(' ')}\n`);
+  spawn(electron, [main, ...extra], { detached: true, stdio: ['ignore', log, log], env }).unref();
+  closeSync(log);
   return true;
+}
+
+/** The installed copy's version (setup puts it in ~/.dotpals/app), or null. */
+const installedVersion = () => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } };
+
+/** Whether this Electron runs at all. As Node: quick, where the window version can hang on Windows. */
+const electronRuns = (exe) => spawnSync(exe, ['--version'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore', timeout: 20_000 }).status === 0;
+
+/** The desktop runtime (Electron): there and able to run, or installed again (`fresh`: always). */
+function desktopRuntime(fresh = false) {
+  const exe = findElectron();
+  if (exe && !fresh && electronRuns(exe)) { ok('The desktop runtime (Electron) works'); return true; }
+  if (process.env.DOTPALS_ELECTRON) { warn(`DOTPALS_ELECTRON points at your own Electron (${exe}), so it isn’t installed again`); return false; }
+  console.log(`  ${dim('…')} ${exe ? 'Installing the desktop runtime (Electron) again' : 'Installing the desktop runtime (Electron, about 100 MB)'}`);
+  try { rmSync(join(home(), 'node_modules', 'electron'), { recursive: true, force: true }); } catch (err) {
+    warn(`Couldn’t remove the old desktop runtime (${err.code}): it’s still in use. Quit dotpals from the tray, then run dotpals doctor.`);
+    return false;
+  }
+  if (installElectron() && electronRuns(findElectron())) { ok('Desktop runtime installed'); return true; }
+  warn(`The desktop runtime still won’t run. Something on this computer may be blocking it (antivirus${platform() === 'win32' ? ', or Windows Smart App Control' : ''}).`);
+  return false;
+}
+
+/** The notch setting the desktop app keeps in its own folder: 'always' (the default), 'auto' (when the pal is hidden) or 'off'. */
+function notchSetting() {
+  const appData = platform() === 'win32' ? process.env.APPDATA : platform() === 'darwin' ? join(homedir(), 'Library', 'Application Support') : process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  try {
+    const prefs = JSON.parse(readFileSync(join(appData, 'dotpals', 'window.json'), 'utf8'));
+    return prefs.notchMode ?? (prefs.notch === false ? 'off' : 'always');
+  } catch { return 'always'; }
+}
+
+/**
+ * What the bridge sees of the desktop app, { pal, notch }, once it's all up (the notch only
+ * when `notch`) or after `ms`. null: no bridge answering; undefined: an older bridge that can't tell.
+ */
+async function desktopState(notch, ms) {
+  const end = Date.now() + ms;
+  for (;;) {
+    let d = null;
+    try { d = (await (await fetch(`${bridge}/api/status`, { signal: AbortSignal.timeout(1500) })).json()).desktop; } catch {}
+    if (d === undefined || (d?.pal && (d.notch || !notch)) || Date.now() >= end) return d;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/** What the desktop app printed since it was last started, where it says why it stopped. */
+function showLog() {
+  let lines = [];
+  try {
+    const all = readFileSync(logFile, 'utf8').split(/\r?\n/).filter((l) => l.trim());
+    lines = all.slice(Math.max(all.findLastIndex((l) => l.startsWith('--- ')), 0)).slice(-10);
+  } catch {}
+  for (const l of lines) console.log(`    ${dim(l.slice(0, 200))}`);
+  console.log(`  ${dim(`Log: ${logFile}`)}`);
+}
+
+/**
+ * After starting the pal: check it came up, and the notch with it when it's always on. When
+ * it didn't, show why (its log), then install the desktop runtime again (or, when only the notch
+ * is missing, restart the app) and try once more. Setup runs this by itself; so does `dotpals doctor`.
+ */
+async function checkPal(notch, retry = true) {
+  const d = await desktopState(notch, 45_000);
+  if (d === undefined) { skip('Couldn’t check the pal: the dotpals bridge running is older than this check'); return null; }
+  if (d?.pal && (d.notch || !notch)) { ok(notch ? 'The pal and the notch are running' : 'The pal is running'); return true; }
+  warn(d?.pal ? 'The pal is running, but the notch didn’t start' : 'The pal didn’t start');
+  showLog();
+  if (!retry) {
+    console.log(`  ${dim('Still stuck? Open an issue with this output: https://github.com/Rikinshah787/dotpals/issues')}`);
+    process.exitCode = 1;
+    return false;
+  }
+  if (d?.pal) await quitRunningApp();
+  else if (!desktopRuntime(true)) { process.exitCode = 1; return false; }
+  console.log(`  ${dim('…')} Starting the pal again`);
+  startApp(notch ? ['--notch'] : []);
+  return checkPal(notch, false);
+}
+
+/**
+ * Check dotpals works and fix what it can: the port, the desktop runtime (installed again when
+ * it's missing or won't run), and the pal and the notch (started when they aren't running).
+ */
+async function doctor() {
+  console.log(`\n${bold('dotpals doctor')} ${dim(`v${version}`)}\n`);
+  const up = await bridgeUp();
+  const running = up ? await runningVersion() : null;
+  if (up && !running) {
+    warn(`Port ${port} is in use by another program, not dotpals. Close it, or set DOTPALS_PORT to a free port.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (running) ok(`dotpals ${running} is running on port ${port}`);
+  else skip(`dotpals isn’t running yet (port ${port} is free)`);
+  if (!desktopRuntime()) { process.exitCode = 1; return; }
+  // An older dotpals still running from before an update: restart it on the installed one, like setup does.
+  const installed = installedVersion();
+  let old = running;
+  if (running && installed && compareVersions(running, installed) < 0) {
+    if ((await quitRunningApp()) !== true) {
+      warn(`An older dotpals (${running}) is running and can’t be closed from here. Quit it from its tray icon, or restart your computer, then run dotpals doctor again.`);
+      process.exitCode = 1;
+      return;
+    }
+    ok(`Closed the older pal (${running}) to start ${installed}`);
+    old = null;
+  }
+  const mode = notchSetting();
+  if (mode !== 'always') skip(mode === 'off' ? 'The notch is off (dotpals notch turns it on)' : 'The notch shows when the pal is hidden (dotpals notch: always)');
+  const notch = mode === 'always';
+  const d = old ? await desktopState(notch, 0) : null;
+  let checked = null;
+  if (d === undefined) skip('Couldn’t check the pal: the dotpals bridge running is older than this check');
+  else {
+    // A pal that's running comes forward (and makes its notch); otherwise one starts.
+    if (!(d?.pal && (d.notch || !notch))) startApp(notch ? ['--notch'] : []);
+    checked = await checkPal(notch);
+  }
+  // A bridge from before this check can't say whether the pal is up: the installed copy needs updating.
+  if (checked === null) {
+    warn(`dotpals ${installed ?? old} is installed, older than this check (${version}). Update it with npx dotpals@latest setup: it restarts the pal on the new version.`);
+    process.exitCode = 1;
+  }
 }
 
 async function setup(flags) {
@@ -150,31 +280,41 @@ async function setup(flags) {
   // 7. Start the pal, open at login, show the dashboard.
   const extra = ['--dashboard', { auto: '--notch-auto', always: '--notch', off: '--no-notch' }[prefs.notch] ?? '--notch'];
   if (!flags.has('--no-login') && prefs.login !== false) extra.push('--open-at-login');
+  let started = false;
+  const start = () => (started = startApp(extra));
   if (flags.has('--no-start')) skip('Not starting the pal (--no-start)');
   else if (await bridgeUp()) {
     // The pal from before this install is still up: it would keep running the old code, so restart it.
     // The same version too (a fix installed from a branch keeps the number); never a newer one.
     const running = await runningVersion();
-    const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
+    const installed = installedVersion();
     const quit = running && installed && compareVersions(running, installed) <= 0 ? await quitRunningApp() : false;
     if (quit === 'bridge') {
       // A bridge that can't be asked to quit (from 0.9.4 or before): the pal uses it until it stops, then runs its own.
-      if (startApp(extra)) warn(`The pal is starting, but an older bridge (${running}) is still running and can’t be closed from here. Stop it (or restart your computer) and the pal takes over.`);
+      if (start()) warn(`The pal is starting, but an older bridge (${running}) is still running and can’t be closed from here. Stop it (or restart your computer) and the pal takes over.`);
       else warn('The desktop runtime isn’t installed: run dotpals start');
     } else if (quit) {
-      if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
+      if (start()) ok(`Restarted the pal on ${installed} (it was running ${running})`);
       else warn('The old pal was closed, but the desktop runtime isn’t installed: run dotpals start');
+    } else if (!running) {
+      // It answers, but not like dotpals: the pal would load that program's pages.
+      warn(`Port ${port} is in use by another program, not dotpals. Close it, or set DOTPALS_PORT to a free port, then run setup again.`);
+    } else if (start()) {
+      // A pal already running just comes forward; otherwise this one uses the running bridge.
+      console.log(`  ${dim('…')} Opening the pal (its bridge was already running)`);
     } else {
-      ok('The pal is already running');
+      warn('The desktop runtime isn’t installed, so opening the dashboard in your browser instead: run dotpals start');
       openUrl(`${bridge}/dashboard`);
     }
-  } else if (startApp(extra)) {
+  } else if (start()) {
     ok(`The pal is starting${flags.has('--no-login') ? '' : ', and will open when you log in'}`);
   } else {
     warn('No desktop runtime, so starting the dashboard in your browser instead');
     spawn(process.execPath, [join(appDir, 'bridge', 'server.js')], { detached: true, stdio: 'ignore' }).unref();
     setTimeout(() => openUrl(`${bridge}/dashboard`), 800);
   }
+  // Check it really opened, and repair it if not (the same as `dotpals doctor`).
+  if (started) await checkPal(prefs.notch === 'always');
 
   // What you chose, and what to do next.
   const c = loadConfig();
@@ -410,7 +550,7 @@ const flags = new Set(rest);
 switch (command) {
   case 'setup': await setup(flags); break;
   case 'start':
-    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
+    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx dotpals@latest setup'); process.exitCode = 1; }
     break;
   case 'dashboard':
     // The app's own window when the desktop pal is installed (a running pal just opens it);
@@ -420,10 +560,11 @@ switch (command) {
     else { console.log('dotpals isn’t running. Run: dotpals start'); process.exitCode = 1; }
     break;
   case 'status': await status(); break;
+  case 'doctor': await doctor(); break;
   case 'statusline': statusline(flags); break;
   case 'notch':
     // The island at the top of the screen: every agent, its plan and your usage limits.
-    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
+    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx dotpals@latest setup'); process.exitCode = 1; }
     break;
   // Like `node bridge/server.js`: it quits when setup asks, so the pal can take over.
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge({ onQuit: () => process.exit(0) })); break;
@@ -437,7 +578,9 @@ switch (command) {
   start       open the floating pal
   dashboard   open the dashboard
   status      what's running and connected
-  notch       keep the notch at the top of the screen, the default (--auto:
+  doctor      check the pal and the notch work, and fix what it can (starts
+              them, installs the desktop runtime again when it won't run)
+  notch      keep the notch at the top of the screen, the default (--auto:
               only when the pal is hidden; --off: never)
   statusline  let Claude Code share its usage limits with dotpals (--off to undo)
   laya        set up Laya, the free checker for unclear test results that runs
