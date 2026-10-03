@@ -31,7 +31,8 @@ app.setAppUserModelId?.('dev.dotpals.desktop'); // Windows shows notifications o
 process.on('uncaughtException', (err) => console.error('[dotpals]', err));
 
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  // The running copy gets our arguments (its 'second-instance' handler); nothing else to do here.
+  app.exit(0);
 } else {
   const prefsFile = join(app.getPath('userData'), 'window.json');
   let prefs = {};
@@ -76,6 +77,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     app.dock?.hide(); // macOS: a floating widget with a menu-bar icon, not a Dock app
     createWindow();
+    win.on('show', keepOnScreen);
+    win.on('resize', () => setTimeout(keepOnScreen, 50));
     createTray();
     syncNotch();
     handleArgs(process.argv);
@@ -383,6 +386,13 @@ if (!app.requestSingleInstanceLock()) {
   }
   ipcMain.handle('usage', () => readUsage().catch(() => ({ agents: [] })));
 
+  /** Nudge the pal back inside its display's work area (its buttons were off the right edge for a user). */
+  function keepOnScreen() {
+    if (!win || win.isDestroyed()) return;
+    const b = win.getBounds();
+    const p = onScreen(b.x, b.y, b);
+    if (p && (p.x !== b.x || p.y !== b.y)) { win.setPosition(p.x, p.y); [prefs.x, prefs.y] = [p.x, p.y]; savePrefs(); }
+  }
   // Keep a saved position if it's still on a connected screen, nudged fully onto it.
   function onScreen(x, y, { width, height }) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;

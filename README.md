@@ -9,7 +9,7 @@
 A small floating pal that watches Claude Code, Codex or any agent and tells you, in plain words, what happened: which files changed, which commands ran, what failed, and what the agent says it did.
 
 ```bash
-npx --allow-git=all github:rikinshah787/dotpals setup
+npx dotpals setup
 ```
 
 <sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer.</sub>
@@ -114,8 +114,10 @@ In your own app it's one call: `registerCustom({ name: 'Pip', shape: 'bean', eye
 ### One command
 
 ```bash
-npx --allow-git=all github:rikinshah787/dotpals setup
+npx dotpals setup
 ```
+
+(Needs Node 20 or newer. To install straight from GitHub instead: `npx --allow-git=all github:rikinshah787/dotpals setup`.)
 
 That's all. It:
 
@@ -124,7 +126,7 @@ That's all. It:
 3. picks up Codex automatically, if it's installed,
 4. starts the pal, turns on *open when I log in*, and opens the dashboard.
 
-`--allow-git=all` lets npm 12 and newer install straight from GitHub; older npm ignores it. Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
+Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
 
 ### Only the Claude Code plugin
 
@@ -172,7 +174,7 @@ Send JSON to the local bridge from your agent loop, a hook script or a wrapper. 
 | **×** | Hide to the tray. The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
 | 🔊 | Sounds on or off |
 
-From a terminal, after setup (or with `npx --allow-git=all github:rikinshah787/dotpals <command>`):
+From a terminal, after setup (or with `npx dotpals <command>`):
 
 ```bash
 dotpals start       # open the floating pal

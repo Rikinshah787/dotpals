@@ -48,6 +48,17 @@ test('minimized, the bar hides while agents work; alerts and the top-edge peek s
   assert.equal(mode(s, 1400), 'bar');
 });
 
+test('minimize closes it in one click, also while it shows "just finished"', () => {
+  let s = run([[0, { type: 'agents', running: 1 }], [10, { type: 'alert', id: 'd', kind: 'done', session: 'x' }]]);
+  assert.equal(mode(s, 10), 'open');
+  s = reduce(s, { type: 'tuck', on: true }, 20);
+  assert.equal(mode(s, 20), 'hidden');
+  // Already minimized, open again: the same button (now "bring the bar back") closes it too.
+  s = reduce(s, { type: 'click' }, 30);
+  s = reduce(s, { type: 'tuck', on: false }, 40);
+  assert.equal(mode(s, 40), 'bar');
+});
+
 test('hovering the hidden strip peeks at once, opens after a dwell, and hides again if you leave', () => {
   let s = run([[0, inside]]);
   assert.equal(mode(s, 0), 'peek');

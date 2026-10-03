@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // dotpals command line.
 //
-//   npx --allow-git=all github:rikinshah787/dotpals setup     one command: install, connect your agents, start
+//   npx dotpals setup                         one command: install, connect your agents, start
 //   dotpals start                             open the floating pal
 //   dotpals dashboard                         open the dashboard
 //   dotpals status                            what's running and connected
@@ -145,10 +145,11 @@ async function setup(flags) {
   if (!flags.has('--no-login') && prefs.login !== false) extra.push('--open-at-login');
   if (flags.has('--no-start')) skip('Not starting the pal (--no-start)');
   else if (await bridgeUp()) {
-    // A pal from an older install is still up: it would keep running the old code, so restart it.
+    // The pal from before this install is still up: it would keep running the old code, so restart it.
+    // The same version too (a fix installed from a branch keeps the number); never a newer one.
     const running = await runningVersion();
     const installed = (() => { try { return JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8')).version; } catch { return null; } })();
-    if (running && installed && compareVersions(running, installed) < 0 && (await quitRunningApp())) {
+    if (running && installed && compareVersions(running, installed) <= 0 && (await quitRunningApp())) {
       if (startApp(extra)) ok(`Restarted the pal on ${installed} (it was running ${running})`);
       else warn('The old pal was closed, but the desktop runtime isn’t installed: run dotpals start');
     } else {
@@ -225,6 +226,12 @@ async function preferences(flags) {
     return a ? /^y/i.test(a) : def;
   };
   try {
+    // One question first. Default needs nothing else: Blu, the notch on, sounds, one-line
+    // summaries, no checker, open at login. Everything is changeable later in Settings.
+    console.log('');
+    const pal = loadConfig().character ?? 'blu'; // a reinstall keeps the pal you chose
+    const how = await pick('Set up dotpals:', [['default', `Default (recommended): ${pal[0].toUpperCase()}${pal.slice(1)}, the notch on, sounds, one-line summaries, opens at login`], ['custom', 'Customize: pick the pal, the notch, the test checker and more (about 9 questions)']], 'default');
+    if (how === 'default') { skip('Using the defaults (change any of them later: Dashboard → Settings)'); return answers; }
     console.log(`\n  ${bold('A few choices')} ${dim('(Enter keeps the one in brackets; change any later: Dashboard → Settings)')}\n`);
     const patch = {};
     patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte']], loadConfig().character ?? 'blu');
@@ -391,7 +398,7 @@ const flags = new Set(rest);
 switch (command) {
   case 'setup': await setup(flags); break;
   case 'start':
-    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx --allow-git=all github:rikinshah787/dotpals setup'); process.exitCode = 1; }
+    if (!startApp()) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
     break;
   case 'dashboard':
     // The app's own window when the desktop pal is installed (a running pal just opens it);
@@ -404,7 +411,7 @@ switch (command) {
   case 'statusline': statusline(flags); break;
   case 'notch':
     // The island at the top of the screen: every agent, its plan and your usage limits.
-    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx --allow-git=all github:rikinshah787/dotpals setup'); process.exitCode = 1; }
+    if (!startApp([flags.has('--off') ? '--no-notch' : flags.has('--auto') ? '--notch-auto' : '--notch'])) { console.log('The desktop runtime isn’t installed. Run: npx dotpals setup'); process.exitCode = 1; }
     break;
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge()); break;
   case 'laya': await laya(flags); break;

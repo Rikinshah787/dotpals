@@ -933,6 +933,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       for (const ctx of contexts.values()) res.write(`event: context\ndata: ${JSON.stringify(ctx)}\n\n`);
       for (const session of helpers.keys()) { const list = helperList(session); if (list.length) res.write(`event: helpers\ndata: ${JSON.stringify({ session, harness: sessions.get(session)?.harness, helpers: list })}\n\n`); }
       for (const item of approvals.values()) res.write(`event: approval\ndata: ${JSON.stringify({ ...approvalView(item), status: 'pending' })}\n\n`);
+      // Everything saved has been replayed: viewers can render once now instead of per entry.
+      res.write('event: ready\ndata: {}\n\n');
       clients.add(res);
       if (url.searchParams.get('answers') === '1') answerers.add(res);
       const ping = setInterval(() => res.write(': ping\n\n'), 15000);

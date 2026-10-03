@@ -884,14 +884,20 @@
       return node;
     }
 
-    /** Replace a node's children only when `key` changed, so live nodes keep their state. */
+    /**
+     * Replace a node's children only when `key` changed, so live nodes keep their state.
+     * A block that fails to build is left out (and logged): the rest still shows.
+     */
     function keyed(parent, items) {
       const old = new Map([...parent.children].map((c) => [c.dataset.k, c]));
       const next = items.filter(Boolean).map(({ key, make }) => {
         let n = old.get(key);
-        if (!n) { n = make(); n.dataset.k = key; }
+        if (!n) {
+          try { n = make(); } catch (err) { console.error('[dotpals] couldn’t show', key.split('|')[0], err); return null; }
+          n.dataset.k = key;
+        }
         return n;
-      });
+      }).filter(Boolean);
       if (next.length !== parent.children.length || next.some((n, i) => parent.children[i] !== n)) parent.replaceChildren(...next);
     }
 
@@ -1541,7 +1547,7 @@
       }
       if (!easy && flags.length) {
         const f = el('div', 'flags');
-        for (const x of flags.slice(0, 4)) { const d = el('div', `flag ${x.level}`, x.text); d.title = sentence(x.step); f.append(d); }
+        for (const x of flags.slice(0, 4)) { const d = el('div', `flag ${x.level}`, x.text); d.title = x.step ? sentence(x.step) : x.text; f.append(d); }
         box.append(f);
       }
       const review = reviewBlock(t, { live, waiting: s.state === 'waiting' });
