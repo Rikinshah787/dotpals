@@ -146,7 +146,8 @@ if (!app.requestSingleInstanceLock()) {
         width: 520, height: 720, minWidth: 380, minHeight: 420,
         x: area.x + Math.round((area.width - 520) / 2), y: area.y + 60,
         title: 'Talk to Blu', icon, backgroundColor: '#0b0b0e', autoHideMenuBar: true, alwaysOnTop: true,
-        webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false },
+        // Listening and speaking may start without a click here (the notch's mic, the shortcut).
+        webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
       });
       talk.webContents.setWindowOpenHandler(({ url }) => {
         if (/^https?:/i.test(url)) shell.openExternal(url);
@@ -159,7 +160,8 @@ if (!app.requestSingleInstanceLock()) {
     talk.show();
     talk.focus();
     if (listen) {
-      const go = () => talk.webContents.executeJavaScript('window.blu && window.blu.listen()').catch(() => {});
+      // As a user gesture, so audio may start.
+      const go = () => talk.webContents.executeJavaScript('window.blu && window.blu.listen()', true).catch(() => {});
       if (!ready) talk.webContents.once('did-finish-load', () => setTimeout(go, 400)); else go();
     }
   }

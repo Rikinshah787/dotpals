@@ -176,20 +176,29 @@
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
     catch (err) { status(`Blu can’t use the microphone (${esc(err.message)}). Check the system’s microphone privacy settings, or type instead.`, true); return; }
     const ctx = new AudioContext({ sampleRate: 16000 });
+    // Started without a click in this window (the notch's mic, the shortcut), audio can begin paused.
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+    if (ctx.state !== 'running') {
+      stream.getTracks().forEach((t) => t.stop()); ctx.close();
+      status('Click the mic to start: this window needs a click before it can listen.', true);
+      return;
+    }
     const source = ctx.createMediaStreamSource(stream);
     const node = ctx.createScriptProcessor(4096, 1, 1);
     const chunks = [];
     const started = performance.now();
     let floor = 0, frames = 0, heard = false, lastLoud = started;
-    rec = { stream, ctx, node, chunks };
+    rec = { stream, ctx, node, chunks, peak: 0, device: stream.getAudioTracks()[0]?.label ?? '' };
     node.onaudioprocess = (e) => {
       const d = e.inputBuffer.getChannelData(0);
       chunks.push(new Float32Array(d));
       let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
       const rms = Math.sqrt(sum / d.length);
+      if (rec) rec.peak = Math.max(rec.peak, rms);
       frames++;
       if (frames <= 3) floor = Math.max(floor, rms); // the room's own noise, before you speak
-      const loud = rms > Math.max(0.015, floor * 2.5);
+      // Capped: if you start talking at once, your voice isn't taken for the room's noise.
+      const loud = rms > Math.max(0.015, Math.min(floor, 0.02) * 2.5);
       $('mic').style.setProperty('--lvl', Math.min(1, rms * 12).toFixed(2));
       const now = performance.now();
       if (loud) { heard = true; lastLoud = now; }
@@ -212,12 +221,18 @@
     const total = r.chunks.reduce((n, c) => n + c.length, 0);
     const audio = new Float32Array(total);
     let at = 0; for (const c of r.chunks) { audio.set(c, at); at += c.length; }
+    const secs = (total / 16000).toFixed(1);
+    const mic = r.device ? ` (${esc(r.device)})` : '';
+    // Why nothing came out, so it can be fixed: no audio at all, or a silent microphone.
+    if (!total) { status(`No sound reached Blu from the microphone${mic}. Click the mic and try again.`, true); palState('idle'); $('mic').classList.remove('busy'); return; }
+    if (r.peak < 0.004) { status(`The microphone${mic} sent only silence for ${secs} s. Check Windows Settings → Privacy &amp; security → Microphone (“Let desktop apps access your microphone”), and that this is the right input device.`, true); palState('idle'); $('mic').classList.remove('busy'); return; }
     try {
       palState('thinking');
       status('Working out what you said…');
       const result = await (await recognizer())(audio);
-      const text = String(result?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim();
-      if (!text || /^(you|thank you\.?|thanks for watching!?)$/i.test(text)) { status('Blu didn’t catch that. Try again, or type it.'); palState('idle'); return; }
+      const heardRaw = String(result?.text ?? '').trim();
+      const text = heardRaw.replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim();
+      if (!text || /^(you|thank you\.?|thanks for watching!?)$/i.test(text)) { status(`Blu didn’t catch that: ${secs} s of sound${mic}, but no words${heardRaw ? ` (heard “${esc(heardRaw)}”)` : ''}. Try again a little closer, or type it.`); palState('idle'); return; }
       $('text').value = text;
       handle(text, { voice: true });
     } catch (err) {
