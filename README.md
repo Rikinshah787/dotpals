@@ -183,7 +183,36 @@ dotpals dashboard   # open the dashboard
 dotpals status      # what's running and connected
 dotpals doctor      # no pal or notch? checks and fixes it (setup runs the same check at the end)
 dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dashboard at http://127.0.0.1:5175/dashboard
+dotpals mcp         # an MCP server, so any assistant can ask dotpals what your agents did (see below)
 ```
+
+## Ask dotpals from any agent (MCP)
+
+`dotpals mcp` is an [MCP](https://modelcontextprotocol.io) server: Claude Code, Codex, Cursor and other assistants can ask dotpals what your agents really did, and get the evidence instead of the agent's word. It only reads, from the pal running on this computer, so keep dotpals running.
+
+```bash
+claude mcp add dotpals -- npx dotpals mcp
+```
+
+Codex, in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.dotpals]
+command = "npx"
+args = ["dotpals", "mcp"]
+```
+
+Cursor and others: command `npx`, arguments `dotpals mcp`.
+
+| Tool | Answers |
+| --- | --- |
+| `agents_now` | Which agents worked in the last 2 hours, on what, whether they're still at it, and how their tests stand |
+| `test_status` | Is it really tested? Passed or failed (read from the output), and whether code changed since |
+| `ready_to_merge` | The checks a reviewer would make: tests ran after the last change and passed, nothing left failing, nothing risky |
+| `recap` | What each agent was asked and did, request by request, with the files it changed (a project or a session, `since` a time) |
+| `check_my_work` | For the agent itself, before it says "done": "Looks done", or what to fix first |
+
+Ask things like "What are my agents doing?", "Is this really tested?" or "What did Codex change in billing this morning?". The project is the folder the assistant runs in, unless you name another. Only tests an agent ran count: dotpals can't see the ones you run yourself, or CI.
 
 ## Privacy
 
