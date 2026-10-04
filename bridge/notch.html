@@ -401,6 +401,9 @@
     // The first agent gets your pal (Settings → character, or the one you made),
     // the next ones the other characters in turn, like the floating pal does.
     let first = 'blu';
+    let customName = 'My pal';
+    /** Your pal's name, for Talk: "Lovi", or your own pal's name. */
+    const palName = () => (first === 'custom' ? customName : first.charAt(0).toUpperCase() + first.slice(1));
     const characters = new Map(); // session → character
     function characterFor(id) {
       if (!characters.has(id)) {
@@ -511,7 +514,7 @@
         schedule();
       } else if (type === 'config') {
         if (data.storyView === 'simple' || data.storyView === 'detailed') defaultView = data.storyView;
-        if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); }
+        if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); customName = data.custom.name ?? customName; }
         if (DotPal.characters.includes(data.character) && data.character !== first) {
           first = data.character;
           characters.clear();
@@ -565,7 +568,7 @@
     // Ctrl+Shift+Space (or the mic) opens the notch on Talk and listens (ui/voice.js). Blu turns
     // what you say into a plan with a definition of done, Claude does it in a new terminal, and
     // Blu checks the result (bridge/tasks.js). Each step keeps the notch open another minute.
-    const talk = { on: false, mode: 'idle', note: '', bad: false, said: '', plan: null, task: null, pr: null, pal: 'idle' };
+    const talk = { on: false, mode: 'idle', note: '', bad: false, said: '', answer: '', plan: null, task: null, pr: null, pal: 'idle' };
     // mode: idle | plan (waiting for "send it") | pr-offer | pr-confirm
     const voice = createVoice({
       status: (text, bad = false) => { talk.note = text; talk.bad = bad; keepOpen(); },
@@ -613,9 +616,16 @@
     }
     function makePlan(text, project) {
       return attempt(async () => {
-        Object.assign(talk, { plan: null, pr: null, bad: false, note: 'Writing the definition of done…', pal: 'thinking' });
+        Object.assign(talk, { plan: null, pr: null, answer: '', bad: false, note: 'Thinking…', pal: 'thinking' });
         keepOpen();
-        const { plan } = await api('/api/talk/plan', { text, project });
+        const { plan, reply } = await api('/api/talk/plan', { text, project, pal: palName() });
+        if (reply) { // just talk: say it back, and listen if it asked you something
+          Object.assign(talk, { answer: reply, note: '' });
+          keepOpen();
+          await speak(reply);
+          if (/\?\s*$/.test(reply) && !talk.plan) voice.listen();
+          return;
+        }
         Object.assign(talk, { plan, mode: 'plan', note: 'Say “send it”, add something, or “cancel”.' });
         keepOpen();
         const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '').replace(/^Nothing in/, 'nothing in')).join(', and ');
@@ -1146,7 +1156,7 @@
         { key: `name|${id}|${s?.label ?? kind}`, make: () => {
           const wrap = el('div');
           wrap.style.display = 'contents';
-          wrap.append(el('b', '', s ? harnessName(s.harness) : kind === 'talk' ? 'Blu' : 'dotpals'), el('small', '', s?.label ?? (kind === 'talk' ? 'Talk' : 'All quiet')));
+          wrap.append(el('b', '', s ? harnessName(s.harness) : kind === 'talk' ? palName() : 'dotpals'), el('small', '', s?.label ?? (kind === 'talk' ? 'Talk' : 'All quiet')));
           return wrap;
         } },
         s && { key: `state|${state}`, make: () => el('span', `chip ${['waiting', 'done', 'error'].includes(state) ? state : ''}`, stateWord[state] ?? state) },
@@ -1459,15 +1469,16 @@
     const TASK_WORDS = { starting: 'starting', working: 'working', ready: '✓ ready to merge', 'not-ready': '⚠ not ready', 'no-changes': 'no code changed', stopped: 'stopped' };
     function fillTalk(main) {
       const t = talk.task, p = talk.plan;
-      const key = JSON.stringify([voice.listening(), talk.mode, talk.note, talk.bad, talk.said, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url]);
+      const key = JSON.stringify([voice.listening(), talk.mode, talk.note, talk.bad, talk.said, talk.answer, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url]);
       keyed(main, [{ key: `talk|${key}`, make: () => {
         const card = el('div', `card ${talk.bad ? 'tone-error' : 'tone-work'}`);
         const head = el('div', 'card-head');
         const on = voice.listening();
-        head.append(el('b', '', 'Talk to Blu'), el('span', 'grow'), button(`btn${on ? ' allow' : ''}`, on ? 'Listening… stop' : 'Talk', () => (on ? voice.stop() : startTalk())));
+        head.append(el('b', '', `Talk to ${palName()}`), el('span', 'grow'), button(`btn${on ? ' allow' : ''}`, on ? 'Listening… stop' : 'Talk', () => (on ? voice.stop() : startTalk())));
         card.append(head);
         if (talk.note) card.append(el('p', 'asked', talk.note));
         if (talk.said) card.append(el('p', 'said', `“${talk.said}”`));
+        if (talk.answer) card.append(el('p', '', `${palName()}: ${talk.answer}`));
         const checks = (rows) => { const ul = el('ul', 'tchecks'); for (const [mark, cls, text] of rows) { const li = el('li', cls); li.append(el('b', '', mark), el('span', '', text)); ul.append(li); } return ul; };
         const actions = el('div', 'actions');
         if (p) {

@@ -55,7 +55,8 @@
 //   GET  /api/chat/projects → { projects: [{ path, name }] } folders agents worked in, newest first
 //   GET  /api/talk/projects          → { projects, claude } the folders a task can go to; is Claude Code installed
 //   GET  /api/talk/tasks             → { tasks } the tasks so far, newest first (also `task` events as they change)
-//   POST /api/talk/plan { text, project? }   your words → a plan with a definition of done (bridge/tasks.js)
+//   POST /api/talk/plan { text, project?, pal? }   your words → { plan } with a definition of done (bridge/tasks.js),
+//                        or { reply } when it was just talk (what the pal, named `pal`, says back)
 //   POST /api/talk/start { id, title?, task?, done?, project? }   start Claude Code on it in a new terminal
 //   POST /api/talk/fix { id }        → { text } a request for the agent to fix what isn't done (to paste)
 //   POST /api/talk/pr/plan { id }    → { pr } what opening a PR would do; POST /api/talk/pr/open { id } does it
@@ -505,7 +506,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const chosen = body.project ? knownProject(body.project) : null;
       if (body.project && !chosen) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
       try {
-        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects);
+        const name = typeof body.pal === 'string' && /^[\w .'-]{1,30}$/.test(body.pal) ? body.pal : 'Blu';
+        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name });
+        if (reply.chat) return json(res, 200, { reply: reply.chat }); // just talk: what the pal says back
         const plan = makePlan({ text, reply, projects, project: chosen });
         plans.set(plan.id, plan);
         for (const [id, p] of plans) if (Date.now() - p.createdAt > 30 * 60_000) plans.delete(id);

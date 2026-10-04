@@ -115,28 +115,32 @@ const safeRead = (read, f) => { try { return read(f); } catch { return ''; } };
 
 // -- the definition of done, from your own Claude ----------------------------------------
 
-export const PLAN_SYSTEM = `You turn a developer's request into a task for a coding agent (Claude Code) working in a software project.
-The request was spoken and transcribed, so fix obvious transcription mistakes (for example "pie test" means pytest, "get hub" means GitHub).
+export const PLAN_SYSTEM = `You are the developer's pal, a friendly little character who lives in the notch at the top of their screen (your name is given below). You hand their work to a coding agent (Claude Code) and check it when it's done.
+They spoke to you and it was transcribed, so fix obvious transcription mistakes (for example "pie test" means pytest, "get hub" means GitHub, "Blue" may be your name).
+If they're asking for work to be done in a project, it's a task. Anything else (hello, how are you, a question, small talk) is chat: answer them yourself, warmly and briefly, in one or two short spoken sentences with no Markdown, and if it fits, ask what they'd like Claude to work on.
 Reply with only a JSON object, no other text:
-{"title": "a short imperative title, at most 60 characters",
- "task": "the instructions for the agent: specific, in the developer's own terms, everything they asked for and nothing they didn't",
- "project": "the project's name if the developer named one of the known projects, else an empty string",
- "mustNotTouch": ["files or folders the developer said not to change, as paths relative to the project"],
- "doneAlso": ["other conditions for done that the developer asked for, each short; leave out running the tests, that is always added"]}
-Don't invent requirements. If the request is unclear, keep the developer's words in "task".`;
+{"kind": "task" or "chat",
+ "reply": "for chat, what you say back; for a task, an empty string",
+ "title": "for a task, a short imperative title, at most 60 characters",
+ "task": "for a task, the instructions for the agent: specific, in the developer's own terms, everything they asked for and nothing they didn't",
+ "project": "the project's name if they named one of the known projects, else an empty string",
+ "mustNotTouch": ["files or folders they said not to change, as paths relative to the project"],
+ "doneAlso": ["other conditions for done they asked for, each short; leave out running the tests, that is always added"]}
+For chat, leave the task fields empty. Don't invent requirements. If a task is unclear, keep their words in "task".`;
 
 export const PLAN_SCHEMA = {
   type: 'object',
   properties: {
+    kind: { type: 'string', enum: ['task', 'chat'] }, reply: { type: 'string' },
     title: { type: 'string' }, task: { type: 'string' }, project: { type: 'string' },
     mustNotTouch: { type: 'array', items: { type: 'string' } }, doneAlso: { type: 'array', items: { type: 'string' } },
   },
-  required: ['title', 'task', 'project', 'mustNotTouch', 'doneAlso'],
+  required: ['kind', 'reply', 'title', 'task', 'project', 'mustNotTouch', 'doneAlso'],
 };
 
-/** What the planner reads on stdin: the request, and the projects it can name. */
-export function plannerInput(text, projects) {
-  return [`Request: ${String(text).trim()}`, '', `Known projects: ${projects.map((p) => p.name).join(', ') || '(none)'}`].join('\n');
+/** What the planner reads on stdin: what was said, the pal's name, and the projects it can name. */
+export function plannerInput(text, projects, { name = 'Blu' } = {}) {
+  return [`They said: ${String(text).trim()}`, '', `Your name: ${name}`, `Known projects: ${projects.map((p) => p.name).join(', ') || '(none)'}`].join('\n');
 }
 
 const clean = (s, max) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -146,7 +150,10 @@ export function tidyPath(p) {
   return !s || s.split('/').includes('..') ? '' : s;
 }
 
-/** The planner's answer (`claude -p --output-format json`), as { title, task, project, mustNotTouch, doneAlso }; throws if it isn't one. */
+/**
+ * The planner's answer (`claude -p --output-format json`): { chat } when it was just talk (what to
+ * say back), else { title, task, project, mustNotTouch, doneAlso }; throws if it's neither.
+ */
 export function parsePlanReply(stdout) {
   let outer;
   try { outer = JSON.parse(String(stdout).trim()); } catch { throw new Error('Claude’s answer wasn’t JSON'); }
@@ -156,6 +163,10 @@ export function parsePlanReply(stdout) {
     const text = String(outer?.result ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
     const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
     try { plan = JSON.parse(json); } catch { throw new Error('Claude didn’t answer with a plan'); }
+  }
+  if (plan.kind === 'chat' || (!String(plan.task ?? '').trim() && String(plan.reply ?? '').trim())) {
+    const chat = clean(plan.reply, 400);
+    if (chat) return { chat };
   }
   const list = (a, max) => (Array.isArray(a) ? a : []).map((x) => clean(x, max)).filter(Boolean).slice(0, 8);
   const out = {
@@ -201,7 +212,7 @@ export function run(file, args, { cwd, input, timeoutMs = 60_000, env = agentEnv
 }
 
 /** Ask your Claude for the plan. */
-export async function askPlanner(text, projects, { claude = findOnPath('claude'), runner = run } = {}) {
+export async function askPlanner(text, projects, { name, claude = findOnPath('claude'), runner = run } = {}) {
   if (!claude) throw new Error('Claude Code isn’t installed (no `claude` on PATH)');
   const dir = join(home(), 'tasks');
   await mkdir(dir, { recursive: true });
@@ -209,7 +220,7 @@ export async function askPlanner(text, projects, { claude = findOnPath('claude')
   await writeFile(systemFile, PLAN_SYSTEM);
   // Through cmd (an npm-installed claude.cmd) a JSON argument can't be quoted safely: the system prompt asks for JSON instead.
   const viaCmd = process.platform === 'win32' && /\.(cmd|bat)$/i.test(claude);
-  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects), cwd: home(), timeoutMs: 90_000 });
+  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects, { name }), cwd: home(), timeoutMs: 90_000 });
   if (r.code !== 0 && !r.stdout.trim()) throw new Error(clean(r.stderr, 200) || `claude exited with ${r.code}`);
   return parsePlanReply(r.stdout);
 }

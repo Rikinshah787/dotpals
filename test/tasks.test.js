@@ -34,6 +34,9 @@ test('parsePlanReply: structured output, a JSON reply in text, errors', () => {
   assert.deepEqual(a.mustNotTouch, ['cart']); // tidied; ".." refused
   const b = parsePlanReply(JSON.stringify({ result: `\`\`\`json\n${JSON.stringify({ ...plan, title: '' })}\n\`\`\`` }));
   assert.equal(b.title, 'Fix checkout.spec'); // no title: from the task
+  // Just talk: what the pal says back, no plan.
+  const hi = { kind: 'chat', reply: 'Hi! I’m good. What should Claude work on?', title: '', task: '', project: '', mustNotTouch: [], doneAlso: [] };
+  assert.deepEqual(parsePlanReply(JSON.stringify({ structured_output: hi })), { chat: hi.reply });
   assert.throws(() => parsePlanReply(JSON.stringify({ is_error: true, result: 'Not logged in' })), /Not logged in/);
   assert.throws(() => parsePlanReply('nope'), /wasn’t JSON/);
   assert.throws(() => parsePlanReply(JSON.stringify({ structured_output: { ...plan, task: '' } })), /no task/);
