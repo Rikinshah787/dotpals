@@ -561,6 +561,7 @@ For contributors, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the 
 
 ## Roadmap
 
+- **The source of truth for every AI tool**: a dotpals MCP server, so Claude Code, Codex, Cursor and the Claude and ChatGPT apps can ask dotpals what your agents really did ("Is this PR really tested?", "What did Codex change in billing this morning?") and get the evidence, not the agent's word. Agents can check themselves before they say "done".
 - **"It's stuck" alerts**: a gentle ping when an agent goes in circles (no progress, the same file back and forth, a test that won't pass).
 - **Morning brief and weekly recap**: what your agents did, what's unfinished and what's failing, per project.
 - **Token use per request**, from the agents' own logs.
