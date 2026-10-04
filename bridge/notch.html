@@ -612,8 +612,21 @@
         if (NO.test(t) && few(t)) { talk.mode = 'idle'; talk.pr = null; keepOpen(); return speak(choose(['Okay, no PR for now.', 'Sure, I’ll leave it.'])); }
       }
       talk.mode = 'idle';
+      // Hello, thanks, bye: answered at once, without asking Claude.
+      // What's left without hellos and names: "Hey, hi, Blu. How are you?" → "how are you".
+      const skip = new Set(['hey', 'hi', 'hello', 'yo', 'hiya', 'there', 'blu', 'blue', 'buddy', 'pal', 'um', 'uh', 'okay', 'ok', palName().toLowerCase()]);
+      const core = t.toLowerCase().replace(/[^a-z' ]/g, ' ').split(/\s+/).filter((w) => w && !skip.has(w)).join(' ');
+      const quick = QUICK.find(([re]) => re.test(core));
+      if (quick) { const reply = choose(quick[1]).replace('{name}', palName()); Object.assign(talk, { answer: reply, plan: null, note: '' }); keepOpen(); return speak(reply).then(() => { if (/\?$/.test(reply)) voice.listen(); }); }
       return makePlan(t);
     }
+    const QUICK = [
+      [/^(good (morning|afternoon|evening))?$/, ['Hey! What should Claude work on?', 'Hi there! Ready when you are. What do you need?', 'Hey! What are we building today?']],
+      [/^(how are you( doing)?|how's it going|how is it going|what's up|what is up)$/, ['I’m good, thanks! What should Claude work on?', 'Doing great. What do you need?']],
+      [/^((thanks|thank you)( so much| a lot)?|cheers|nice|great|awesome|perfect|cool)$/, ['Anytime!', 'Happy to help!', 'You got it.']],
+      [/^(bye|goodbye|see you|see ya|later|good night)$/, ['See you!', 'Bye for now!']],
+      [/^(who are you|what's your name|what is your name|what can you do)$/, ['I’m {name}. Tell me what you want done, Claude does it, and I check the work before you merge. What should we start with?']],
+    ];
     function makePlan(text, project) {
       return attempt(async () => {
         Object.assign(talk, { plan: null, pr: null, answer: '', bad: false, note: 'Thinking…', pal: 'thinking' });

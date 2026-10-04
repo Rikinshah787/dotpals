@@ -220,7 +220,8 @@ export async function askPlanner(text, projects, { name, claude = findOnPath('cl
   await writeFile(systemFile, PLAN_SYSTEM);
   // Through cmd (an npm-installed claude.cmd) a JSON argument can't be quoted safely: the system prompt asks for JSON instead.
   const viaCmd = process.platform === 'win32' && /\.(cmd|bat)$/i.test(claude);
-  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects, { name }), cwd: home(), timeoutMs: 90_000 });
+  // No extended thinking: this is a quick call (it halves the wait, 11 s → 4.5 s for "hi").
+  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects, { name }), cwd: home(), timeoutMs: 90_000, env: { ...agentEnv(), MAX_THINKING_TOKENS: '0' } });
   if (r.code !== 0 && !r.stdout.trim()) throw new Error(clean(r.stderr, 200) || `claude exited with ${r.code}`);
   return parsePlanReply(r.stdout);
 }

@@ -131,7 +131,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       const now = performance.now();
       if (rms > Math.max(0.015, Math.min(floor, 0.02) * 2.5)) { said = true; lastLoud = now; }
       // Stop after a pause once you've spoken, after 7 s of nothing, or after a minute.
-      if ((said && now - lastLoud > 1400) || (!said && now - started > 7000) || now - started > 60_000) stop();
+      if ((said && now - lastLoud > 1000) || (!said && now - started > 7000) || now - started > 60_000) stop();
     };
     source.connect(node); node.connect(ctx.destination);
     // Your words as you speak, about once a second.
