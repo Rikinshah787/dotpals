@@ -504,13 +504,15 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (v.state === 'unclear' && v.reason !== 'no-tests') return unclearRun(event, session, label, step, v, check);
     if (v.state === 'passed') {
       // Green, but because the tests were changed, not the code: the bluff. Claude is told, the pal tells you.
-      const weak = !loopBluff.has(session) && weakenedTests([...turnSteps(session), { ...step, at: Date.now() }]);
-      if (weak) {
+      const weak = weakenedTests([...turnSteps(session), { ...step, at: Date.now() }]);
+      if (weak && !loopBluff.has(session)) {
         loopBluff.set(session, { text: weak.text, sentBack: false });
         sendLoop(session, label, 'bluff', `Claude changed the tests to make them pass: ${weak.text}.`);
         return loopNote(event, `dotpals: the tests pass now, but only after you changed them: ${weak.text}. Don’t weaken a test to make it pass: put it back and fix the code, or tell the user why the test itself was wrong.`);
       }
-      if (loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
+      // The test is back as it was, and it passes: the real fix.
+      if (!weak && loopBluff.has(session)) { loopBluff.delete(session); sendLoop(session, label, 'fixed', 'Fixed: the test is back and passes now ✓'); }
+      else if (loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
     }
     if (v.state !== 'failed') return null;
     // Claude's own change broke them: fix it. Nothing changed yet: maybe this request only asked how the tests stand.
@@ -534,12 +536,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (stopping && loopUnclear.has(session) && testState(turnSteps(session))?.state === 'unclear') askYou(session, label);
     // Finishing: only code this request changed is Claude's to fix. Shipping is held back either way.
     if (stopping && !changedCode(turnSteps(session))) return null;
-    // Made the tests pass by changing them: back once, to put the test back or say why it was wrong.
-    const bluff = loopBluff.get(session);
-    if (stopping && bluff && !bluff.sentBack) {
-      bluff.sentBack = true;
+    // The tests pass only because they were changed, as they stand now (a test put back doesn't
+    // count): back once, to put the test back or say why it was wrong.
+    const weak = stopping && weakenedTests(turnSteps(session));
+    if (weak && !loopBluff.get(session)?.sentBack) {
+      loopBluff.set(session, { text: weak.text, sentBack: true });
       sendLoop(session, label, 'sent-back', 'Claude changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.');
-      return { decision: 'block', reason: `dotpals: you made the tests pass by changing them (${bluff.text}). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.` };
+      return { decision: 'block', reason: `dotpals: you made the tests pass by changing them (${weak.text}). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.` };
     }
     const trouble = testTrouble(session);
     if (!trouble) return null;

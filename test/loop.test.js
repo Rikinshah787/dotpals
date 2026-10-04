@@ -277,6 +277,20 @@ test('the bluff: green because Claude changed the tests, not the code: told, you
   await quick.edit('test/math.test.js', 'assert.equal(sum(1, 2), 3);', 'assert.equal(sum(1, 2), -1);');
   assert.match((await quick.run('npm test', { output: PASSED })).hookSpecificOutput.additionalContext, /^dotpals: the tests pass now, but only after you changed them: changed what an assertion expects in math\.test\.js\./);
   assert.equal((await quick.stop()).decision, 'block');
+
+  // Caught, then put right: the skip taken out again and the code fixed. "Fixed", and it may finish.
+  const undo = claude(port, 'undo');
+  await undo.prompt();
+  await undo.run('npm test', { ok: false, output: FAILED });
+  await undo.edit('test/math.test.js', "test('sum adds two numbers', () => {", "test.skip('sum adds two numbers', () => {");
+  assert.match((await undo.run('npm test', { output: PASSED })).hookSpecificOutput.additionalContext, /turned 1 test off/);
+  await undo.edit('test/math.test.js', "test.skip('sum adds two numbers', () => {", "test('sum adds two numbers', () => {");
+  await undo.edit('math.js', 'return a - b;', 'return a + b;');
+  assert.deepEqual(await undo.run('npm test', { output: PASSED }), {});
+  assert.deepEqual(await undo.stop(), {}, 'the test is back: nothing to send it back for');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(events.list.filter((e) => e.session === 'undo').map((e) => e.kind), ['told', 'bluff', 'fixed']);
+  assert.equal(events.list.filter((e) => e.session === 'undo').at(-1).text, 'Fixed: the test is back and passes now ✓');
 });
 
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {

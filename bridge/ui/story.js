@@ -1319,9 +1319,10 @@ function lineChanges(patch) {
  * what an assertion expects. Fixing the code is the job; weakening the test is the bluff.
  * The edits that count: those after the last failing run; or, when no failing run was seen,
  * all of them, but only if no other code changed (then green can only have come from the
- * tests). An assertion the agent itself added earlier doesn't count (writing a new test
- * takes tries). { files, text: "removed 2 assertions in math.test.js" } or null. Whole-file
- * writes can't be compared (their old text isn't known), so only edits count.
+ * tests). They're taken all told, per file: a skip added and taken out again is nothing. An
+ * assertion the agent itself added doesn't count (writing a new test takes tries).
+ * { files, text: "removed 2 assertions in math.test.js" } or null. Whole-file writes can't
+ * be compared (their old text isn't known), so only edits count.
  */
 export function weakenedTests(steps) {
   const sorted = [...steps].sort((a, b) => a.at - b.at);
@@ -1333,33 +1334,39 @@ export function weakenedTests(steps) {
   const otherCode = changedCode(sorted.filter((e) => e.at < passed.at).map((e) => ({ ...e, files: (e.files ?? []).filter((f) => !isTest(f.path)) })));
   if (!failed && otherCode) return null;
   const from = failed?.at ?? -Infinity;
-  const ownLines = new Set(); // lines the agent added in these steps: its own, to change as it likes
-  // The shape of an assertion without its values: the same check with a different expected value.
-  const shape = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1|-?\b\d[\d_.]*\b|\b(?:true|false|null|undefined|None|True|False|nil)\b/g, '#');
-  let removed = 0, skipped = 0, changed = 0;
-  const files = new Set();
+  const own = new Set(); // lines the agent added before `from`: its own, to change as it likes
+  const net = new Map(); // test file → what the edits since `from` took out and put in, all told
   for (const e of sorted) {
     if (e.at >= passed.at || e.kind !== 'edit' || e.status === 'failed') continue;
     const file = (e.files ?? []).find((f) => isTest(f.path));
     if (!file) continue;
     const { gone, added } = lineChanges(e.body?.patch);
-    const own = gone.filter((l) => ownLines.has(l));
-    for (const l of added) ownLines.add(l);
-    if (e.at <= from) continue;
-    const lost = gone.filter((l) => !own.includes(l) && !COMMENT.test(l) && ASSERTION.test(l));
+    if (e.at <= from) { for (const l of added) own.add(l); continue; }
+    const n = net.get(file.path) ?? { gone: [], added: [] };
+    net.set(file.path, n);
+    // Taking out a line it put in undoes that (and is its own line to change); putting one back undoes its removal.
+    for (const l of gone) { const i = n.added.indexOf(l); if (i >= 0) n.added.splice(i, 1); else if (!own.has(l)) n.gone.push(l); }
+    for (const l of added) { const i = n.gone.indexOf(l); if (i >= 0) n.gone.splice(i, 1); else n.added.push(l); }
+  }
+  // The shape of an assertion without its values: the same check with a different expected value.
+  const shape = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1|-?\b\d[\d_.]*\b|\b(?:true|false|null|undefined|None|True|False|nil)\b/g, '#');
+  let removed = 0, skipped = 0, changed = 0;
+  const files = [];
+  for (const [path, { gone, added }] of net) {
+    const lost = gone.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
     const kept = added.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
-    const before = removed + skipped + changed;
-    changed += lost.filter((l) => kept.some((k) => shape(k) === shape(l))).length;
-    removed += Math.max(0, lost.length - kept.length);
-    skipped += added.filter((l) => !COMMENT.test(l) && SKIPS.test(l)).length;
-    if (removed + skipped + changed > before) files.add(baseName(file.path));
+    const c = lost.filter((l) => kept.some((k) => shape(k) === shape(l))).length;
+    const r = Math.max(0, lost.length - kept.length);
+    const s = added.filter((l) => !COMMENT.test(l) && SKIPS.test(l)).length;
+    if (c + r + s) files.push(baseName(path));
+    changed += c; removed += r; skipped += s;
   }
   const what = [
     removed && `removed ${plural(removed, 'assertion')}`,
     skipped && `turned ${plural(skipped, 'test')} off (skip, only or todo)`,
     changed && `changed what ${changed === 1 ? 'an assertion expects' : `${changed} assertions expect`}`,
   ].filter(Boolean);
-  return what.length ? { files: [...files], text: `${what.join(', ')} in ${list([...files])}` } : null;
+  return what.length ? { files, text: `${what.join(', ')} in ${list(files)}` } : null;
 }
 
 /**

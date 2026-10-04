@@ -687,6 +687,10 @@ test('weakenedTests: green because the tests were changed (taken out, commented 
   // An assertion it wrote itself in these steps, then corrected: writing a test takes tries.
   const own = [fail(), change('});', "  assert.equal(sum(2, 2), 5);\n});")(), change('  assert.equal(sum(2, 2), 5);', '  assert.equal(sum(2, 2), 4);')(), pass()];
   assert.equal(weakenedTests(own), null);
+  // Undone: a skip added (green with it), then taken out again and the code fixed: nothing left to flag.
+  const undo = [fail(), change("test('sum', () => {", "test.skip('sum', () => {")(), pass(), change("test.skip('sum', () => {", "test('sum', () => {")(), change('return a - b;', 'return a + b;', 'math.js')(), pass()];
+  assert.equal(weakenedTests(undo.slice(0, 3)).text, 'turned 1 test off (skip, only or todo) in math.test.js');
+  assert.equal(weakenedTests(undo), null);
   // Tests written first, failing, then the code: test-driven work, not a bluff.
   const first = change(SUM, "test('sum', () => {\n});")();
   assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);
