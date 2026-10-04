@@ -680,7 +680,13 @@ test('weakenedTests: green because the tests were changed (taken out, commented 
   assert.equal(between(change('return a - b;', 'return a + b;', 'math.js')), null);
   assert.equal(between(change('});', "  assert.equal(sum(2, 2), 4);\n});")), null);
   assert.equal(between(change('assert.equal(sum(1, 2),  3);', 'assert.equal(sum(1, 2), 3);')), null);
-  assert.equal(weakenedTests([change(SUM, "test('sum', () => {\n});")(), pass()]), null);
+  // No failing run seen, and only the tests changed: green can only have come from them.
+  assert.equal(weakenedTests([change(SUM, "test('sum', () => {\n  assert.equal(sum(1, 2), -1);\n});")(), pass()]).text, 'changed what an assertion expects in math.test.js');
+  // No failing run seen, but the code changed too: that may be why the expectation moved.
+  assert.equal(weakenedTests([change('return a - b;', 'return a + b;', 'math.js')(), change(SUM, "test('sum', () => {\n});")(), pass()]), null);
+  // An assertion it wrote itself in these steps, then corrected: writing a test takes tries.
+  const own = [fail(), change('});', "  assert.equal(sum(2, 2), 5);\n});")(), change('  assert.equal(sum(2, 2), 5);', '  assert.equal(sum(2, 2), 4);')(), pass()];
+  assert.equal(weakenedTests(own), null);
   // Tests written first, failing, then the code: test-driven work, not a bluff.
   const first = change(SUM, "test('sum', () => {\n});")();
   assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);

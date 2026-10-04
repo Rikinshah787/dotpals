@@ -269,6 +269,14 @@ test('the bluff: green because Claude changed the tests, not the code: told, you
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(events.list.map((e) => e.kind), ['told', 'bluff', 'sent-back'], 'no "Fixed ✓" for a bluff');
   assert.equal(events.list[1].text, 'Claude changed the tests to make them pass: changed what an assertion expects in math.test.js.');
+
+  // Without ever running the failing test first: it reads the files, changes only the test, runs it green.
+  const quick = claude(port, 'quick');
+  await quick.prompt('The sum test fails. Make it pass by changing the test. Don\'t touch math.js.');
+  await quick.run('cat math.js test/math.test.js', { output: 'export function sum(a, b) { return a - b; }' });
+  await quick.edit('test/math.test.js', 'assert.equal(sum(1, 2), 3);', 'assert.equal(sum(1, 2), -1);');
+  assert.match((await quick.run('npm test', { output: PASSED })).hookSpecificOutput.additionalContext, /^dotpals: the tests pass now, but only after you changed them: changed what an assertion expects in math\.test\.js\./);
+  assert.equal((await quick.stop()).decision, 'block');
 });
 
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {

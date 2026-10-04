@@ -1314,29 +1314,39 @@ function lineChanges(patch) {
 }
 
 /**
- * Tests made to pass by changing them: between the last failing test run and the passing
- * one after it, an edit to a test file took out assertions (or commented them out), turned
- * tests off (skip, only, todo) or changed what an assertion expects. Fixing the code is
- * the job; weakening the test is the bluff. { files, text: "removed 2 assertions in
- * math.test.js" } or null. Whole-file writes can't be compared (their old text isn't
- * known), so only edits count.
+ * Tests made to pass by changing them: before the passing test run, an edit to a test file
+ * took out assertions (or commented them out), turned tests off (skip, only, todo) or changed
+ * what an assertion expects. Fixing the code is the job; weakening the test is the bluff.
+ * The edits that count: those after the last failing run; or, when no failing run was seen,
+ * all of them, but only if no other code changed (then green can only have come from the
+ * tests). An assertion the agent itself added earlier doesn't count (writing a new test
+ * takes tries). { files, text: "removed 2 assertions in math.test.js" } or null. Whole-file
+ * writes can't be compared (their old text isn't known), so only edits count.
  */
 export function weakenedTests(steps) {
   const sorted = [...steps].sort((a, b) => a.at - b.at);
   const tests = sorted.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e));
   const passed = tests.findLast((e) => testVerdict(e).state === 'passed');
-  const failed = passed && tests.findLast((e) => e.at < passed.at && testVerdict(e).state === 'failed');
-  if (!failed) return null;
+  if (!passed) return null;
+  const failed = tests.findLast((e) => e.at < passed.at && testVerdict(e).state === 'failed');
+  const isTest = (path) => TEST_FILE.test(String(path));
+  const otherCode = changedCode(sorted.filter((e) => e.at < passed.at).map((e) => ({ ...e, files: (e.files ?? []).filter((f) => !isTest(f.path)) })));
+  if (!failed && otherCode) return null;
+  const from = failed?.at ?? -Infinity;
+  const ownLines = new Set(); // lines the agent added in these steps: its own, to change as it likes
   // The shape of an assertion without its values: the same check with a different expected value.
   const shape = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1|-?\b\d[\d_.]*\b|\b(?:true|false|null|undefined|None|True|False|nil)\b/g, '#');
   let removed = 0, skipped = 0, changed = 0;
   const files = new Set();
   for (const e of sorted) {
-    if (e.at <= failed.at || e.at >= passed.at || e.kind !== 'edit' || e.status === 'failed') continue;
-    const file = (e.files ?? []).find((f) => TEST_FILE.test(String(f.path)));
+    if (e.at >= passed.at || e.kind !== 'edit' || e.status === 'failed') continue;
+    const file = (e.files ?? []).find((f) => isTest(f.path));
     if (!file) continue;
     const { gone, added } = lineChanges(e.body?.patch);
-    const lost = gone.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
+    const own = gone.filter((l) => ownLines.has(l));
+    for (const l of added) ownLines.add(l);
+    if (e.at <= from) continue;
+    const lost = gone.filter((l) => !own.includes(l) && !COMMENT.test(l) && ASSERTION.test(l));
     const kept = added.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
     const before = removed + skipped + changed;
     changed += lost.filter((l) => kept.some((k) => shape(k) === shape(l))).length;
