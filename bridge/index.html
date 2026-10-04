@@ -1171,12 +1171,12 @@
 
     function applyState(update) {
       touchSession(update);
-      idleSince = Date.now(); // a fresh spell: the treat's clock (and any showing treat) resets
-      $('empty-pal').hideFood?.();
       if (document.body.classList.contains('compact') && slots.has(update.session) && slots.get(update.session).el.hidden !== !slotShown(update.session)) queueMicrotask(() => { syncSlots(); renderSessions(); });
       stateSound(update);
       scheduleRecap();
       const slot = slotFor(update);
+      treatSince.delete(slot.pal); // a fresh event: the treat's clock resets for this pal
+      slot.pal.hideFood?.();
       slot.pal.setState(update.state, { text: bubbleText(update) });
       if (update.state === 'sleeping') {
         setTimeout(() => {
@@ -1205,19 +1205,43 @@
     }, 20_000);
 
     // -- feeding the idle pal --------------------------------------------------------
-    // After 60 s with no agent, the pal gets a cookie. Clicking it feeds the pal
-    // (a happy hop + chomp + hearts). It re-appears only when a fresh idle spell starts.
-    const TREAT_AFTER = 60_000;
-    let idleSince = Date.now(); // when the pal went quiet (no active agent)
+    // After 60 s of idling (no active agent on that pal), a little treat appears
+    // beside it. Clicking it feeds the pal (a happy hop + chomp + hearts).
+    // Works on any visible pal: the empty pal when no agents are connected, or
+    // an agent's pal when its session is quiet. One treat per idle spell.
+    const TREAT_AFTER = 180_000; // 3 minutes of idling before a treat appears
+    const treatSince = new Map(); // pal element -> when it went idle
+    function visiblePal() {
+      if (!slots.size) {
+        const p = $('empty-pal');
+        return p && !$('empty').hidden ? p : null;
+      }
+      for (const slot of slots.values()) {
+        if (!slot.el.hidden && slot.pal.state !== 'sleeping') return slot.pal;
+      }
+      return null;
+    }
+    function tickFood() {
+      const pal = visiblePal();
+      if (!pal) { treatSince.clear(); return; }
+      let active = false;
+      if (pal === $('empty-pal')) {
+        active = anyActive();
+      } else {
+        for (const [id, sl] of slots) {
+          if (sl.pal === pal) { active = ACTIVE.includes(sessions.get(id)?.state); break; }
+        }
+      }
+      if (active || pal.state === 'sleeping') {
+        if (treatSince.get(pal)) { treatSince.delete(pal); pal.hideFood?.(); }
+        return;
+      }
+      if (!treatSince.has(pal)) treatSince.set(pal, Date.now());
+      if (Date.now() - treatSince.get(pal) >= TREAT_AFTER) pal.showFood?.();
+    }
     function anyActive() {
       for (const s of sessions.values()) if (ACTIVE.includes(s.state)) return true;
       return false;
-    }
-    function tickFood() {
-      const pal = $('empty-pal');
-      if (!pal) return;
-      if (anyActive() || $('empty').hidden || slots.size) { pal.hideFood?.(); return; } // an agent is here or the pal is away
-      if (Date.now() - idleSince >= TREAT_AFTER) pal.showFood?.(); // once per idle spell (showFood guards re-shows)
     }
 
     // Electron on Windows keeps the old drag regions after the window resizes, so
@@ -2242,8 +2266,9 @@
           if (slot.el.hidden) continue;
           add(slot.pal);
           add(slot.pal.shadowRoot?.querySelector('.dp-bubble.dp-show'));
+          add(slot.pal.shadowRoot?.querySelector('.dp-food:not([hidden])'));
         }
-        if (!$('empty').hidden) { add($('empty-pal')); add($('empty-pal').shadowRoot?.querySelector('.dp-bubble.dp-show')); }
+        if (!$('empty').hidden) { add($('empty-pal')); add($('empty-pal').shadowRoot?.querySelector('.dp-bubble.dp-show')); add($('empty-pal').shadowRoot?.querySelector('.dp-food:not([hidden])')); }
         const key = JSON.stringify(rects);
         if (key !== lastAreas) { lastAreas = key; desktop.setSolidAreas?.(rects); }
       }
