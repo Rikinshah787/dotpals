@@ -126,6 +126,7 @@ test('an unclear test run: the checker you chose decides (a fake Laya that says 
   await setConfig({ checker: { mode: 'local', localUrl: `http://127.0.0.1:${laya.address().port}` } });
   const s = claude(port, 'checked');
   await s.prompt();
+  await s.edit('math.js');
   const told = await s.run('npm test', { output: 'Traceback (most recent call last):\nImportError: no module' });
   assert.equal(told.hookSpecificOutput.additionalContext, 'dotpals: Laya thinks this test run failed (90% sure). Fix it before you finish; dotpals checks again when you stop.');
 });
@@ -149,6 +150,7 @@ test('Stop: sent back while the tests fail or are out of date, at most twice per
   assert.deepEqual(await s.stop(), {});
   // Your next prompt starts the count again.
   await s.prompt('try again');
+  await s.edit('math.js');
   await s.run('npm test', { ok: false, output: FAILED });
   assert.equal((await s.stop()).decision, 'block');
 
@@ -185,6 +187,25 @@ test('Stop: sent back while the tests fail or are out of date, at most twice per
   assert.deepEqual(kinds('stale'), ['sent-back']);
   assert.deepEqual(kinds('untested'), []);
   assert.deepEqual(kinds('passing'), []);
+});
+
+test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const events = await loopEvents(port);
+  t.after(events.stop);
+  const s = claude(port, 'report');
+  await s.prompt('Run the tests and tell me the result. Don\'t change code.');
+  const told = await s.run('npm test', { ok: false, output: FAILED });
+  assert.match(told.hookSpecificOutput.additionalContext, /^dotpals: this test run failed \(1 failed, 1 passed.*\)\. If fixing it is part of this request, fix it and run the tests again\.$/);
+  // The failure isn't Claude's doing: it reports it and stops, never sent back.
+  assert.deepEqual(await s.stop(), {});
+  // Shipping failing tests is held back all the same.
+  assert.equal((await s.ship()).hookSpecificOutput.permissionDecision, 'deny');
+
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(events.list.map((e) => e.kind), ['told', 'blocked-ship']);
+  assert.match(events.list[0].text, /^Tests failed \(.+\)\.$/);
 });
 
 test('commit or push: denied while the tests fail or are out of date, allowed once they pass', async (t) => {

@@ -71,7 +71,7 @@ import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, lastReply, resultText, watchClaude } from './adapters/claude.js';
-import { checkOf, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
+import { changedCode, checkOf, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
 import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -419,6 +419,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   //     away, as context. Unclear → the checker is asked first, when one is on.
   //   Claude tries to finish (Stop) or to commit or push (PreToolUse): while this request's
   //     tests fail, or weren't run after its last change, it's sent back with what to do.
+  //     Finishing is only held up when this request changed code: one that only runs the
+  //     tests (or says not to change code) may report a failure and stop.
   // At most twice per request (the count starts again with your next prompt), then it's let go
   // and you're told. Untested work is never held up: not every project has tests. Each step
   // is a `loop` event, which the pal says and the notch shows.
@@ -472,9 +474,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }
     if (v.state === 'passed' && loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
     if (v.state !== 'failed') return null;
-    sendLoop(session, label, 'told', checked ? `${checked.who} thinks the tests failed. Told Claude to fix them.` : `Tests failed (${failedWords(v)}). Told Claude to fix them.`);
+    // Claude's own change broke them: fix it. Nothing changed yet: maybe this request only asked how the tests stand.
+    const mine = changedCode(turnSteps(session));
+    sendLoop(session, label, 'told', `${checked ? `${checked.who} thinks the tests failed.` : `Tests failed (${failedWords(v)}).`}${mine ? ' Told Claude to fix them.' : ''}`);
     const what = checked ? `${checked.who} thinks this test run failed (${checked.sure}% sure)` : `this test run failed (${failedWords(v)})`;
-    return { hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: `dotpals: ${what}. Fix it before you finish; dotpals checks again when you stop.` } };
+    const next = mine ? 'Fix it before you finish; dotpals checks again when you stop.' : 'If fixing it is part of this request, fix it and run the tests again.';
+    return { hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: `dotpals: ${what}. ${next}` } };
   }
 
   /** Claude is about to stop (Stop) or to commit or push (PreToolUse): send it back while the tests fail or are out of date. */
@@ -485,6 +490,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (d && (stepType(d) !== 'ship' || !/\bgit\s+(commit|push)\b|\bgh\s+pr\s+create\b|\bnpm\s+publish\b/i.test(d.body?.command ?? ''))) return null;
     // The activity hook reports the last steps alongside: give it a moment to finish them.
     for (let i = 0; stopping && i < 10 && turnSteps(session).some((e) => e.status === 'running'); i++) await new Promise((r) => setTimeout(r, 100));
+    // Finishing: only code this request changed is Claude's to fix. Shipping is held back either way.
+    if (stopping && !changedCode(turnSteps(session))) return null;
     const trouble = testTrouble(session);
     if (!trouble) return null;
     const times = loopBlocks.get(session) ?? 0;
