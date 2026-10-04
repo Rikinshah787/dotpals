@@ -131,41 +131,6 @@ export const actions = {
       { transform: 'rotateY(720deg) scale(1, 1)' },
     ],
   },
-  // Three quick little hops, each a little lower, like it can't sit still.
-  'playful-hop': {
-    duration: 1250,
-    easing: 'linear',
-    keyframes: [
-      { transform: squashStretch(0, 1, 1), easing: 'cubic-bezier(.3,.6,.5,1)' },
-      { transform: squashStretch(0, 1.08, 0.92), offset: 0.07, easing: 'cubic-bezier(.2,.8,.3,1)' },
-      { transform: squashStretch(-11, 0.95, 1.06), offset: 0.2, easing: 'cubic-bezier(.6,0,.9,.5)' },
-      { transform: squashStretch(1.5, 1.08, 0.92), offset: 0.34, easing: 'cubic-bezier(.3,.7,.4,1)' },
-      { transform: squashStretch(0, 1, 1), offset: 0.4 },
-      { transform: squashStretch(0, 1.07, 0.93), offset: 0.48, easing: 'cubic-bezier(.2,.8,.3,1)' },
-      { transform: squashStretch(-9, 0.96, 1.05), offset: 0.6, easing: 'cubic-bezier(.6,0,.9,.5)' },
-      { transform: squashStretch(1, 1.06, 0.93), offset: 0.73, easing: 'cubic-bezier(.3,.7,.4,1)' },
-      { transform: squashStretch(0, 1, 1), offset: 0.78 },
-      { transform: squashStretch(0, 1.05, 0.95), offset: 0.85, easing: 'cubic-bezier(.2,.8,.3,1)' },
-      { transform: squashStretch(-6, 0.97, 1.03), offset: 0.93, easing: 'ease-in-out' },
-      { transform: squashStretch(0, 1, 1) },
-    ],
-  },
-  // A small excited hop, then a quick "chomp" (squash and spring back) with a happy face.
-  feed: {
-    duration: 1000,
-    easing: 'linear',
-    keyframes: [
-      { transform: squashStretch(0, 1, 1), easing: 'cubic-bezier(.3,.6,.5,1)' },
-      { transform: squashStretch(0, 1.07, 0.93), offset: 0.1, easing: 'cubic-bezier(.2,.8,.3,1)' },
-      { transform: squashStretch(-12, 0.95, 1.07), offset: 0.26, easing: 'cubic-bezier(.6,0,.9,.5)' },
-      { transform: squashStretch(0, 1.08, 0.9), offset: 0.42, easing: 'cubic-bezier(.3,.7,.4,1)' },
-      // the chomp: a quick squash toward the ground and a spring back
-      { transform: 'scale(1.04, .88)', offset: 0.58 },
-      { transform: 'scale(.94, 1.06)', offset: 0.72 },
-      { transform: 'scale(1.03, .97)', offset: 0.84 },
-      { transform: squashStretch(0, 1, 1) },
-    ],
-  },
 };
 
 /** Add (or replace) an action usable with `pal.play(name)`. */

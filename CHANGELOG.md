@@ -13,9 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Answer OpenCode from the pal.** Permission requests (Allow, Always, Deny) and questions (tap a choice, type your own, or skip) from sessions started in the pal show as cards over it, in small mode too, with a sound and a notification when the window isn't focused. If OpenCode stops, its cards close. `POST /api/chat/answer`, `ocask` events.
 - **"What are we working on today?"** With chat on, tray → *Start working…* asks which project (folders your agents worked in recently, or any folder), then what to do there, and starts an OpenCode session in that folder. Tray → *Greet me when dotpals starts* (off by default) asks every time dotpals starts. `GET /api/chat/projects`.
 - **Pal size.** Make the pal 50–150% in small mode: Dashboard → Settings → *Pal size*, tray → *Pal size* (Small, Normal, Large), or Ctrl+scroll over the pal (Cmd on macOS; a plain scroll never resizes it). Above 100% the small window grows to fit.
-- **Your name in the greeting.** Set your name in Dashboard → Settings → *Your name (for greetings)* and the pal says "Good morning, Ade!" instead of "Good morning!".
-- **The pal can't sit still.** While it's idling (no agent working), it does a little playful hop every so often — three quick little bounces, each a touch lower, like it can't sit still. Respects reduced motion.
-- **Feed the pal.** After 60 seconds of idling with no agent, a little cookie appears beside the pal. Click it to feed the pal: it does an excited hop, a quick "chomp", gets a happy face for a moment, and a few hearts pop. One treat per idle spell; the next agent event or a new idle spell resets it.
 
 ### Fixed
 

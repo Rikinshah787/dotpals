@@ -101,7 +101,7 @@ test('custom pals get eye anchors from their shape', () => {
 });
 
 test('new actions exist and settle back where they started', () => {
-  for (const name of ['hop', 'jitter', 'hello', 'dizzy', 'playful-hop', 'feed']) {
+  for (const name of ['hop', 'jitter', 'hello', 'dizzy']) {
     const a = actions[name];
     assert.ok(a && a.keyframes.length > 2 && a.duration > 0, name);
     const offsets = a.keyframes.map((k) => k.offset).filter((o) => o != null);
@@ -111,8 +111,6 @@ test('new actions exist and settle back where they started', () => {
   assert.equal(actions.jitter.keyframes.at(-1).transform, 'translateX(0)');
   assert.match(actions.hello.keyframes[0].transform, /translateY\(80%\)/); // starts below the ledge
   assert.match(actions.hello.keyframes.at(-1).transform, /translateY\(0\) scale\(1, 1\)/);
-  assert.match(actions['playful-hop'].keyframes.at(-1).transform, /translateY\(0%\) scale\(1, 1\)/);
-  assert.match(actions.feed.keyframes.at(-1).transform, /translateY\(0%\) scale\(1, 1\)/);
   assert.equal(actions.love.particles, 'heart');
 });
 

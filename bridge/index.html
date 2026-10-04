@@ -1171,8 +1171,6 @@
 
     function applyState(update) {
       touchSession(update);
-      idleSince = Date.now(); // a fresh spell: the treat's clock (and any showing treat) resets
-      $('empty-pal').hideFood?.();
       if (document.body.classList.contains('compact') && slots.has(update.session) && slots.get(update.session).el.hidden !== !slotShown(update.session)) queueMicrotask(() => { syncSlots(); renderSessions(); });
       stateSound(update);
       scheduleRecap();
@@ -1198,27 +1196,7 @@
         if (!s || ACTIVE.includes(s.state) || Date.now() - s.lastAt < DOZE || slot.pal.state === 'sleeping') continue;
         slot.pal.setState('sleeping');
       }
-      // The empty pal has been waiting a minute with no agent: a little treat appears
-      // beside it so you can feed it. One treat per idle spell; the next event or the
-      // doze takes it away.
-      tickFood();
     }, 20_000);
-
-    // -- feeding the idle pal --------------------------------------------------------
-    // After 60 s with no agent, the pal gets a cookie. Clicking it feeds the pal
-    // (a happy hop + chomp + hearts). It re-appears only when a fresh idle spell starts.
-    const TREAT_AFTER = 60_000;
-    let idleSince = Date.now(); // when the pal went quiet (no active agent)
-    function anyActive() {
-      for (const s of sessions.values()) if (ACTIVE.includes(s.state)) return true;
-      return false;
-    }
-    function tickFood() {
-      const pal = $('empty-pal');
-      if (!pal) return;
-      if (anyActive() || $('empty').hidden || slots.size) { pal.hideFood?.(); return; } // an agent is here or the pal is away
-      if (Date.now() - idleSince >= TREAT_AFTER) pal.showFood?.(); // once per idle spell (showFood guards re-shows)
-    }
 
     // Electron on Windows keeps the old drag regions after the window resizes, so
     // buttons, tabs and links stop taking clicks. Nudging a drag region makes it re-measure.
@@ -2037,10 +2015,7 @@
     // Settings live in ~/.dotpals/config.json; the bridge sends them, and we save changes back.
     const sameOrigin = location.protocol.startsWith('http');
     const saveConfig = (patch) => sameOrigin && fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
-    // Your name, for the greeting ("Good morning, Ade!"): '' = not set.
-    let greetName = '';
     function applyConfig(config) {
-      greetName = typeof config.name === 'string' ? config.name : '';
       // How requests read by default (chosen at setup), unless you've picked a view here.
       if (!pickedView() && (config.storyView === 'simple' || config.storyView === 'detailed') && config.storyView !== recapView) { recapView = config.storyView; scheduleRecap(); }
       if (typeof config.sounds === 'boolean' && config.sounds !== sound.on) { sound.on = config.sounds; syncSoundButton(); }
@@ -2326,8 +2301,7 @@
       const api = sameOrigin ? '' : 'http://127.0.0.1:5175';
       const greeting = () => {
         const h = new Date().getHours();
-        const time = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-        return greetName ? `${time}, ${greetName}` : time;
+        return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
       };
       const close = () => { box.hidden = true; box.replaceChildren(); };
       const btn = (cls, text, onclick) => { const b = el('button', cls, text); b.type = 'button'; b.onclick = onclick; return b; };

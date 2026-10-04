@@ -60,20 +60,6 @@ const EMOTE_FACES = {
 };
 export const EMOTES = Object.keys(EMOTE_FACES);
 
-/** @internal A little cookie, for the "feed me" treat. */
-const FOOD_SVG =
-  '<svg viewBox="0 0 40 40" aria-hidden="true">' +
-  '<circle cx="20" cy="20" r="16" fill="#e0a866"/>' +
-  '<circle cx="20" cy="20" r="16" fill="none" stroke="#b97b3c" stroke-width="2"/>' +
-  '<circle cx="14" cy="14" r="2.4" fill="#8a5a2b"/>' +
-  '<circle cx="24" cy="12" r="2.4" fill="#8a5a2b"/>' +
-  '<circle cx="12" cy="23" r="2.4" fill="#8a5a2b"/>' +
-  '<circle cx="22" cy="24" r="2.4" fill="#8a5a2b"/>' +
-  '<circle cx="28" cy="20" r="2.4" fill="#8a5a2b"/>' +
-  '<circle cx="18" cy="30" r="2.4" fill="#8a5a2b"/>' +
-  '<path d="M11 11 Q15 7 21 8" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="2.4" stroke-linecap="round"/>' +
-  '</svg>';
-
 // Expression eyes that still blink (the rest are already "closed" shapes).
 const BLINKY = new Set(['wide', 'heart', 'star']);
 const INK = '#0b0b12';
@@ -461,33 +447,6 @@ const styles = `
     transform: translateX(-50%);
   }
   .dp-bubble.dp-show { opacity: 1; transform: translate(calc(-50% + var(--dp-shift, 0px)), 0) scale(1); }
-  /* -- the treat (feed me) -------------------------------------------------- */
-  /* A little cookie that bobs beside the pal when it's been idle a while.
-     It lives outside the ledge so it's never clipped, and never adds scrollbars. */
-  .dp-food {
-    position: absolute;
-    z-index: 2;
-    left: -14%;
-    bottom: 26%;
-    width: 18%;
-    max-width: 40px;
-    cursor: pointer;
-    border: 0;
-    padding: 0;
-    background: none;
-    -webkit-tap-highlight-color: transparent;
-    animation: dp-food-bob 2.4s ease-in-out infinite;
-    transform-origin: 50% 100%;
-  }
-  .dp-food svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .dp-food:hover { animation-play-state: paused; }
-  .dp-food:focus-visible { outline: 2px solid #ff9d2e; outline-offset: 2px; border-radius: 8px; }
-  .dp-food[hidden] { display: none; }
-  @keyframes dp-food-bob {
-    0%, 100% { transform: translateY(0) rotate(-4deg); }
-    50%      { transform: translateY(-9%) rotate(4deg); }
-  }
-
   .dp-dots { display: inline-flex; gap: .25em; padding: .25em 0; }
   .dp-dots i {
     width: .45em;
@@ -533,7 +492,7 @@ const styles = `
   .dp-particle text { fill: var(--dp-c); }
 
   @media (prefers-reduced-motion: reduce) {
-    .dp-idle, .dp-pose, .dp-spiral, .dp-glow, .dp-food { animation: none !important; }
+    .dp-idle, .dp-pose, .dp-spiral, .dp-glow { animation: none !important; }
     .dp-look, .dp-blink, .dp-fs, .dp-ae-s, .dp-turn, .dp-pose { transition: none; }
     .dp-dots i { animation: none; opacity: .7; }
   }
@@ -683,9 +642,6 @@ export class DotPal extends Base {
   #morphing = false;
   #restoring = false;
   #greetPending = false;
-  #food = null;
-  #foodShown = false;
-  #hopTimer = 0;
 
   constructor() {
     super();
@@ -704,7 +660,6 @@ export class DotPal extends Base {
           </div>
         </div>
         <svg class="dp-fx" aria-hidden="true"></svg>
-        <button type="button" class="dp-food" part="food" hidden aria-label="Feed the pal"></button>
         <div class="dp-bubble" part="bubble" aria-hidden="true"></div>
       </div>`;
     this.#root = shadow.querySelector('.dp-root');
@@ -714,7 +669,6 @@ export class DotPal extends Base {
     this.#svg = shadow.querySelector('svg');
     this.#bubble = shadow.querySelector('.dp-bubble');
     this.#fx = shadow.querySelector('.dp-fx');
-    this.#food = shadow.querySelector('.dp-food');
 
     this.addEventListener('pointerenter', (e) => {
       if (this.static) return;
@@ -734,12 +688,6 @@ export class DotPal extends Base {
     this.addEventListener('pointerdown', () => clearTimeout(this.#stillTimer));
     this.addEventListener('click', () => {
       if (!this.static) this.#poke();
-    });
-    // The treat: click it to feed the pal. It's only shown after a while idle.
-    this.#food.innerHTML = FOOD_SVG;
-    this.#food.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.feed();
     });
   }
 
@@ -762,7 +710,6 @@ export class DotPal extends Base {
     trackPointer();
     fitOnResize();
     this.#scheduleBlink();
-    this.#scheduleHop();
     if (this.#greetPending) {
       this.#greetPending = false;
       this.greet();
@@ -782,9 +729,6 @@ export class DotPal extends Base {
     this.#scripts.clear(); // running timelines notice and wind down
     this.#hover = false;
     this.#dizzy = false;
-    clearTimeout(this.#hopTimer);
-    this.#hopTimer = 0;
-    if (this.#foodShown) this.hideFood();
   }
 
   attributeChangedCallback(name, oldValue, value) {
@@ -1004,41 +948,6 @@ export class DotPal extends Base {
   /** Throw a few particles: 'heart', 'sparkle', 'star', 'sweat' or 'z'. */
   burst(kind = 'sparkle', count = 6) {
     this.#burst(kind, count);
-  }
-
-  /**
-   * The pal is bored and a treat is showing: feed it. It does an excited hop and a
-   * quick "chomp", gets a happy face for a moment and a little heart burst, and the
-   * treat disappears.
-   */
-  feed() {
-    this.hideFood();
-    const calm = reducedMotion();
-    const owner = {};
-    if (!calm) this.play('feed');
-    this.#run('feed', [
-      {
-        from: calm ? 0 : 200,
-        to: 3000,
-        enter: () => this.#setFace(EMOTE_FACES.happy, owner),
-        exit: () => this.#clearFace(owner),
-      },
-      { at: calm ? 100 : 320, do: () => this.#burst('heart', 5) },
-    ], 3000);
-  }
-
-  /** Show the treat beside the pal (it bobs gently). Call it once per idle spell. */
-  showFood() {
-    if (this.#foodShown || !this.#food || this.#tiny) return;
-    this.#foodShown = true;
-    this.#food.hidden = false;
-  }
-
-  /** Take the treat away (fed, an agent came back, or the idle spell reset). */
-  hideFood() {
-    if (!this.#foodShown) return;
-    this.#foodShown = false;
-    this.#food.hidden = true;
   }
 
   /**
@@ -1759,25 +1668,6 @@ export class DotPal extends Base {
       }
       this.#scheduleBlink();
     }, busy ? rand(900, 2400) : this.#tiny ? rand(1600, 3600) : rand(2200, 5000));
-  }
-
-  /**
-   * While the pal is just idling (neutral, no agent), it can't quite sit still:
-   * every now and then it does a little playful hop. Only when it's truly calm
-   * (not working/thinking/speaking/waiting/sleepy, not mid-action, and the user
-   * hasn't asked for reduced motion).
-   */
-  #scheduleHop() {
-    clearTimeout(this.#hopTimer);
-    this.#hopTimer = 0;
-    if (!this.isConnected || reducedMotion() || this.#tiny) return;
-    this.#hopTimer = setTimeout(() => {
-      if (!this.isConnected) return;
-      if (this.mood === 'neutral' && this.state === 'idle' && !this.#anim && !this.#dizzy && !this.#saying) {
-        this.play('playful-hop');
-      }
-      this.#scheduleHop();
-    }, rand(8000, 15000));
   }
 
   // -- particles -------------------------------------------------------------

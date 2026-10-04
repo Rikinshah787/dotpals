@@ -45,16 +45,6 @@ test('chat is off and the pal is 100% until changed; the pal size is a whole per
   assert.equal(saveConfig({ chat: 'yes' }).chat, true, 'only true or false');
 });
 
-test('name: a trimmed string of at most 30 chars; empty means not set', () => {
-  assert.equal(loadConfig().name, '', 'no name by default');
-  assert.equal(saveConfig({ name: '  Ade ' }).name, 'Ade');
-  const long = 'a'.repeat(40);
-  assert.equal(saveConfig({ name: long }).name.length, 30, 'trimmed to 30');
-  for (const name of [42, null, ['Ade'], { a: 1 }]) assert.equal(saveConfig({ name }).name, 'a'.repeat(30), `${JSON.stringify(name)} is ignored`);
-  assert.equal(saveConfig({ name: '' }).name, '', 'an empty field clears the name');
-  assert.equal(saveConfig({ name: '   ' }).name, '', 'whitespace only is not a name');
-});
-
 test('agents.codex is the same switch as codex', () => {
   assert.equal(saveConfig({ agents: { codex: false } }).codex, false);
   assert.equal(loadConfig().agents.codex, false);
