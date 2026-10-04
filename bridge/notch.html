@@ -172,6 +172,12 @@
     .card-head .grow { flex: 1; }
     .card-head .mark { font-weight: 800; font-size: 12.5px; }
     .card p { margin: 0; }
+    /* Settings (the gear): the ones you may want to change mid-task. */
+    .prefs label { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; cursor: pointer; font-size: 12.5px; font-weight: 600; }
+    .prefs small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 400; }
+    .prefs input { margin-top: 2px; accent-color: var(--ok); }
+    .prefs .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .prefs .seg .btn[aria-pressed="true"] { background: rgb(255 255 255 / .16); border-color: var(--text); }
     .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
 
     /* The live diff: the file being edited and its newest change, typing in. */
@@ -504,6 +510,7 @@
         }
         schedule();
       } else if (type === 'config') {
+        settings = data;
         if (data.storyView === 'simple' || data.storyView === 'detailed') defaultView = data.storyView;
         if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); }
         if (DotPal.characters.includes(data.character) && data.character !== first) {
@@ -621,6 +628,7 @@
       return tabPrefs[busyish(s, kind) ? 'busy' : 'idle'] ?? (busyish(s, kind) ? 'now' : 'story');
     }
     function chooseTab(tab) {
+      settingsOpen = false;
       const { v, focus, kind } = shown;
       tabPick = { tab, key: tabKey(v, focus) };
       tabPrefs[busyish(focus, kind) ? 'busy' : 'idle'] = tab;
@@ -636,6 +644,8 @@
     let view = { key: '', node: null }; // what's on the stage
     let size = { w: 160, h: 0 };        // the island's size (its target, while it animates)
     let shown = { v: null, focus: null, kind: null, tab: null };
+    let settingsOpen = false; // the gear's view (fillSettings) instead of Now or Story
+    let settings = {};        // the settings, as the bridge last sent them
     let timer = 0;
     let frame = 0;
     const schedule = () => { if (!timer) timer = setTimeout(render, 80); };
@@ -657,10 +667,11 @@
       if (v.mode === 'open') {
         focus = focusOf(v, agents[0] ?? null);
         kind = kindOf(v, focus);
-        tab = tabOf(v, focus, kind);
+        tab = settingsOpen ? 'settings' : tabOf(v, focus, kind);
       } else {
         picked = null;
         tabPick = null;
+        settingsOpen = false;
       }
       shown = { v, focus, kind, tab };
       const key = v.mode === 'open' ? `open|${tab}|${tab === 'now' ? kind : ''}|${focus?.id ?? ''}` : v.mode === 'hidden' ? 'hidden' : 'bar';
@@ -918,6 +929,7 @@
       palAway: '<circle cx="8" cy="9" r="5"/><path d="M5.6 9h1.4M9 9h1.4"/>', // eyes shut: the pal is put away
       tuck: '<path d="M4 8h8"/>', // minimize
       close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+      gear: '<circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
     };
     function icon(label, path, fn) {
       const b = button('icon', null, fn, label);
@@ -990,6 +1002,7 @@
           box.style.display = 'flex';
           box.append(
             palButton(),
+            icon('Settings', ICONS.gear, () => { settingsOpen = !settingsOpen; render(); }),
             icon('Dashboard', ICONS.dash, () => desktop?.openDashboard?.()),
             tuckButton(),
             icon('Close (Esc)', ICONS.close, () => send({ type: 'close' })),
@@ -999,8 +1012,45 @@
       ]);
       const [whoBox, main] = node.lastChild.children;
       fillWho(whoBox, s, kind);
-      if (tab === 'story' && s) fillStory(main, s);
+      if (tab === 'settings') fillSettings(main);
+      else if (tab === 'story' && s) fillStory(main, s);
       else fillNow(main, s, kind, agents);
+    }
+
+    // -- settings (the gear): the ones you may want to change mid-task ---------------------
+    // Saved like any setting; the bridge sends them back as a `config` event, which redraws this.
+    const saveSetting = (patch) => fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
+    function fillSettings(main) {
+      const loop = settings.fixLoop !== false;
+      const c = settings.checker ?? {};
+      const mode = c.mode ?? 'off';
+      const note = mode === 'cloud' && !c.keySet ? 'Add your Jev key in the dashboard (Settings).'
+        : mode !== 'off' && c.health?.state === 'failing' ? `Not working: ${c.health.error}` : '';
+      keyed(main, [{ key: `settings|${loop}|${mode}|${note}`, make: () => {
+        const card = el('div', 'card prefs');
+        const head = el('div', 'card-head');
+        head.append(el('b', '', 'Settings'), el('span', 'grow'));
+        const row = el('label');
+        const text = el('span', '', 'Make agents fix failing tests');
+        text.append(el('small', '', 'Claude Code is told when a test run fails, and sent back if it tries to finish or commit while the tests fail or weren’t run after its last change.'));
+        const box = el('input');
+        box.type = 'checkbox';
+        box.checked = loop;
+        box.onchange = () => saveSetting({ fixLoop: box.checked });
+        row.append(text, box);
+        const seg = el('div', 'seg');
+        seg.setAttribute('role', 'group');
+        seg.setAttribute('aria-label', 'Double-check unclear test results');
+        for (const [value, label] of [['off', 'Off'], ['local', 'Local (Laya)'], ['cloud', 'Cloud (Jev)']]) {
+          const b = button('btn', label, () => saveSetting({ checker: { mode: value } }));
+          b.setAttribute('aria-pressed', String(mode === value));
+          seg.append(b);
+        }
+        const actions = el('div', 'actions');
+        actions.append(button('btn', 'All settings…', () => desktop?.openDashboard?.()), button('btn', 'Done', () => { settingsOpen = false; render(); }));
+        card.append(head, row, el('div', 'card-head', 'Double-check unclear test results'), seg, ...(note ? [el('p', 'warn', note)] : []), actions);
+        return card;
+      } }]);
     }
 
     // The big pal of the agent in focus, with its name and state.
