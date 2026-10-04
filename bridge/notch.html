@@ -517,6 +517,8 @@
         schedule();
       } else if (type === 'conflict') {
         onConflict(data);
+      } else if (type === 'loop') {
+        onLoop(data);
       } else if (type === 'reset') {
         steps.clear();
         schedule();
@@ -527,6 +529,15 @@
     function onConflict(c) {
       if (!c?.id || !c.session) return;
       send({ type: 'alert', id: `clash:${c.id}`, kind: 'clash', session: c.session, text: c.text });
+      schedule();
+    }
+
+    // The fix loop (Settings → Make agents fix failing tests): Claude sent back, stopped from
+    // shipping, stopping with failing tests, or fixed. Not "told a run failed": test-first
+    // work fails on purpose, too often for an alert (the pal says it).
+    function onLoop(l) {
+      if (!l?.id || !l.session || l.kind === 'told') return;
+      send({ type: 'alert', id: `loop:${l.kind}:${l.id}`, kind: 'clash', session: l.session, text: l.text });
       schedule();
     }
 
@@ -1300,15 +1311,17 @@
       return card;
     }
 
-    /** Two agents, one file: who's editing what, and who changed it a moment ago. */
+    /** Two agents, one file: who's editing what, and who changed it a moment ago. Also the fix loop's news. */
     function clashCard(s, a) {
+      const loop = a?.id?.startsWith('loop:');
+      const fixed = a?.id?.startsWith('loop:fixed:');
       const card = el('div', 'card tone-need');
       const head = el('div', 'card-head');
-      const mark = el('span', 'mark', '!');
-      mark.style.color = 'var(--warn)';
-      head.append(mark, el('b', '', 'Two agents, one file'), el('span', 'grow'));
+      const mark = el('span', 'mark', fixed ? '✓' : '!');
+      mark.style.color = fixed ? 'var(--ok)' : 'var(--warn)';
+      head.append(mark, el('b', '', loop ? 'Tests' : 'Two agents, one file'), el('span', 'grow'));
       card.append(head, el('p', 'said', a?.text ?? 'Another agent just changed this file.'));
-      card.append(el('p', 'asked', 'Check they don’t undo each other’s work. Claude Code asks first (Settings → Two agents, one file); other agents can only be told after.'));
+      card.append(el('p', 'asked', loop ? 'dotpals sends Claude Code back when it tries to finish or commit while the tests fail, or weren’t run after its last change (Settings → Make agents fix failing tests).' : 'Check they don’t undo each other’s work. Claude Code asks first (Settings → Two agents, one file); other agents can only be told after.'));
       const actions = el('div', 'actions');
       actions.append(button('btn', 'Story', () => chooseTab('story')), button('btn', 'OK', () => send({ type: 'close' })));
       card.append(actions);
