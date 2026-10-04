@@ -53,7 +53,6 @@
 //   POST /api/chat/answer { id, reply } | { id, answers }  answer an OpenCode permission request
 //                        (`ocask` events: once, always or reject) or question (null skips it)
 //   GET  /api/chat/projects → { projects: [{ path, name }] } folders agents worked in, newest first
-//   GET  /talk                       → Talk to Blu (bridge/talk.html): say a task, Claude does it, Blu checks it
 //   GET  /api/talk/projects          → { projects, claude } the folders a task can go to; is Claude Code installed
 //   GET  /api/talk/tasks             → { tasks } the tasks so far, newest first (also `task` events as they change)
 //   POST /api/talk/plan { text, project? }   your words → a plan with a definition of done (bridge/tasks.js)
@@ -1211,7 +1210,6 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
     const path = url.pathname === '/' ? '/bridge/index.html'
       : url.pathname === '/dashboard' ? '/bridge/dashboard.html'
-      : url.pathname === '/talk' ? '/bridge/talk.html'
       : url.pathname;
     const file = normalize(join(root, path));
     if (!file.startsWith(root) || !/[\\/](src|bridge|desktop)[\\/]/.test(file)) return res.writeHead(404).end();

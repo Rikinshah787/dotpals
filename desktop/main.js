@@ -21,7 +21,7 @@ const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height:
 const MARGIN = 16;
 const TALK_EXTRA = 190; // small mode: extra height above the pal for the chat bubble
 const SHORTCUT = 'CommandOrControl+Alt+P';
-// Talk to Blu: your own (talkShortcut in the settings), else the first of these that's free.
+// Talk (in the notch): your own (talkShortcut in the settings), else the first of these that's free.
 // Not Ctrl+Alt+Space: the Claude app uses it.
 const TALK_SHORTCUTS = ['CommandOrControl+Shift+Space', 'CommandOrControl+Alt+T', 'CommandOrControl+Alt+Shift+T'];
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
@@ -135,42 +135,17 @@ if (!app.requestSingleInstanceLock()) {
   }
   ipcMain.on('dashboard:open', openDashboard);
 
-  // Talk to Blu (bridge/talk.html): say a task, Claude does it, Blu checks it. Closing it only
-  // hides it, so Blu can still say how a task went; Ctrl+Alt+Space opens it and listens.
-  let talk;
-  function openTalk({ listen = false } = {}) {
-    const ready = talk && !talk.isDestroyed();
-    if (!ready) {
-      const area = screen.getPrimaryDisplay().workArea;
-      talk = new BrowserWindow({
-        width: 520, height: 720, minWidth: 380, minHeight: 420,
-        x: area.x + Math.round((area.width - 520) / 2), y: area.y + 60,
-        title: 'Talk to Blu', icon, backgroundColor: '#0b0b0e', autoHideMenuBar: true, alwaysOnTop: true,
-        // Listening and speaking may start without a click here (the notch's mic, the shortcut).
-        webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
-      });
-      talk.webContents.setWindowOpenHandler(({ url }) => {
-        if (/^https?:/i.test(url)) shell.openExternal(url);
-        return { action: 'deny' };
-      });
-      talk.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(bridge)) e.preventDefault(); });
-      talk.on('close', (e) => { if (!quitting) { e.preventDefault(); talk.hide(); } });
-      talk.loadURL(`${bridge}/talk`);
-    }
-    talk.show();
-    talk.focus();
-    if (listen) {
-      // As a user gesture, so audio may start.
-      const go = () => talk.webContents.executeJavaScript('window.blu && window.blu.listen()', true).catch(() => {});
-      if (!ready) talk.webContents.once('did-finish-load', () => setTimeout(go, 400)); else go();
-    }
+  // Talk (the notch's Talk tab): the shortcut shows the notch and it listens.
+  function talkInNotch() {
+    createNotch();
+    const go = () => notch?.webContents.send('notch:key', 'talk');
+    if (notch.webContents.isLoading()) notch.webContents.once('did-finish-load', () => setTimeout(go, 300)); else go();
   }
-  ipcMain.on('talk:open', (_, listen) => openTalk({ listen: !!listen }));
   let talkShortcut = null; // the one that's registered
   function registerTalkShortcut() {
     const own = loadConfig().talkShortcut;
     for (const key of [...(own ? [own] : []), ...TALK_SHORTCUTS]) {
-      try { if (globalShortcut.register(key, () => openTalk({ listen: true }))) { talkShortcut = key; return; } } catch {}
+      try { if (globalShortcut.register(key, talkInNotch)) { talkShortcut = key; return; } } catch {}
       console.warn(`[dotpals] ${key} is taken by another app`);
     }
   }
@@ -192,7 +167,7 @@ if (!app.requestSingleInstanceLock()) {
         { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
       ] },
       { label: 'Dashboard', click: openDashboard },
-      { label: 'Talk to Blu', ...(talkShortcut ? { accelerator: talkShortcut } : {}), click: () => openTalk() },
+      { label: 'Talk to Blu', ...(talkShortcut ? { accelerator: talkShortcut } : {}), click: talkInNotch },
       // Chat is optional (Dashboard → Settings → Chat with your agents).
       ...(loadConfig().chat ? [{ label: 'Start working…', click: sayHello }] : []),
       { type: 'separator' },
@@ -332,8 +307,10 @@ if (!app.requestSingleInstanceLock()) {
       alwaysOnTop: true, resizable: false, movable: false, maximizable: false, fullscreenable: false,
       focusable: false, skipTaskbar: true, show: false, title: 'dotpals notch',
       type: process.platform === 'darwin' ? 'panel' : undefined,
-      webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), sandbox: true, contextIsolation: true },
+      // Talk listens and speaks without a click on the notch (the shortcut starts it).
+      webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), sandbox: true, contextIsolation: true, autoplayPolicy: 'no-user-gesture-required' },
     });
+    notch.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; }); // a PR's link
     notch.setAlwaysOnTop(true, 'screen-saver');
     notch.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     syncNotchMouse(screen.getCursorScreenPoint());
