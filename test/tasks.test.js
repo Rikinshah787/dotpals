@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claudeTaskArgs, detectTestCommand, evaluate, fixRequest, makePlan, parsePlanReply, pickProject, plannerArgs, receiptMarkdown, relativeTo, sessionName, taskMarkdown, tidyPath, under, verdictWords } from '../bridge/tasks.js';
+import { claudeTaskArgs, detectTestCommand, evaluate, fixRequest, makePlan, parsePlanReply, pickProject, plannerArgs, plannerInput, receiptMarkdown, relativeTo, sessionName, taskMarkdown, tidyPath, under, verdictWords } from '../bridge/tasks.js';
 import { launchCommand } from '../bridge/handoff.js';
 
 const projects = [{ path: '/code/shop', name: 'shop' }, { path: '/code/dotpals', name: 'dotpals' }, { path: '/code/billing-api', name: 'billing-api' }];
@@ -47,6 +47,13 @@ test('plannerArgs: lean (no tools, MCP servers, settings or sessions) and no tex
   for (const flag of ['-p', '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence', '--json-schema']) assert.ok(args.includes(flag), flag);
   assert.equal(args[args.indexOf('--tools') + 1], '');
   assert.ok(!plannerArgs('/f', { schema: false }).includes('--json-schema'));
+});
+
+test('plannerInput: the pal sees what the agents are doing right now', () => {
+  const input = plannerInput('what are my agents doing?', projects, { name: 'Lovi', agents: [{ label: 'shop', harness: 'claude', state: 'working', asked: 'fix the checkout test', latest: 'edit checkout.js' }] });
+  assert.match(input, /Your name: Lovi/);
+  assert.match(input, /- shop \(claude\): working\. Asked: "fix the checkout test"\. Latest: edit checkout\.js/);
+  assert.match(plannerInput('hi', projects), /Their agents right now:\n\(none running\)/);
 });
 
 test('tidyPath: relative, forward slashes, never ".."', () => {

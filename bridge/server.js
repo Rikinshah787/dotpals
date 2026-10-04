@@ -466,6 +466,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const prPlans = new Map(); // task id → what opening its PR will do (shown before it's done)
   const taskTimers = new Map();
   const projectsNow = () => knownProjects(activity.all(), (s) => sessionMeta.get(s)?.cwd, { isFolder: handoffOptions.isFolder ?? isFolder, name: folderName });
+  // Each awake agent in a line, so the pal can answer "what are my agents doing?".
+  const agentsNow = () => [...sessions.values()].slice(-6).map((u) => {
+    const last = activity.findLast(u.session, (e) => e.kind !== 'prompt');
+    return { label: u.label, harness: u.harness, state: u.state, asked: activity.findLast(u.session, (e) => e.kind === 'prompt')?.title,
+      latest: last && (last.kind === 'done' ? last.summary || 'finished' : `${last.kind} ${last.title ?? ''}`.trim()) };
+  });
   const taskView = (t) => ({ ...t, verdict: t.verdict && { ...t.verdict, turn: undefined } });
   function taskNews(entry) {
     const task = entry.session && taskList.bySession(entry.session);
@@ -507,7 +513,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (body.project && !chosen) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
       try {
         const name = typeof body.pal === 'string' && /^[\w .'-]{1,30}$/.test(body.pal) ? body.pal : 'Blu';
-        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name });
+        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name, agents: agentsNow() });
         if (reply.chat) return json(res, 200, { reply: reply.chat }); // just talk: what the pal says back
         const plan = makePlan({ text, reply, projects, project: chosen });
         plans.set(plan.id, plan);

@@ -118,6 +118,7 @@ const safeRead = (read, f) => { try { return read(f); } catch { return ''; } };
 export const PLAN_SYSTEM = `You are the developer's pal, a friendly little character who lives in the notch at the top of their screen (your name is given below). You hand their work to a coding agent (Claude Code) and check it when it's done.
 They spoke to you and it was transcribed, so fix obvious transcription mistakes (for example "pie test" means pytest, "get hub" means GitHub, "Blue" may be your name).
 If they're asking for work to be done in a project, it's a task. Anything else (hello, how are you, a question, small talk) is chat: answer them yourself, warmly and briefly, in one or two short spoken sentences with no Markdown, and if it fits, ask what they'd like Claude to work on.
+You can see their coding agents right now (listed below, from dotpals). If they ask what their agents are doing, answer from that list in plain words: which project, what it's doing or what it finished. If none are listed, say none are running.
 Reply with only a JSON object, no other text:
 {"kind": "task" or "chat",
  "reply": "for chat, what you say back; for a task, an empty string",
@@ -138,9 +139,11 @@ export const PLAN_SCHEMA = {
   required: ['kind', 'reply', 'title', 'task', 'project', 'mustNotTouch', 'doneAlso'],
 };
 
-/** What the planner reads on stdin: what was said, the pal's name, and the projects it can name. */
-export function plannerInput(text, projects, { name = 'Blu' } = {}) {
-  return [`They said: ${String(text).trim()}`, '', `Your name: ${name}`, `Known projects: ${projects.map((p) => p.name).join(', ') || '(none)'}`].join('\n');
+/** What the planner reads on stdin: what was said, the pal's name, the projects it can name and what the agents are doing. */
+export function plannerInput(text, projects, { name = 'Blu', agents = [] } = {}) {
+  const agentLine = (a) => `- ${a.label || 'a project'} (${a.harness}): ${a.state}${a.asked ? `. Asked: "${clean(a.asked, 160)}"` : ''}${a.latest ? `. Latest: ${clean(a.latest, 200)}` : ''}`;
+  return [`They said: ${String(text).trim()}`, '', `Your name: ${name}`, `Known projects: ${projects.map((p) => p.name).join(', ') || '(none)'}`,
+    'Their agents right now:', ...(agents.length ? agents.map(agentLine) : ['(none running)'])].join('\n');
 }
 
 const clean = (s, max) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -212,7 +215,7 @@ export function run(file, args, { cwd, input, timeoutMs = 60_000, env = agentEnv
 }
 
 /** Ask your Claude for the plan. */
-export async function askPlanner(text, projects, { name, claude = findOnPath('claude'), runner = run } = {}) {
+export async function askPlanner(text, projects, { name, agents, claude = findOnPath('claude'), runner = run } = {}) {
   if (!claude) throw new Error('Claude Code isn’t installed (no `claude` on PATH)');
   const dir = join(home(), 'tasks');
   await mkdir(dir, { recursive: true });
@@ -221,7 +224,7 @@ export async function askPlanner(text, projects, { name, claude = findOnPath('cl
   // Through cmd (an npm-installed claude.cmd) a JSON argument can't be quoted safely: the system prompt asks for JSON instead.
   const viaCmd = process.platform === 'win32' && /\.(cmd|bat)$/i.test(claude);
   // No extended thinking: this is a quick call (it halves the wait, 11 s → 4.5 s for "hi").
-  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects, { name }), cwd: home(), timeoutMs: 90_000, env: { ...agentEnv(), MAX_THINKING_TOKENS: '0' } });
+  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects, { name, agents }), cwd: home(), timeoutMs: 90_000, env: { ...agentEnv(), MAX_THINKING_TOKENS: '0' } });
   if (r.code !== 0 && !r.stdout.trim()) throw new Error(clean(r.stderr, 200) || `claude exited with ${r.code}`);
   return parsePlanReply(r.stdout);
 }
