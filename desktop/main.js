@@ -20,7 +20,7 @@ const page = fileURLToPath(new URL('../bridge/index.html', import.meta.url));
 const notchPage = fileURLToPath(new URL('../bridge/notch.html', import.meta.url));
 const SIZE = { compact: { width: 260, height: 290 }, full: { width: 380, height: 600 } };
 const MARGIN = 16;
-const TALK_EXTRA = 270; // small mode: extra height above the pal for the chat bubble
+const TALK_EXTRA = 190; // small mode: extra height above the pal for the chat bubble
 const SHORTCUT = 'CommandOrControl+Alt+P';
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 

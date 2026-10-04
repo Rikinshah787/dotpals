@@ -204,12 +204,6 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     },
   });
   const CHAT_OFF = 'Chat is off. Turn it on in Dashboard → Settings → Chat with your agents.';
-  // Start OpenCode ahead of time while chat is on (DOTPALS_OPENCODE_WARM=0: only on the first message).
-  let warmTimer = null;
-  function warmChat() {
-    if (!config.chat || process.env.DOTPALS_OPENCODE_WARM === '0') return;
-    try { Promise.resolve(chat.warm?.()).catch(() => {}); } catch {}
-  }
 
   function send(event, data) {
     const line = `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
@@ -833,7 +827,6 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (config.history && !before.history) history.save();
       applyLaya(before);
       if (before.chat && !config.chat) chat.stop(); // turned off: no OpenCode server left running
-      if (!before.chat && config.chat) warmChat(); // turned on: start OpenCode now, not on the first message
       // A different checker (or a new key): check it's answering, right away.
       if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
       send('config', withLaya());
@@ -1091,7 +1084,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { clearTimeout(warmTimer); chat.stop(); stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
+  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });
@@ -1101,9 +1094,6 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       print(`hook endpoint  → http://localhost:${port}/hook`);
       // Only now: a bridge that couldn't listen (one is already running) mustn't start a second Laya.
       applyLaya(null);
-      // With chat on, start OpenCode in the background, so the first message doesn't wait for it.
-      warmTimer = setTimeout(warmChat, 1000);
-      warmTimer.unref?.();
       ok(server);
     });
   });

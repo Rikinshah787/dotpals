@@ -395,13 +395,6 @@
     .chat button[disabled] { opacity: .55; cursor: default; }
     .chat-note { margin: 0; color: var(--muted); font-size: 11px; }
     .chat-note:empty { display: none; }
-    /* OpenCode's answer, right in the small-mode bubble (the full view has the feed). */
-    .chat-reply { max-height: 130px; overflow-y: auto; padding: 6px 8px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin; }
-    .chat-reply[hidden] { display: none; }
-    .chat-reply small { display: block; color: var(--faint); font-size: 10.5px; margin-bottom: 2px; font-style: normal; }
-    .chat-reply.working { color: var(--muted); font-style: italic; }
-    .chat-reply.bad { color: var(--bad); }
-    body:not(.compact) .chat-reply { display: none; }
     .chat-note.bad { color: var(--bad); }
     body.compact .chat { display: none; }
     /* Chat is optional: until it's on (Settings), no box, button or greeting. */
@@ -509,7 +502,6 @@
         <button type="button" id="chat-stop" hidden>Stop</button>
       </div>
       <input type="text" id="chat-dir" class="chat-dir" placeholder="Project folder (empty: your home folder)" aria-label="Project folder for a new session" spellcheck="false">
-      <div class="chat-reply" id="chat-reply" role="log" aria-live="polite" aria-label="OpenCode's reply" hidden></div>
       <div class="chat-row">
         <textarea id="chat-text" rows="2" placeholder="Message OpenCode… (Enter to send, Shift+Enter for a new line)" aria-label="Message OpenCode"></textarea>
         <button type="submit" id="chat-send">Send</button>
@@ -1236,8 +1228,6 @@
       refreshCounts();
       scheduleRecap();
       if (stick) feed.scrollTop = feed.scrollHeight;
-      // A turn just ended: the chat shows its answer (small mode has no feed to read it in).
-      if ((entry.kind === 'done' || entry.kind === 'error') && fresh(entry.at)) window.dotpalsChatDone?.(entry);
     }
 
     // The bridge replays its whole history when we connect (thousands of entries): drawing
@@ -2107,32 +2097,6 @@
         resizePals();
       };
       window.dotpalsSetTalking = setTalking;
-
-      // OpenCode's answer in the chat, so small mode doesn't need the full view: what it's
-      // doing while it works, then its reply (the bubble opens by itself to show it).
-      const reply = $('chat-reply');
-      let waitingFor = null; // the session we sent to and haven't seen finish yet
-      const showReply = (cls, label, body) => {
-        reply.hidden = false;
-        reply.className = `chat-reply${cls ? ` ${cls}` : ''}`;
-        reply.replaceChildren(el('small', '', label), document.createTextNode(body));
-        reply.scrollTop = 0;
-      };
-      setInterval(() => {
-        if (!waitingFor) return;
-        const s = sessions.get(waitingFor);
-        showReply('working', 'OpenCode', s?.state === 'waiting' ? 'Waiting for your answer above…' : s?.text || 'Working on it…');
-      }, 1000);
-      window.dotpalsChatSent = (session) => { waitingFor = session; showReply('working', 'OpenCode', 'Working on it…'); };
-      window.dotpalsChatDone = (entry) => {
-        if (!document.body.classList.contains('chat-on') || !entry.session?.startsWith('opencode:')) return;
-        if (entry.session !== waitingFor && entry.session !== target()) return;
-        waitingFor = null;
-        const bad = entry.kind === 'error';
-        showReply(bad ? 'bad' : '', `OpenCode · ${sessions.get(entry.session)?.label || 'reply'}`, bad ? entry.title || 'Stopped with an error' : entry.summary || 'Done (no reply text).');
-        if (document.body.classList.contains('compact') && !document.body.classList.contains('talking')) setTalking(true);
-        slots.get(entry.session)?.pal.say?.(bad ? 'Something went wrong, see the bubble' : 'Here’s the answer ↑', { duration: 3500 });
-      };
       $('talk').onclick = () => setTalking(!document.body.classList.contains('talking'));
       text.addEventListener('keydown', (e) => { if (e.key === 'Escape') setTalking(false); });
       $('chat-new').onclick = () => { fresh = true; syncChat(); text.focus(); };
@@ -2157,7 +2121,6 @@
           const r = await post('/api/chat', { text: message, session: session ?? undefined, directory: session ? undefined : folder || undefined });
           text.value = '';
           fresh = false;
-          window.dotpalsChatSent?.(r.session);
           say(session ? '' : `Started in ${r.directory}`);
           // Follow the session once its first event arrives.
           for (let i = 0; i < 40 && !sessions.has(r.session); i++) await new Promise((ok) => setTimeout(ok, 250));
@@ -2323,7 +2286,6 @@
             if (!res.ok) throw new Error(r.error || `The bridge answered ${res.status}`);
             try { localStorage.setItem('dotpals.chatDir', project.path); } catch {}
             $('chat-dir').value = project.path;
-            window.dotpalsChatSent?.(r.session);
             close();
             for (let i = 0; i < 40 && !sessions.has(r.session); i++) await new Promise((ok) => setTimeout(ok, 250));
             if (sessions.has(r.session)) { pick(r.session, true); slots.get(r.session)?.pal.say?.('On it!', { duration: 3500 }); }

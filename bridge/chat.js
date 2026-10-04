@@ -178,6 +178,5 @@ export function createChat({ port = Number(process.env.DOTPALS_OPENCODE_PORT) ||
   }
 
   process.once('exit', stop);
-  // warm(): start OpenCode ahead of time, so the first message doesn't wait for it to boot.
-  return { send, abort, stop, replyPermission, replyQuestion, warm: start, running: () => !!proc };
+  return { send, abort, stop, replyPermission, replyQuestion, running: () => !!proc };
 }

@@ -17,7 +17,7 @@ async function runBridge(t) {
   const home = await mkdtemp(join(tmpdir(), 'dotpals-child-'));
   const port = freshPort();
   const child = spawn(process.execPath, [server], {
-    env: { ...process.env, DOTPALS_PORT: String(port), DOTPALS_HOME: home, DOTPALS_DESKTOP_CHILD: '1', DOTPALS_CODEX: '0', DOTPALS_CLAUDE_LOGS: '0', DOTPALS_HISTORY: '0', DOTPALS_OPENCODE_WARM: '0' },
+    env: { ...process.env, DOTPALS_PORT: String(port), DOTPALS_HOME: home, DOTPALS_DESKTOP_CHILD: '1', DOTPALS_CODEX: '0', DOTPALS_CLAUDE_LOGS: '0', DOTPALS_HISTORY: '0' },
     stdio: 'ignore',
   });
   const exited = new Promise((ok) => child.once('exit', (code) => ok(code)));
