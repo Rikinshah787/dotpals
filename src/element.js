@@ -736,9 +736,7 @@ export class DotPal extends Base {
       if (!this.static) this.#poke();
     });
     // The treat: click it to feed the pal. It's only shown after a while idle.
-    // Stop pointerdown so the window-drag handler on the stage never intercepts it.
     this.#food.innerHTML = FOOD_SVG;
-    this.#food.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.#food.addEventListener('click', (e) => {
       e.stopPropagation();
       this.feed();
