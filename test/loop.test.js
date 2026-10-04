@@ -90,7 +90,10 @@ test('a test run that fails: Claude is told at once; one that passes, or another
 
   const told = await s.run('npm test', { ok: false, output: FAILED });
   assert.equal(told.hookSpecificOutput.hookEventName, 'PostToolUseFailure');
-  assert.match(told.hookSpecificOutput.additionalContext, /^dotpals: this test run failed \(.+\)\. Fix it before you finish; dotpals checks again when you stop\.$/);
+  assert.match(told.hookSpecificOutput.additionalContext, /^dotpals: this test run failed \(1 failed, 1 passed.*\)\. Fix it before you finish; dotpals checks again when you stop\.$/);
+  // The error can also come as { message, stdout, stderr }: the counts are read from it all the same.
+  const asObject = await s.loop({ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_use_id: 'obj1', tool_input: { command: 'npm test' }, error: { message: 'Exit code 1', stdout: FAILED.slice('Exit code 1\n'.length) } });
+  assert.match(asObject.hookSpecificOutput.additionalContext, /this test run failed \(1 failed, 1 passed/);
   // Failed tests in a run that exited 0 count too (the output's own summary decides).
   const fromOutput = await s.run('npm test', { output: 'not ok 1 - sum adds\nℹ tests 2\nℹ pass 1\nℹ fail 1' });
   assert.equal(fromOutput.hookSpecificOutput.hookEventName, 'PostToolUse');
@@ -104,11 +107,11 @@ test('a test run that fails: Claude is told at once; one that passes, or another
   assert.deepEqual(await s.run('npm test', { output: PASSED }), {});
 
   await new Promise((r) => setTimeout(r, 100));
-  assert.deepEqual(events.list.map((e) => e.kind), ['told', 'told', 'fixed']);
+  assert.deepEqual(events.list.map((e) => e.kind), ['told', 'told', 'told', 'fixed']);
   assert.equal(events.list[0].session, 'told');
   assert.equal(events.list[0].label, 'app');
   assert.match(events.list[0].text, /^Tests failed \(.+\)\. Told Claude to fix them\.$/);
-  assert.equal(events.list[2].text, 'Fixed: tests pass now ✓');
+  assert.equal(events.list.at(-1).text, 'Fixed: tests pass now ✓');
 });
 
 test('an unclear test run: the checker you chose decides (a fake Laya that says they failed)', async (t) => {
@@ -199,6 +202,7 @@ test('commit or push: denied while the tests fail or are out of date, allowed on
   assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(denied.hookSpecificOutput.permissionDecisionReason, /^dotpals: the tests are failing \(.+\)\. Fix them and run the tests again before you commit or push\.$/);
   assert.deepEqual(await s.ship('git status'), {}, 'not shipping');
+  assert.deepEqual(await s.ship('git rebase main'), {}, 'a rebase may be how Claude fixes things');
   // The commit never ran: it's a failed step, not "committed without testing".
   const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
   const commit = entries.find((e) => e.id === 'ship:ship3');

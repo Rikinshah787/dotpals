@@ -454,7 +454,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const ok = event.hook_event_name === 'PostToolUse';
     // The step bridge/adapters/claude.js (applyHook) records, with the same id, so the checker asks once.
     const d = describeTool(tool, event.tool_input ?? {}, event.cwd);
-    const output = resultText(tool, event.tool_response);
+    // A failed command's output comes with its error (a string, or { message, stdout, stderr }): the counts are in it.
+    const err = event.error;
+    const failed = typeof err === 'string' ? err : [err?.stdout, err?.stderr, err?.message].filter(Boolean).join('\n');
+    const output = resultText(tool, event.tool_response) || (!ok && failed ? clipEnds(failed, 3000) : '');
     const step = {
       ...d, id: `${session}:${event.tool_use_id}`, session, tool, status: ok ? 'ok' : 'failed',
       body: { ...d.body, ...(output ? { output } : {}) },
@@ -478,7 +481,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   async function loopGate(event, session, label) {
     const stopping = event.hook_event_name === 'Stop';
     const d = stopping ? null : describeTool(event.tool_name, event.tool_input ?? {}, event.cwd);
-    if (d && stepType(d) !== 'ship') return null;
+    // Only what puts the work in front of others: not a rebase, merge or tag, which may be how Claude fixes things.
+    if (d && (stepType(d) !== 'ship' || !/\bgit\s+(commit|push)\b|\bgh\s+pr\s+create\b|\bnpm\s+publish\b/i.test(d.body?.command ?? ''))) return null;
     // The activity hook reports the last steps alongside: give it a moment to finish them.
     for (let i = 0; stopping && i < 10 && turnSteps(session).some((e) => e.status === 'running'); i++) await new Promise((r) => setTimeout(r, 100));
     const trouble = testTrouble(session);
