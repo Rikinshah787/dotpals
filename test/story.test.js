@@ -691,6 +691,10 @@ test('weakenedTests: green because the tests were changed (taken out, commented 
   const undo = [fail(), change("test('sum', () => {", "test.skip('sum', () => {")(), pass(), change("test.skip('sum', () => {", "test('sum', () => {")(), change('return a - b;', 'return a + b;', 'math.js')(), pass()];
   assert.equal(weakenedTests(undo.slice(0, 3)).text, 'turned 1 test off (skip, only or todo) in math.test.js');
   assert.equal(weakenedTests(undo), null);
+  // The code changed and the expected value with it: the new behaviour, or a test put back. Not a bluff.
+  assert.equal(between(change('return a - b;', 'return a + b;', 'math.js'), change("  assert.equal(sum(1, 2), -1);", "  assert.equal(sum(1, 2), 3);")), null);
+  // Taking an assertion out is never the fix, code changed or not.
+  assert.equal(between(change('return a - b;', 'return a * b;', 'math.js'), change(SUM, "test('sum', () => {\n});")).text, 'removed 1 assertion in math.test.js');
   // Tests written first, failing, then the code: test-driven work, not a bluff.
   const first = change(SUM, "test('sum', () => {\n});")();
   assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);
