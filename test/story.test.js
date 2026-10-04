@@ -284,6 +284,23 @@ test('testState: was the last commit tested after its last change?', async () =>
   assert.equal(testState([edit('src/a.js'), run('git commit -m x')]).commit.tested, false);
 });
 
+test('ranAfterLastChange: a command that had to pass, run after the last change', async () => {
+  const { ranAfterLastChange } = await import('../bridge/ui/story.js');
+  assert.deepEqual(ranAfterLastChange([edit('src/a.js'), run('npx tsc --noEmit')], 'tsc'), { state: 'passed' });
+  assert.equal(ranAfterLastChange([edit('src/a.js'), run('npx tsconfig-check')], 'tsc').state, 'not-run'); // a whole word, not a prefix
+  assert.equal(ranAfterLastChange([edit('src/a.js'), run('npm run build:prod')], 'npm run build').state, 'not-run');
+  assert.equal(ranAfterLastChange([run('npm run build'), edit('src/a.js')], 'npm run build').state, 'stale');
+  assert.equal(ranAfterLastChange([run('npm run build'), edit('docs/x.md')], 'npm run build').state, 'passed'); // docs aren't code
+  assert.equal(ranAfterLastChange([edit('src/a.js'), run('npm run build', 'failed')], 'npm run build').state, 'failed');
+  // One OK run after the last change is enough (`git commit` again with nothing to commit fails).
+  assert.equal(ranAfterLastChange([edit('src/a.js'), run('git add -A && git commit -m x'), run('git commit -m y', 'failed')], 'git commit').state, 'passed');
+  const piped = ranAfterLastChange([edit('src/a.js'), run('npm run build 2>&1 | tail -5')], 'npm  run build');
+  assert.equal(piped.state, 'unclear');
+  assert.match(piped.note, /pipe/);
+  // A test command is read from its output, as the tests are.
+  assert.equal(ranAfterLastChange([edit('src/a.js'), step('run', { title: 'npm run test:e2e', body: { command: 'npm run test:e2e', output: 'Tests: 1 failed, 3 passed, 4 total' } })], 'npm run test:e2e').state, 'failed');
+});
+
 test('story: a finished request that changed code without testing says so, loudly', async () => {
   const { story } = await import('../bridge/ui/story.js');
   const turn = (steps, end = { kind: 'done' }) => ({ steps, end });
