@@ -792,11 +792,12 @@
 
     // -- the fix loop (Settings → Make agents fix failing tests) ------------------------
     // Claude was told its tests failed, sent back to fix them, or stopped anyway: its pal
-    // says so. Stopping with the tests still failing is worth a notification too.
+    // says so. Stopping with the tests still failing, or a result nobody could read, is
+    // worth a notification too.
     function applyLoop(l) {
       if (!l?.text || !fresh(l.at)) return;
       slots.get(l.session)?.pal.say?.(l.text, { duration: 6000 });
-      if (l.kind === 'gave-up') {
+      if (l.kind === 'gave-up' || l.kind === 'ask-you') {
         sound.play('error');
         desktop?.notify?.(`Claude${l.label ? ` · ${l.label}` : ''}`, l.text);
       }

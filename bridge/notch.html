@@ -540,10 +540,11 @@
     }
 
     // The fix loop (Settings → Make agents fix failing tests): Claude sent back, stopped from
-    // shipping, stopping with failing tests, or fixed. Not "told a run failed": test-first
-    // work fails on purpose, too often for an alert (the pal says it).
+    // shipping, stopping with failing tests, a test result nobody could read, or fixed. Not
+    // "told a run failed" or "asked to run them again": test-first work fails on purpose, too
+    // often for an alert (the pal says it).
     function onLoop(l) {
-      if (!l?.id || !l.session || l.kind === 'told') return;
+      if (!l?.id || !l.session || l.kind === 'told' || l.kind === 'retry') return;
       send({ type: 'alert', id: `loop:${l.kind}:${l.id}`, kind: 'clash', session: l.session, text: l.text });
       schedule();
     }

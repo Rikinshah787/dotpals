@@ -424,13 +424,37 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // At most twice per request (the count starts again with your next prompt), then it's let go
   // and you're told. Untested work is never held up: not every project has tests. Each step
   // is a `loop` event, which the pal says and the notch shows.
+  //   A test run whose result can't be read (piped, cut off) and the checker didn't settle:
+  //     Claude is asked to run the tests again so the output shows it. A second one in the
+  //     same request, or stopping without a clear run, goes to you ("Please take a look").
   const LOOP_MAX = 2;
   const loopBlocks = new Map(); // session → times it was sent back in this request
   const loopHelped = new Set(); // sessions told or sent back, until a test run passes ("Fixed")
+  const loopUnclear = new Map(); // session → unreadable test runs in this request
+  const loopAsked = new Set(); // sessions whose request went to you
   function sendLoop(session, label, kind, text) {
     if (kind === 'fixed') loopHelped.delete(session);
-    else loopHelped.add(session);
+    else if (kind !== 'retry' && kind !== 'ask-you') loopHelped.add(session);
     send('loop', { id: randomUUID(), at: Date.now(), session, harness: 'claude', label, kind, text });
+  }
+  function askYou(session, label) {
+    if (loopAsked.has(session)) return;
+    loopAsked.add(session);
+    sendLoop(session, label, 'ask-you', 'Couldn’t tell whether Claude’s tests passed. Please take a look.');
+  }
+  const loopNote = (event, text) => ({ hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text } });
+  /** A test run nobody could read: run it again so it shows; the second time, it's yours to look at. */
+  function unclearRun(event, session, label, v, check) {
+    const n = (loopUnclear.get(session) ?? 0) + 1;
+    loopUnclear.set(session, n);
+    if (n === 1) {
+      sendLoop(session, label, 'retry', 'Couldn’t tell if the tests passed. Asked Claude to run them again.');
+      const unsure = typeof check?.p === 'number' ? ` ${checkOf({ check }).who} wasn’t sure either (${Math.round(check.p * 100)}% that it passed).` : '';
+      return loopNote(event, `dotpals: can’t tell whether this test run passed: ${v.note ?? 'its output doesn’t show the result'}.${unsure} Run the tests again without cutting their output (no | tail, head or grep), so the counts and the exit code show.`);
+    }
+    if (n > 2) return null;
+    askYou(session, label);
+    return loopNote(event, 'dotpals: still can’t tell whether the tests passed, so it asked the user to take a look. Tell them what you ran and what you saw.');
   }
   /** The steps of the request a session is on (since its newest prompt). */
   function turnSteps(session) {
@@ -468,10 +492,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (stepType(step) !== 'test') return null;
     let v = testVerdict(step);
     let checked = null;
+    let check = null;
     if (v.state === 'unclear' && config.checker?.mode && config.checker.mode !== 'off') {
-      const check = await checker.check(step).catch(() => null);
+      check = await checker.check(step).catch(() => null);
       if (check?.state === 'passed' || check?.state === 'failed') { v = testVerdict({ ...step, check }); checked = checkOf({ ...step, check }); }
     }
+    if (v.state === 'unclear' && v.reason !== 'no-tests') return unclearRun(event, session, label, v, check);
     if (v.state === 'passed' && loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
     if (v.state !== 'failed') return null;
     // Claude's own change broke them: fix it. Nothing changed yet: maybe this request only asked how the tests stand.
@@ -490,6 +516,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (d && (stepType(d) !== 'ship' || !/\bgit\s+(commit|push)\b|\bgh\s+pr\s+create\b|\bnpm\s+publish\b/i.test(d.body?.command ?? ''))) return null;
     // The activity hook reports the last steps alongside: give it a moment to finish them.
     for (let i = 0; stopping && i < 10 && turnSteps(session).some((e) => e.status === 'running'); i++) await new Promise((r) => setTimeout(r, 100));
+    // Asked to run unreadable tests again, and stopping without a clear result: you're asked to look.
+    if (stopping && loopUnclear.has(session) && testState(turnSteps(session))?.state === 'unclear') askYou(session, label);
     // Finishing: only code this request changed is Claude's to fix. Shipping is held back either way.
     if (stopping && !changedCode(turnSteps(session))) return null;
     const trouble = testTrouble(session);
@@ -627,7 +655,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const label = folderName(event.cwd);
     hooked.add(session);
     noteSession(session, event.cwd);
-    if (event.hook_event_name === 'UserPromptSubmit') loopBlocks.delete(session); // a new request: the fix loop counts again
+    if (event.hook_event_name === 'UserPromptSubmit') { loopBlocks.delete(session); loopUnclear.delete(session); loopAsked.delete(session); } // a new request: the fix loop counts again
     // First time we hear from a session: load its history from the transcript.
     if (event.transcript_path && !backfilled.has(session)) {
       backfilled.add(session);

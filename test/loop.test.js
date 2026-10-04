@@ -101,13 +101,14 @@ test('a test run that fails: Claude is told at once; one that passes, or another
 
   assert.deepEqual(await s.run('ls -la'), {}, 'not a test run');
   assert.deepEqual(await s.run('git status'), {});
-  // Unclear (the exit code says passed, the output shows errors), and no checker: nothing to say.
-  assert.deepEqual(await s.run('npm test', { output: 'Traceback (most recent call last):\nImportError: no module' }), {});
+  // Unclear (the exit code says passed, the output shows errors), and no checker: run them again.
+  const again = await s.run('npm test', { output: 'Traceback (most recent call last):\nImportError: no module' });
+  assert.match(again.hookSpecificOutput.additionalContext, /^dotpals: can’t tell whether this test run passed: .+\. Run the tests again without cutting their output/);
   // It passes now: nothing for Claude, "Fixed" for you.
   assert.deepEqual(await s.run('npm test', { output: PASSED }), {});
 
   await new Promise((r) => setTimeout(r, 100));
-  assert.deepEqual(events.list.map((e) => e.kind), ['told', 'told', 'told', 'fixed']);
+  assert.deepEqual(events.list.map((e) => e.kind), ['told', 'told', 'told', 'retry', 'fixed']);
   assert.equal(events.list[0].session, 'told');
   assert.equal(events.list[0].label, 'app');
   assert.match(events.list[0].text, /^Tests failed \(.+\)\. Told Claude to fix them\.$/);
@@ -187,6 +188,44 @@ test('Stop: sent back while the tests fail or are out of date, at most twice per
   assert.deepEqual(kinds('stale'), ['sent-back']);
   assert.deepEqual(kinds('untested'), []);
   assert.deepEqual(kinds('passing'), []);
+});
+
+test('a test result nobody can read: Claude runs them again; the second time, or stopping without one, goes to you', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const events = await loopEvents(port);
+  t.after(events.stop);
+  const PIPED = { output: "    operator: 'strictEqual',\n    diff: 'simple'\n  }" };
+
+  const s = claude(port, 'piped');
+  await s.prompt();
+  const first = await s.run('npm test 2>&1 | tail -n 3', PIPED);
+  assert.match(first.hookSpecificOutput.additionalContext, /^dotpals: can’t tell whether this test run passed: its output went through a pipe.+Run the tests again without cutting their output \(no \| tail, head or grep\), so the counts and the exit code show\.$/);
+  const second = await s.run('npm test 2>&1 | tail -n 3', PIPED);
+  assert.equal(second.hookSpecificOutput.additionalContext, 'dotpals: still can’t tell whether the tests passed, so it asked the user to take a look. Tell them what you ran and what you saw.');
+  assert.deepEqual(await s.run('npm test 2>&1 | tail -n 3', PIPED), {}, 'asked once is enough');
+  // Your next prompt starts again.
+  await s.prompt('try again');
+  assert.match((await s.run('npm test | tail -n 3', PIPED)).hookSpecificOutput.additionalContext, /Run the tests again/);
+
+  // Asked to run them again, and stops without a clear result: you're asked, Claude isn't held up.
+  const quiet = claude(port, 'quiet');
+  await quiet.prompt();
+  await quiet.run('npm test | tail -n 3', PIPED);
+  assert.deepEqual(await quiet.stop(), {});
+  // Ran them again and they're clear: nothing for you.
+  const clear = claude(port, 'clear');
+  await clear.prompt();
+  await clear.run('npm test | tail -n 3', PIPED);
+  await clear.run('npm test', { output: PASSED });
+  assert.deepEqual(await clear.stop(), {});
+
+  await new Promise((r) => setTimeout(r, 100));
+  const kinds = (session) => events.list.filter((e) => e.session === session).map((e) => e.kind);
+  assert.deepEqual(kinds('piped'), ['retry', 'ask-you', 'retry']);
+  assert.equal(events.list.find((e) => e.kind === 'ask-you').text, 'Couldn’t tell whether Claude’s tests passed. Please take a look.');
+  assert.deepEqual(kinds('quiet'), ['retry', 'ask-you']);
+  assert.deepEqual(kinds('clear'), ['retry']);
 });
 
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {
