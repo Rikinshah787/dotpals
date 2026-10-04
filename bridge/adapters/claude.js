@@ -106,7 +106,7 @@ export function describeTool(name = '', input = {}, cwd) {
 }
 
 /** A tool's result as text for the details panel (file contents aren't kept). */
-function resultText(name, result) {
+export function resultText(name, result) {
   if (result == null || name === 'Read' || name === 'Write') return undefined;
   if (typeof result === 'string') return clipEnds(result, 3000);
   // Command output keeps its start and its end, where test runners print their summary.

@@ -322,7 +322,7 @@ const folders = (files) => {
   }
   return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([d]) => `${d}/`);
 };
-const list = (names, max = 3) => (names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`);
+export const list = (names, max = 3) => (names.length <= max ? names.join(', ') : `${names.slice(0, max).join(', ')} +${names.length - max}`);
 const quote = (s, n = 48) => { s = String(s).split('\n')[0].trim(); return `“${s.length > n ? `${s.slice(0, n - 1)}…` : s}”`; };
 const ORDER = ['ask', 'change', 'test', 'build', 'install', 'ship', 'agent', 'skill', 'mcp', 'web', 'explore', 'run', 'tool', 'scratch', 'memory'];
 
