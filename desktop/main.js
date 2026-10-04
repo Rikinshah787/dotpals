@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { startBridge } from '../bridge/server.js';
 import { loadConfig, saveConfig } from '../bridge/config.js';
 import { readUsage } from '../bridge/usage.js';
+import { mayStartHere } from './bridge-wait.js';
 
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
@@ -93,27 +94,31 @@ if (!app.requestSingleInstanceLock()) {
         });
       } catch {}
     }
-    for (let i = 0; i < 40 && bridgeProc; i++) {
-      if (await bridgeUp()) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    if (await bridgeUp()) return;
+    const ok = await mayStartHere({ up: bridgeUp, running: () => !!bridgeProc, stop: stopBridge });
+    if (!ok || quitting) return;
     try {
       await startBridge({ port, log: () => {}, onQuit: () => app.quit() });
     } catch (err) {
       if (err.code !== 'EADDRINUSE') console.error('[dotpals] bridge failed to start:', err.message);
     }
   }
-  // Quitting takes the bridge we started (and the OpenCode server it started) with it.
-  app.on('will-quit', () => {
+  /** Kill the bridge we started (and the OpenCode server it started); true once it has exited. */
+  function stopBridge() {
+    // bridgeProc stays set until it has really exited (its 'exit' handler clears it), so a
+    // child that's slow to die is never replaced by a second bridge.
     const child = bridgeProc;
-    bridgeProc = null;
-    if (!child) return;
+    if (!child) return Promise.resolve(true);
+    const exited = child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve(true)
+      : new Promise((ok) => { child.once('exit', () => ok(true)); setTimeout(() => ok(false), 5000).unref?.(); });
     try {
       if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
       else child.kill();
     } catch {}
-  });
+    return exited;
+  }
+  // Quitting takes the bridge we started with it.
+  app.on('will-quit', () => { stopBridge(); });
 
   app.whenReady().then(async () => {
     await ensureBridge();
