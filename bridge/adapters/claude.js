@@ -124,6 +124,15 @@ export function resultText(name, result) {
 }
 
 /**
+ * What a command printed when it failed (PostToolUseFailure): Claude Code sends it with the
+ * error, a string or { message, stdout, stderr }. Its start and end, like resultText.
+ */
+export function failureText(error) {
+  const text = typeof error === 'string' ? error : [error?.stdout, error?.stderr, error?.message].filter(Boolean).join('\n');
+  return text ? clipEnds(text, 3000) : undefined;
+}
+
+/**
  * Fold one Claude Code hook event into the log. Returns the changed entries.
  */
 export function applyHook(e, log, { session, label }) {
@@ -150,7 +159,8 @@ export function applyHook(e, log, { session, label }) {
     case 'PostToolUseFailure': {
       const ok = e.hook_event_name === 'PostToolUse';
       const entry = (id && log.get(id)) || log.findLast(session, (x) => x.tool === tool && x.status === 'running');
-      const output = resultText(tool, e.tool_response);
+      // A failed command's output comes with its error: a failing test run's counts are in it.
+      const output = resultText(tool, e.tool_response) ?? (!ok && (tool === 'Bash' || tool === 'PowerShell') ? failureText(e.error) : undefined);
       add(log.upsert({
         ...base,
         id: entry?.id ?? id ?? `${session}:t:${at}`,

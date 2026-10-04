@@ -70,7 +70,8 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
-import { applyHook, backfillTranscript, describeTool, lastReply, resultText, watchClaude } from './adapters/claude.js';
+import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
+import { failureReason } from './ui/testout.js';
 import { changedCode, checkOf, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
 import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
@@ -430,7 +431,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const LOOP_MAX = 2;
   const loopBlocks = new Map(); // session → times it was sent back in this request
   const loopHelped = new Set(); // sessions told or sent back, until a test run passes ("Fixed")
-  const loopUnclear = new Map(); // session → unreadable test runs in this request
+  const loopUnclear = new Map(); // session → { n: unreadable test runs in this request, why: what's known about the last }
   const loopAsked = new Set(); // sessions whose request went to you
   function sendLoop(session, label, kind, text) {
     if (kind === 'fixed') loopHelped.delete(session);
@@ -440,17 +441,19 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   function askYou(session, label) {
     if (loopAsked.has(session)) return;
     loopAsked.add(session);
-    sendLoop(session, label, 'ask-you', 'Couldn’t tell whether Claude’s tests passed. Please take a look.');
+    const why = loopUnclear.get(session)?.why;
+    sendLoop(session, label, 'ask-you', `Couldn’t tell whether Claude’s tests passed${why ? `: ${why}` : ''}. Please take a look.`);
   }
   const loopNote = (event, text) => ({ hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text } });
   /** A test run nobody could read: run it again so it shows; the second time, it's yours to look at. */
-  function unclearRun(event, session, label, v, check) {
-    const n = (loopUnclear.get(session) ?? 0) + 1;
-    loopUnclear.set(session, n);
+  function unclearRun(event, session, label, step, v, check) {
+    const n = (loopUnclear.get(session)?.n ?? 0) + 1;
+    const unsure = typeof check?.p === 'number' ? `${checkOf({ check }).who} wasn’t sure either (${Math.round(check.p * 100)}% that they passed)` : '';
+    // For you, if it comes to that: what ran, why it can't be read, and what the checker thought.
+    loopUnclear.set(session, { n, why: `\`${clip(step.body?.command ?? '', 80)}\`: ${v.note ?? 'its output doesn’t show the result'}${unsure ? `, and ${unsure}` : ''}` });
     if (n === 1) {
       sendLoop(session, label, 'retry', 'Couldn’t tell if the tests passed. Asked Claude to run them again.');
-      const unsure = typeof check?.p === 'number' ? ` ${checkOf({ check }).who} wasn’t sure either (${Math.round(check.p * 100)}% that it passed).` : '';
-      return loopNote(event, `dotpals: can’t tell whether this test run passed: ${v.note ?? 'its output doesn’t show the result'}.${unsure} Run the tests again without cutting their output (no | tail, head or grep), so the counts and the exit code show.`);
+      return loopNote(event, `dotpals: can’t tell whether this test run passed: ${v.note ?? 'its output doesn’t show the result'}.${unsure ? ` ${unsure}.` : ''} Run the tests again without cutting their output (no | tail, head or grep), so the counts and the exit code show.`);
     }
     if (n > 2) return null;
     askYou(session, label);
@@ -465,10 +468,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   }
   // "3 failed, 5 passed: sum adds", "checked by Jev, 80% sure", or the exit code's word.
   const failedWords = (v) => (v.source === 'exit' ? 'the command exited with an error' : testEvidence(v));
+  // Why the first test failed, from the run's output: "expected 3, got -1 (test/math.test.js:5)", or ''.
+  const failedWhy = (step) => { const r = failureReason(`${step?.body?.output ?? ''}\n${step?.error ?? ''}`); return r ? `${r.why}${r.where ? ` (${r.where})` : ''}` : ''; };
   /** What's wrong with this request's tests, if it's worth sending Claude back: failing, or not run since the last change. */
   function testTrouble(session) {
     const t = testState(turnSteps(session));
-    if (t?.state === 'failing') return { failing: true, words: failedWords(t.verdict) };
+    if (t?.state === 'failing') return { failing: true, words: failedWords(t.verdict), why: failedWhy(t.last) };
     if (t?.state === 'stale') return { failing: false, words: nameList([...new Set(t.since.map(baseName))]) };
     return null;
   }
@@ -480,10 +485,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const ok = event.hook_event_name === 'PostToolUse';
     // The step bridge/adapters/claude.js (applyHook) records, with the same id, so the checker asks once.
     const d = describeTool(tool, event.tool_input ?? {}, event.cwd);
-    // A failed command's output comes with its error (a string, or { message, stdout, stderr }): the counts are in it.
-    const err = event.error;
-    const failed = typeof err === 'string' ? err : [err?.stdout, err?.stderr, err?.message].filter(Boolean).join('\n');
-    const output = resultText(tool, event.tool_response) || (!ok && failed ? clipEnds(failed, 3000) : '');
+    // A failed command's output comes with its error: the counts and the reason are in it.
+    const output = resultText(tool, event.tool_response) ?? (!ok ? failureText(event.error) : undefined);
     const step = {
       ...d, id: `${session}:${event.tool_use_id}`, session, tool, status: ok ? 'ok' : 'failed',
       body: { ...d.body, ...(output ? { output } : {}) },
@@ -497,15 +500,16 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       check = await checker.check(step).catch(() => null);
       if (check?.state === 'passed' || check?.state === 'failed') { v = testVerdict({ ...step, check }); checked = checkOf({ ...step, check }); }
     }
-    if (v.state === 'unclear' && v.reason !== 'no-tests') return unclearRun(event, session, label, v, check);
+    if (v.state === 'unclear' && v.reason !== 'no-tests') return unclearRun(event, session, label, step, v, check);
     if (v.state === 'passed' && loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
     if (v.state !== 'failed') return null;
     // Claude's own change broke them: fix it. Nothing changed yet: maybe this request only asked how the tests stand.
     const mine = changedCode(turnSteps(session));
-    sendLoop(session, label, 'told', `${checked ? `${checked.who} thinks the tests failed.` : `Tests failed (${failedWords(v)}).`}${mine ? ' Told Claude to fix them.' : ''}`);
+    const why = failedWhy(step);
+    sendLoop(session, label, 'told', `${checked ? `${checked.who} thinks the tests failed` : `Tests failed (${failedWords(v)})`}${why ? `: ${why}` : ''}.${mine ? ' Told Claude to fix them.' : ''}`);
     const what = checked ? `${checked.who} thinks this test run failed (${checked.sure}% sure)` : `this test run failed (${failedWords(v)})`;
     const next = mine ? 'Fix it before you finish; dotpals checks again when you stop.' : 'If fixing it is part of this request, fix it and run the tests again.';
-    return { hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: `dotpals: ${what}. ${next}` } };
+    return loopNote(event, `dotpals: ${what}${why ? `: ${why}` : ''}. ${next}`);
   }
 
   /** Claude is about to stop (Stop) or to commit or push (PreToolUse): send it back while the tests fail or are out of date. */
@@ -524,11 +528,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (!trouble) return null;
     const times = loopBlocks.get(session) ?? 0;
     if (times >= LOOP_MAX) {
-      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? 'Claude stopped, but the tests still fail.' : 'Claude stopped, but the tests weren’t run after its last change.');
+      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? `Claude stopped, but the tests still fail (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}.` : 'Claude stopped, but the tests weren’t run after its last change.');
       return null;
     }
     loopBlocks.set(session, times + 1);
-    const problem = trouble.failing ? `the tests are failing (${trouble.words})` : `you changed ${trouble.words} after the last test run`;
+    const problem = trouble.failing ? `the tests are failing (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}` : `you changed ${trouble.words} after the last test run`;
     const fix = trouble.failing ? 'Fix them and run the tests again' : 'Run the tests again';
     if (stopping) {
       sendLoop(session, label, 'sent-back', trouble.failing ? 'Claude tried to finish with failing tests. Sent it back to fix them.' : `Claude changed ${trouble.words} after the last test run. Sent it back to run them.`);

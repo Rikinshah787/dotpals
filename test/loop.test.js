@@ -129,7 +129,7 @@ test('an unclear test run: the checker you chose decides (a fake Laya that says 
   await s.prompt();
   await s.edit('math.js');
   const told = await s.run('npm test', { output: 'Traceback (most recent call last):\nImportError: no module' });
-  assert.equal(told.hookSpecificOutput.additionalContext, 'dotpals: Laya thinks this test run failed (90% sure). Fix it before you finish; dotpals checks again when you stop.');
+  assert.equal(told.hookSpecificOutput.additionalContext, 'dotpals: Laya thinks this test run failed (90% sure): ImportError: no module. Fix it before you finish; dotpals checks again when you stop.');
 });
 
 test('Stop: sent back while the tests fail or are out of date, at most twice per request', async (t) => {
@@ -184,7 +184,7 @@ test('Stop: sent back while the tests fail or are out of date, at most twice per
   await new Promise((r) => setTimeout(r, 100));
   const kinds = (session) => events.list.filter((e) => e.session === session).map((e) => e.kind);
   assert.deepEqual(kinds('stop'), ['told', 'sent-back', 'sent-back', 'gave-up', 'told', 'sent-back']);
-  assert.equal(events.list.find((e) => e.kind === 'gave-up').text, 'Claude stopped, but the tests still fail.');
+  assert.match(events.list.find((e) => e.kind === 'gave-up').text, /^Claude stopped, but the tests still fail \(1 failed, 1 passed.*\)\.$/);
   assert.deepEqual(kinds('stale'), ['sent-back']);
   assert.deepEqual(kinds('untested'), []);
   assert.deepEqual(kinds('passing'), []);
@@ -223,9 +223,28 @@ test('a test result nobody can read: Claude runs them again; the second time, or
   await new Promise((r) => setTimeout(r, 100));
   const kinds = (session) => events.list.filter((e) => e.session === session).map((e) => e.kind);
   assert.deepEqual(kinds('piped'), ['retry', 'ask-you', 'retry']);
-  assert.equal(events.list.find((e) => e.kind === 'ask-you').text, 'Couldn’t tell whether Claude’s tests passed. Please take a look.');
+  assert.equal(events.list.find((e) => e.kind === 'ask-you').text, 'Couldn’t tell whether Claude’s tests passed: `npm test 2>&1 | tail -n 3`: its output went through a pipe, so the exit code isn’t the tests’. Please take a look.');
   assert.deepEqual(kinds('quiet'), ['retry', 'ask-you']);
   assert.deepEqual(kinds('clear'), ['retry']);
+});
+
+test('why it failed, from the output: in what Claude is told, what the pal says, and the Stop and commit reasons', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const events = await loopEvents(port);
+  t.after(events.stop);
+  // node --test, as Claude Code sends it when npm test exits 1: the output comes with the error.
+  const NODE = '✖ sum adds two numbers (1.2ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n  -1 !== 3\n\n      at TestContext.<anonymous> (file:///C:/w/app/test/math.test.js:5:10)\n      at Test.runInAsyncScope (node:internal/test_runner/test:1004:9) {\n    actual: -1,\n    expected: 3,\n    operator: \'strictEqual\'\n  }\nℹ tests 2\nℹ pass 1\nℹ fail 1';
+  const s = claude(port, 'why');
+  await s.prompt();
+  await s.edit('math.js');
+  const told = await s.run('npm test', { ok: false, output: NODE });
+  assert.match(told.hookSpecificOutput.additionalContext, /^dotpals: this test run failed \(1 failed, 1 passed.*\): expected 3, got -1 \(test\/math\.test\.js:5\)\. Fix it before you finish/);
+  assert.match((await s.stop()).reason, /^dotpals: the tests are failing \(.+\): expected 3, got -1 \(test\/math\.test\.js:5\)\. Fix them/);
+  assert.match((await s.ship()).hookSpecificOutput.permissionDecisionReason, /: expected 3, got -1 \(test\/math\.test\.js:5\)\. Fix them and run the tests again before you commit or push\.$/);
+
+  await new Promise((r) => setTimeout(r, 100));
+  assert.match(events.list[0].text, /^Tests failed \(.+\): expected 3, got -1 \(test\/math\.test\.js:5\)\. Told Claude to fix them\.$/);
 });
 
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {

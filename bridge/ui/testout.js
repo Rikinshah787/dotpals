@@ -666,3 +666,39 @@ export function parseTestOutput(output) {
   out.parsed = true;
   return out;
 }
+
+// -- why a test failed --------------------------------------------------------------------
+
+const WHY_MAX = 140;
+// A source file and line, as stack traces and failure headers show them ("test/math.test.js:5:10").
+const WHERE = /((?:[\w.@-]+[\\/])*[\w.@-]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|kt|cs|exs?)):(\d+)/;
+
+/**
+ * Why the first failing test failed, in its runner's own words, when the output says so:
+ * { why, where? } or null. Only the first: for a person and for the agent, that's where to start.
+ *   why    "expected 3, got -1" (jest's Expected/Received, node's expected/actual), else the
+ *          assertion or error line: pytest's "assert -1 == 3", go's "sum(1, 2) = -1; want 3",
+ *          "AssertionError: expected -1 to equal 3", "Expected values to be strictly equal: -1 !== 3"
+ *   where  the first test file and line in it ("test/math.test.js:5"), else the first file that
+ *          isn't a dependency's or the runtime's
+ */
+export function failureReason(output) {
+  const lines = toLines(output).map((l) => l.trim());
+  const value = (re) => { for (const l of lines) { const m = re.exec(l); if (m) return m[1].replace(/,$/, ''); } return null; };
+  const expected = value(/^Expected(?: value)?:\s+(.+)$/) ?? value(/^expected:\s+(.+)$/);
+  const actual = value(/^Received(?: value)?:\s+(.+)$/) ?? value(/^actual:\s+(.+)$/);
+  let why = expected != null && actual != null ? `expected ${expected}, got ${actual}` : null;
+  if (!why) {
+    const i = lines.findIndex((l) => /^E\s+\S/.test(l) || /^[\w./\\-]+_test\.go:\d+:\s/.test(l) || /^(?:\w+\s+)?\[?\w*(?:Assertion)?Error\b[^:]*:/.test(l) || /^assertion\b.*\bfailed\b/i.test(l));
+    if (i >= 0) {
+      why = lines[i].replace(/^E\s+/, '').replace(/^[\w./\\-]+_test\.go:\d+:\s+/, '');
+      // "Expected values to be strictly equal:" says what follows: the values.
+      if (why.endsWith(':')) why = `${why} ${lines.slice(i + 1).find(Boolean) ?? ''}`.trim();
+    }
+  }
+  if (!why) return null;
+  const spots = lines.map((l) => WHERE.exec(l)).filter((m) => m && !/node_modules|node:|internal[\\/]|site-packages/.test(m[0]));
+  const spot = spots.find((m) => /test|spec/i.test(m[1])) ?? spots[0];
+  const where = spot ? `${spot[1].split(/[\\/]/).slice(-2).join('/')}:${spot[2]}` : null;
+  return { why: why.slice(0, WHY_MAX), ...(where ? { where } : {}) };
+}
