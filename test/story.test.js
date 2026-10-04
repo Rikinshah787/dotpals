@@ -685,10 +685,15 @@ test('weakenedTests: green because the tests were changed (taken out, commented 
   const first = change(SUM, "test('sum', () => {\n});")();
   assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);
 
-  // Ready to merge says so.
+  // Ready to merge says so, and the test line warns instead of a green "Tests passed".
   const f = fail();
   const weak = change(SUM, "test('sum', () => {\n});")();
-  const r = readiness({ steps: [edit('math.js'), f, weak, pass()], end: { kind: 'done' } });
+  const steps = [edit('math.js'), f, weak, pass()];
+  const r = readiness({ steps, end: { kind: 'done' } });
   assert.equal(r.ready, false);
   assert.ok(r.problems.includes('Changed the tests to make them pass: removed 1 assertion in math.test.js'), r.problems.join(' | '));
+  const { testLine } = await import('../bridge/ui/story.js');
+  const line = testLine(steps, () => '3:24 PM');
+  assert.equal(line.level, 'warn');
+  assert.match(line.text, /^Tests passed · 2 passed · 3:24 PM, but only after the tests were changed: removed 1 assertion in math\.test\.js$/);
 });

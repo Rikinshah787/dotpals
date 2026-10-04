@@ -743,7 +743,12 @@ export function testLine(steps, time = (at) => new Date(at).toLocaleTimeString([
     case 'stale': return { level: 'warn', text: `Tests ${lastWord(t.verdict)} at ${time(t.last.at)} · ${plural(t.since.length, 'file')} changed since${commit}` };
     case 'failing': return { level: 'bad', text: `${testWords(t.verdict)} · ${time(t.last.at)}${commit}` };
     case 'unclear': return { level: 'warn', text: `${testWords(t.verdict)} · ${time(t.last.at)}${commit}` };
-    default: return { level: 'ok', text: `${testWords(t.verdict)} · ${time(t.last.at)}, after the last change${commit}` };
+    default: {
+      // Green because the tests were changed (weakenedTests): not a pass to trust.
+      const weak = weakenedTests(steps);
+      if (weak) return { level: 'warn', text: `${testWords(t.verdict)} · ${time(t.last.at)}, but only after the tests were changed: ${weak.text}${commit}` };
+      return { level: 'ok', text: `${testWords(t.verdict)} · ${time(t.last.at)}, after the last change${commit}` };
+    }
   }
 }
 
