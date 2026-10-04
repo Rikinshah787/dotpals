@@ -58,8 +58,8 @@ function claude(port, session) {
     observe: (e) => post('/hook', e),
     loop: (e) => post('/hook?loop=1', e),
     prompt: (text = 'fix it') => s.observe({ hook_event_name: 'UserPromptSubmit', prompt: text }),
-    async edit(file) {
-      const e = { tool_name: 'Edit', tool_use_id: `ed${++n}`, tool_input: { file_path: `/w/app/${file}`, old_string: 'a', new_string: 'b' } };
+    async edit(file, old_string = 'a', new_string = 'b') {
+      const e = { tool_name: 'Edit', tool_use_id: `ed${++n}`, tool_input: { file_path: `/w/app/${file}`, old_string, new_string } };
       await s.observe({ ...e, hook_event_name: 'PreToolUse' });
       await s.observe({ ...e, hook_event_name: 'PostToolUse', tool_response: {} });
       await tick();
@@ -245,6 +245,30 @@ test('why it failed, from the output: in what Claude is told, what the pal says,
 
   await new Promise((r) => setTimeout(r, 100));
   assert.match(events.list[0].text, /^Tests failed \(.+\): expected 3, got -1 \(test\/math\.test\.js:5\)\. Told Claude to fix them\.$/);
+});
+
+test('the bluff: green because Claude changed the tests, not the code: told, you hear about it, sent back once', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const events = await loopEvents(port);
+  t.after(events.stop);
+  const s = claude(port, 'bluff');
+  await s.prompt('Add divide to math.js');
+  await s.edit('math.js');
+  await s.run('npm test', { ok: false, output: FAILED });
+  // Instead of fixing sum, it changes what the test expects.
+  await s.edit('test/math.test.js', 'assert.equal(sum(1, 2), 3);', 'assert.equal(sum(1, 2), -1);');
+  const told = await s.run('npm test', { output: PASSED });
+  assert.equal(told.hookSpecificOutput.additionalContext, 'dotpals: the tests pass now, but only after you changed them: changed what an assertion expects in math.test.js. Don’t weaken a test to make it pass: put it back and fix the code, or tell the user why the test itself was wrong.');
+  const back = await s.stop();
+  assert.equal(back.decision, 'block');
+  assert.equal(back.reason, 'dotpals: you made the tests pass by changing them (changed what an assertion expects in math.test.js). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.');
+  // Once: if it says why the test was wrong, it may finish.
+  assert.deepEqual(await s.stop(), {});
+
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(events.list.map((e) => e.kind), ['told', 'bluff', 'sent-back'], 'no "Fixed ✓" for a bluff');
+  assert.equal(events.list[1].text, 'Claude changed the tests to make them pass: changed what an assertion expects in math.test.js.');
 });
 
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {

@@ -659,3 +659,36 @@ test('review fixes on retention: the tested commit survives, and sed edits reach
   // A file changed only by sed shows in the note's paths.
   assert.match(compactNote([run("sed -i 's/a/b/' src/config.js"), out('npm test', 'Tests: 4 passed')]), /src\/config\.js/);
 });
+
+test('weakenedTests: green because the tests were changed (taken out, commented out, skipped, expecting something else), not the code', async () => {
+  const { weakenedTests, readiness } = await import('../bridge/ui/story.js');
+  const fail = () => ({ ...run('npm test', 'failed'), body: { command: 'npm test', output: 'ℹ tests 2\nℹ pass 1\nℹ fail 1' } });
+  const pass = () => ({ ...run('npm test'), body: { command: 'npm test', output: 'ℹ tests 2\nℹ pass 2\nℹ fail 0' } });
+  const patch = (before, after) => [...before.split('\n').map((l) => `-${l}`), ...after.split('\n').map((l) => `+${l}`)].join('\n');
+  const change = (before, after, path = 'test/math.test.js') => () => edit(path, patch(before, after));
+  // In order: a failing run, the edits, a passing run.
+  const between = (...edits) => { const f = fail(); const e = edits.map((make) => make()); return weakenedTests([f, ...e, pass()]); };
+  const SUM = "test('sum', () => {\n  assert.equal(sum(1, 2), 3);\n});";
+
+  assert.equal(between(change(SUM, "test('sum', () => {\n});")).text, 'removed 1 assertion in math.test.js');
+  assert.equal(between(change(SUM, "test('sum', () => {\n  // assert.equal(sum(1, 2), 3);\n});")).text, 'removed 1 assertion in math.test.js');
+  assert.equal(between(change(SUM, "test('sum', () => {\n  assert.equal(sum(1, 2), -1);\n});")).text, 'changed what an assertion expects in math.test.js');
+  assert.equal(between(change("test('sum', () => {", "test.skip('sum', () => {")).text, 'turned 1 test off (skip, only or todo) in math.test.js');
+  assert.equal(between(change('    assert add(1, 2) == 3', '    assert add(1, 2) == -1', 'tests/test_math.py')).text, 'changed what an assertion expects in test_math.py');
+
+  // Not a bluff: the code was fixed, a test was added, only spacing changed, or nothing failed first.
+  assert.equal(between(change('return a - b;', 'return a + b;', 'math.js')), null);
+  assert.equal(between(change('});', "  assert.equal(sum(2, 2), 4);\n});")), null);
+  assert.equal(between(change('assert.equal(sum(1, 2),  3);', 'assert.equal(sum(1, 2), 3);')), null);
+  assert.equal(weakenedTests([change(SUM, "test('sum', () => {\n});")(), pass()]), null);
+  // Tests written first, failing, then the code: test-driven work, not a bluff.
+  const first = change(SUM, "test('sum', () => {\n});")();
+  assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);
+
+  // Ready to merge says so.
+  const f = fail();
+  const weak = change(SUM, "test('sum', () => {\n});")();
+  const r = readiness({ steps: [edit('math.js'), f, weak, pass()], end: { kind: 'done' } });
+  assert.equal(r.ready, false);
+  assert.ok(r.problems.includes('Changed the tests to make them pass: removed 1 assertion in math.test.js'), r.problems.join(' | '));
+});

@@ -797,7 +797,7 @@
     function applyLoop(l) {
       if (!l?.text || !fresh(l.at)) return;
       slots.get(l.session)?.pal.say?.(l.text, { duration: 6000 });
-      if (l.kind === 'gave-up' || l.kind === 'ask-you') {
+      if (l.kind === 'gave-up' || l.kind === 'ask-you' || l.kind === 'bluff') {
         sound.play('error');
         desktop?.notify?.(`Claude${l.label ? ` · ${l.label}` : ''}`, l.text);
       }

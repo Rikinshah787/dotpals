@@ -72,7 +72,7 @@ import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
 import { failureReason } from './ui/testout.js';
-import { changedCode, checkOf, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
+import { changedCode, checkOf, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
 import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -433,8 +433,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const loopHelped = new Set(); // sessions told or sent back, until a test run passes ("Fixed")
   const loopUnclear = new Map(); // session → { n: unreadable test runs in this request, why: what's known about the last }
   const loopAsked = new Set(); // sessions whose request went to you
+  const loopBluff = new Map(); // session → { text, sentBack }: tests made to pass by changing them, in this request
   function sendLoop(session, label, kind, text) {
-    if (kind === 'fixed') loopHelped.delete(session);
+    if (kind === 'fixed' || kind === 'bluff') loopHelped.delete(session);
     else if (kind !== 'retry' && kind !== 'ask-you') loopHelped.add(session);
     send('loop', { id: randomUUID(), at: Date.now(), session, harness: 'claude', label, kind, text });
   }
@@ -501,7 +502,16 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (check?.state === 'passed' || check?.state === 'failed') { v = testVerdict({ ...step, check }); checked = checkOf({ ...step, check }); }
     }
     if (v.state === 'unclear' && v.reason !== 'no-tests') return unclearRun(event, session, label, step, v, check);
-    if (v.state === 'passed' && loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
+    if (v.state === 'passed') {
+      // Green, but because the tests were changed, not the code: the bluff. Claude is told, the pal tells you.
+      const weak = !loopBluff.has(session) && weakenedTests([...turnSteps(session), { ...step, at: Date.now() }]);
+      if (weak) {
+        loopBluff.set(session, { text: weak.text, sentBack: false });
+        sendLoop(session, label, 'bluff', `Claude changed the tests to make them pass: ${weak.text}.`);
+        return loopNote(event, `dotpals: the tests pass now, but only after you changed them: ${weak.text}. Don’t weaken a test to make it pass: put it back and fix the code, or tell the user why the test itself was wrong.`);
+      }
+      if (loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
+    }
     if (v.state !== 'failed') return null;
     // Claude's own change broke them: fix it. Nothing changed yet: maybe this request only asked how the tests stand.
     const mine = changedCode(turnSteps(session));
@@ -524,6 +534,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (stopping && loopUnclear.has(session) && testState(turnSteps(session))?.state === 'unclear') askYou(session, label);
     // Finishing: only code this request changed is Claude's to fix. Shipping is held back either way.
     if (stopping && !changedCode(turnSteps(session))) return null;
+    // Made the tests pass by changing them: back once, to put the test back or say why it was wrong.
+    const bluff = loopBluff.get(session);
+    if (stopping && bluff && !bluff.sentBack) {
+      bluff.sentBack = true;
+      sendLoop(session, label, 'sent-back', 'Claude changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.');
+      return { decision: 'block', reason: `dotpals: you made the tests pass by changing them (${bluff.text}). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.` };
+    }
     const trouble = testTrouble(session);
     if (!trouble) return null;
     const times = loopBlocks.get(session) ?? 0;
@@ -659,7 +676,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const label = folderName(event.cwd);
     hooked.add(session);
     noteSession(session, event.cwd);
-    if (event.hook_event_name === 'UserPromptSubmit') { loopBlocks.delete(session); loopUnclear.delete(session); loopAsked.delete(session); } // a new request: the fix loop counts again
+    if (event.hook_event_name === 'UserPromptSubmit') { loopBlocks.delete(session); loopUnclear.delete(session); loopAsked.delete(session); loopBluff.delete(session); } // a new request: the fix loop counts again
     // First time we hear from a session: load its history from the transcript.
     if (event.transcript_path && !backfilled.has(session)) {
       backfilled.add(session);

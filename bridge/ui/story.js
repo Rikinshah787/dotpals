@@ -1284,6 +1284,69 @@ export function gitLine(truth) {
   return parts.join(' · ');
 }
 
+// A test file: in a test folder, or named like one (cart.test.js, cart.spec.ts, test_cart.py, cart_test.go, cart_spec.rb).
+const TEST_FILE = /(^|[\\/])(tests?|__tests__|spec)[\\/]|\.(test|spec)\.\w+$|(^|[\\/])test_[^\\/]*\.py$|_test\.go$|_spec\.rb$/i;
+// A line that checks something, in the usual test libraries.
+const ASSERTION = /\b(?:assert\w*|expect)\s*[.(]|^assert\s|\bt\.(?:equal|deepEqual|is|ok|true|false|same)\s*\(|\bself\.assert\w+\s*\(|\.should\b|\bXCTAssert\w*\s*\(|\brequire\.\w+\s*\(/;
+// Turning tests off: skip, todo or only (the others stop running), xit, pytest's and unittest's skips, go's t.Skip, rust's #[ignore].
+const SKIPS = /\b(?:it|test|describe|context)\.(?:skip|todo|only)\b|\bx(?:it|test|describe)\s*\(|@pytest\.mark\.(?:skip|xfail)|@unittest\.skip|\bt\.Skip(?:Now|f)?\(|#\[ignore\]|\bskip:\s*true\b/;
+const COMMENT = /^(?:\/\/|#(?!\[)|\/\*|\*|--)/;
+
+/** What an edit took out and put in, without the lines it kept (its patch has the old text as -, the new as +). */
+function lineChanges(patch) {
+  const gone = [];
+  const added = [];
+  for (const raw of String(patch ?? '').split('\n')) {
+    const line = raw.slice(1).trim().replace(/\s+/g, ' ');
+    if (line && raw[0] === '-') gone.push(line);
+    else if (line && raw[0] === '+') added.push(line);
+  }
+  for (let i = gone.length - 1; i >= 0; i--) {
+    const j = added.indexOf(gone[i]);
+    if (j >= 0) { added.splice(j, 1); gone.splice(i, 1); }
+  }
+  return { gone, added };
+}
+
+/**
+ * Tests made to pass by changing them: between the last failing test run and the passing
+ * one after it, an edit to a test file took out assertions (or commented them out), turned
+ * tests off (skip, only, todo) or changed what an assertion expects. Fixing the code is
+ * the job; weakening the test is the bluff. { files, text: "removed 2 assertions in
+ * math.test.js" } or null. Whole-file writes can't be compared (their old text isn't
+ * known), so only edits count.
+ */
+export function weakenedTests(steps) {
+  const sorted = [...steps].sort((a, b) => a.at - b.at);
+  const tests = sorted.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e));
+  const passed = tests.findLast((e) => testVerdict(e).state === 'passed');
+  const failed = passed && tests.findLast((e) => e.at < passed.at && testVerdict(e).state === 'failed');
+  if (!failed) return null;
+  // The shape of an assertion without its values: the same check with a different expected value.
+  const shape = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1|-?\b\d[\d_.]*\b|\b(?:true|false|null|undefined|None|True|False|nil)\b/g, '#');
+  let removed = 0, skipped = 0, changed = 0;
+  const files = new Set();
+  for (const e of sorted) {
+    if (e.at <= failed.at || e.at >= passed.at || e.kind !== 'edit' || e.status === 'failed') continue;
+    const file = (e.files ?? []).find((f) => TEST_FILE.test(String(f.path)));
+    if (!file) continue;
+    const { gone, added } = lineChanges(e.body?.patch);
+    const lost = gone.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
+    const kept = added.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
+    const before = removed + skipped + changed;
+    changed += lost.filter((l) => kept.some((k) => shape(k) === shape(l))).length;
+    removed += Math.max(0, lost.length - kept.length);
+    skipped += added.filter((l) => !COMMENT.test(l) && SKIPS.test(l)).length;
+    if (removed + skipped + changed > before) files.add(baseName(file.path));
+  }
+  const what = [
+    removed && `removed ${plural(removed, 'assertion')}`,
+    skipped && `turned ${plural(skipped, 'test')} off (skip, only or todo)`,
+    changed && `changed what ${changed === 1 ? 'an assertion expects' : `${changed} assertions expect`}`,
+  ].filter(Boolean);
+  return what.length ? { files: [...files], text: `${what.join(', ')} in ${list([...files])}` } : null;
+}
+
 /**
  * Is a finished request that changed code ready to merge? The checks a reviewer would make:
  *   { ready, checks: [{ ok, text }], problems: [text] }, or null (still working, or no code changed).
@@ -1315,6 +1378,9 @@ export function readiness(turn) {
   if (ran) {
     checks.push({ ok: tested?.state !== 'stale' && !gitUntimed, text: gitUntimed ? 'Code changed by a command after the tests may not be tested (git saw it, the steps don’t show when)' : tested?.state === 'stale' ? `Changed ${fileList(tested.since)} after the last test run` : 'Tests ran after the last change' });
     checks.push({ ok: last.state === 'passed', text: last.state === 'passed' ? 'Tests passed' : last.state === 'failed' ? 'Tests are failing' : 'Test result unclear' });
+    // Green because the tests were weakened, not because the code was fixed.
+    const weak = last.state === 'passed' && weakenedTests(turn.steps);
+    if (weak) checks.push({ ok: false, text: `Changed the tests to make them pass: ${weak.text}` });
   }
   // Left failing: anything tried again and again, and a test or build that failed once and
   // never passed (a failing `npm run test:unit` isn't fixed by a passing `npm run lint`).
