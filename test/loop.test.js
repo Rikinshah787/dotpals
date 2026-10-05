@@ -164,6 +164,16 @@ test('Stop: sent back while the tests fail or are out of date, at most twice per
   assert.equal(back.decision, 'block');
   assert.equal(back.reason, 'dotpals: you changed b.js after the last test run. Run the tests again before you finish.');
 
+  // Changed code without running the tests, in a session that has run them before: run them (how it ran them, without the pipe).
+  const skipped = claude(port, 'skipped');
+  await skipped.prompt('how do the tests look?');
+  await skipped.run('npm test 2>&1 | tail -n 3', { output: PASSED });
+  await skipped.prompt('add divide to math.js');
+  await skipped.edit('math.js');
+  const run = await skipped.stop();
+  assert.equal(run.decision, 'block');
+  assert.equal(run.reason, 'dotpals: you changed math.js but didn’t run the tests. Run `npm test` before you finish.');
+
   // No tests at all (not every project has them), or tests that pass: Claude stops as usual.
   const untested = claude(port, 'untested');
   await untested.prompt();
@@ -186,6 +196,7 @@ test('Stop: sent back while the tests fail or are out of date, at most twice per
   assert.deepEqual(kinds('stop'), ['told', 'sent-back', 'sent-back', 'gave-up', 'told', 'sent-back']);
   assert.match(events.list.find((e) => e.kind === 'gave-up').text, /^Claude stopped, but the tests still fail \(1 failed, 1 passed.*\)\.$/);
   assert.deepEqual(kinds('stale'), ['sent-back']);
+  assert.equal(events.list.find((e) => e.session === 'skipped' && e.kind === 'sent-back').text, 'Claude changed math.js without running the tests. Sent it back to run `npm test`.');
   assert.deepEqual(kinds('untested'), []);
   assert.deepEqual(kinds('passing'), []);
 });

@@ -1016,7 +1016,9 @@ export function crossRecap(entries, { session, label, since = Date.now() - 2 * 3
     if (files.length) parts.push(`changed ${files.slice(0, 5).map((p) => relativeish(p, label)).join(', ')}${files.length > 5 ? ` and ${files.length - 5} more` : ''}`);
     if (test) {
       const passed = testPassed(test);
-      parts.push(passed === false ? `its last test run failed (${words(commandOf(test), 40)})` : passed ? 'its tests passed' : `its last test run was unclear (${testVerdict(test).note ?? 'not finished'})`);
+      // Green only because the tests were changed: say so, or the next agent trusts a bluff.
+      const weak = passed && weakenedTests(list);
+      parts.push(passed === false ? `its last test run failed (${words(commandOf(test), 40)})` : weak ? `its tests passed only after it changed them (${weak.text})` : passed ? 'its tests passed' : `its last test run was unclear (${testVerdict(test).note ?? 'not finished'})`);
     }
     if (asked) parts.push(`it was asked: "${words(asked, 80)}"`);
     lines.push(`- ${agent} (session ${String(id).slice(-4)}, ${status}): ${parts.join('; ')}.`);

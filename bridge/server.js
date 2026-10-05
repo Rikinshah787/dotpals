@@ -72,7 +72,7 @@ import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
 import { failureReason } from './ui/testout.js';
-import { changedCode, checkOf, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
+import { changedCode, checkOf, parts, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
 import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -471,11 +471,24 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const failedWords = (v) => (v.source === 'exit' ? 'the command exited with an error' : testEvidence(v));
   // Why the first test failed, from the run's output: "expected 3, got -1 (test/math.test.js:5)", or ''.
   const failedWhy = (step) => { const r = failureReason(`${step?.body?.output ?? ''}\n${step?.error ?? ''}`); return r ? `${r.why}${r.where ? ` (${r.where})` : ''}` : ''; };
-  /** What's wrong with this request's tests, if it's worth sending Claude back: failing, or not run since the last change. */
-  function testTrouble(session) {
+  /** How this session last ran its tests, without a pipe or redirect (`npm test`), if it ever did. */
+  function sessionTestCommand(session) {
+    const run = activity.findLast(session, (e) => e.kind === 'run' && stepType(e) === 'test');
+    const part = run && parts(String(run.body?.command ?? '')).find((p) => stepType({ kind: 'run', body: { command: p } }) === 'test');
+    return part ? part.replace(/\s+\d?>>?&?\s*\S+/g, '').trim() : null;
+  }
+  /**
+   * What's wrong with this request's tests, if it's worth sending Claude back: failing, or not
+   * run since the last change. When finishing, also: code changed and no tests run at all, in a
+   * session that has run them before (so the project has tests, and that's how).
+   */
+  function testTrouble(session, stopping = false) {
     const t = testState(turnSteps(session));
+    const files = () => nameList([...new Set(t.since.map(baseName))]);
     if (t?.state === 'failing') return { failing: true, words: failedWords(t.verdict), why: failedWhy(t.last) };
-    if (t?.state === 'stale') return { failing: false, words: nameList([...new Set(t.since.map(baseName))]) };
+    if (t?.state === 'stale') return { failing: false, words: files() };
+    const command = stopping && t?.state === 'untested' && sessionTestCommand(session);
+    if (command) return { failing: false, untested: true, command, words: files() };
     return null;
   }
 
@@ -544,18 +557,20 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       sendLoop(session, label, 'sent-back', 'Claude changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.');
       return { decision: 'block', reason: `dotpals: you made the tests pass by changing them (${weak.text}). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.` };
     }
-    const trouble = testTrouble(session);
+    const trouble = testTrouble(session, stopping);
     if (!trouble) return null;
     const times = loopBlocks.get(session) ?? 0;
     if (times >= LOOP_MAX) {
-      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? `Claude stopped, but the tests still fail (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}.` : 'Claude stopped, but the tests weren’t run after its last change.');
+      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? `Claude stopped, but the tests still fail (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}.` : `Claude stopped, but the tests weren’t run after ${trouble.untested ? 'its changes' : 'its last change'}.`);
       return null;
     }
     loopBlocks.set(session, times + 1);
-    const problem = trouble.failing ? `the tests are failing (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}` : `you changed ${trouble.words} after the last test run`;
-    const fix = trouble.failing ? 'Fix them and run the tests again' : 'Run the tests again';
+    const problem = trouble.failing ? `the tests are failing (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}`
+      : trouble.untested ? `you changed ${trouble.words} but didn’t run the tests` : `you changed ${trouble.words} after the last test run`;
+    const fix = trouble.failing ? 'Fix them and run the tests again' : trouble.untested ? `Run \`${trouble.command}\`` : 'Run the tests again';
     if (stopping) {
-      sendLoop(session, label, 'sent-back', trouble.failing ? 'Claude tried to finish with failing tests. Sent it back to fix them.' : `Claude changed ${trouble.words} after the last test run. Sent it back to run them.`);
+      sendLoop(session, label, 'sent-back', trouble.failing ? 'Claude tried to finish with failing tests. Sent it back to fix them.'
+        : trouble.untested ? `Claude changed ${trouble.words} without running the tests. Sent it back to run \`${trouble.command}\`.` : `Claude changed ${trouble.words} after the last test run. Sent it back to run them.`);
       return { decision: 'block', reason: `dotpals: ${problem}. ${fix} before you finish.` };
     }
     // The commit never runs: it failed, as far as the story goes (not "committed without testing").
