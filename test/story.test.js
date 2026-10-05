@@ -539,7 +539,10 @@ test('a recap of a real turn: piped tests, code in node -e, scratch files and re
   const withOut = (command, status, output) => ({ ...run(command, status), body: { command, output } });
   // Piped into grep or tail, the exit code is the last command's, not the tests'.
   assert.equal(testVerdict(withOut('node --test test/guard.test.js 2>&1 | grep -E "fail|ok"', 'ok', 'ok 1 - x')).reason, 'piped');
-  assert.equal(testVerdict(withOut('npm test || echo failed', 'ok', '')).state, 'passed');
+  // After `||` the fallback's exit code hides the tests' (`npm test || true`): unclear without counts.
+  assert.equal(testVerdict(withOut('npm test || echo failed', 'ok', '')).state, 'unclear');
+  assert.equal(testVerdict(withOut('npm test || true', 'ok', 'running 2 checks\nsum adds two numbers: expected 3 got -1\n1 check did not pass')).state, 'unclear');
+  assert.equal(testVerdict(withOut('npm test || true', 'ok', 'ℹ tests 2\nℹ pass 1\nℹ fail 1')).state, 'failed'); // counts still win
   assert.equal(testVerdict(withOut('npm test 2>&1 | tail -3', 'ok', '# pass 12\n# fail 0')).state, 'passed'); // counts still win
   // "sudo" or "chmod" inside a node -e script is a string, not a command; inside bash -c it is one.
   assert.deepEqual(flags([run('node -e "console.log(\'sudo chmod 777 x\')"')]), []);
@@ -734,6 +737,6 @@ test('a commit that failed, or that dotpals stopped, reads "tried to commit", no
 });
 test('ships: a commit, push, PR or publish the tests can’t stop, from inside a block too', async () => {
   const { ships } = await import('../bridge/ui/story.js');
-  for (const cmd of ["git status --short; git add -A; if ($?) { git commit -m 'wip' }", 'npm test; git commit -m x', 'npm test || git push', 'git -C ../app commit -m x', 'git commit -m "a; b && c"', 'if npm test; then git push; fi', 'gh pr create --fill', 'npm publish']) assert.equal(ships(cmd), true, cmd);
+  for (const cmd of ["git status --short; git add -A; if ($?) { git commit -m 'wip' }", 'npm test; git commit -m x', 'npm test || git push', 'git -C ../app commit -m x', 'git commit -m "a; b && c"', 'if npm test; then git push; fi', 'gh pr create --fill', 'npm publish', 'npm test 2>&1 | tail -n 5 && git commit -m x', 'npm test | tee out.txt && git push']) assert.equal(ships(cmd), true, cmd);
   for (const cmd of ['npm test && git commit -m x', 'git log --oneline', "echo 'git commit' > notes.txt", 'git diff && npm test', 'git rebase main']) assert.equal(ships(cmd), false, cmd);
 });

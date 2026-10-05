@@ -57,12 +57,13 @@ function slim(e, ids) {
   const s = { id, kind: e.kind, tool: e.tool, title: clean(e.title, 300), status: e.status, at: e.at };
   if (e.ms !== undefined) s.ms = e.ms;
   // Only what the rules read: a test run's output (its verdict), every command (risky
-  // steps, retries), an edit's patch (tests changed to pass); nothing else's output.
+  // steps, retries), an edit's or a write's patch and a test run's view of the test files in git
+  // (tests changed to pass); nothing else's output.
   const test = e.kind === 'run' && stepType(e) === 'test';
   if (e.error) s.error = clean(e.error, test ? 1000 : 200);
   if (e.files?.length) s.files = e.files.map((f) => ({ path: clean(f.path), change: f.change }));
-  if (e.kind === 'run' && (e.body?.command || e.body?.output)) s.body = { command: clean(e.body.command, 1500), ...(test ? { output: clean(e.body.output, 3000) } : {}) };
-  if (e.kind === 'edit' && e.body?.patch) s.body = { patch: clean(e.body.patch, 8000) };
+  if (e.kind === 'run' && (e.body?.command || e.body?.output)) s.body = { command: clean(e.body.command, 1500), ...(test ? { output: clean(e.body.output, 3000) } : {}), ...(test && e.body?.testDiff ? { testDiff: JSON.parse(clean(JSON.stringify(e.body.testDiff))) } : {}) };
+  if ((e.kind === 'edit' || e.kind === 'write') && e.body?.patch) s.body = { patch: clean(e.body.patch, 8000) };
   if (e.summary) s.summary = clean(String(e.summary).slice(-240));
   if (e.git) s.git = JSON.parse(clean(JSON.stringify(e.git)));
   return s;

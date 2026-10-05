@@ -366,6 +366,16 @@ test('commit or push: held back from inside a PowerShell if, or after a ; (the t
   assert.equal((await s.ship('npm test; git commit -m x')).hookSpecificOutput?.permissionDecision, 'deny');
 });
 
+test('commit or push: a piped test run doesn\'t guard the commit after it (the exit code is tail\'s)', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const s = claude(port, 'piped-ship');
+  await s.prompt();
+  await s.edit('math.js');
+  await s.run('npm test', { ok: false, output: FAILED });
+  assert.equal((await s.ship('npm test 2>&1 | tail -n 5 && git commit -m x')).hookSpecificOutput?.permissionDecision, 'deny');
+});
+
 test('the bluff through the shell (sed, a script): git sees how the tests changed, however it was done', async (t) => {
   const { execFileSync } = await import('node:child_process');
   const { writeFile, mkdir } = await import('node:fs/promises');
@@ -398,6 +408,35 @@ test('the bluff through the shell (sed, a script): git sees how the tests change
   const runs = entries.filter((e) => e.session === 'shell' && e.body?.testDiff);
   assert.ok(runs.length >= 2, 'git\'s view is kept on the test runs');
   assert.match(runs.at(-1).body.testDiff['test/math.test.js'], /^-\s+assert\.equal\(sum\(1, 2\), 3\);\n\+\s+assert\.equal\(sum\(1, 2\), -1\);$/);
+});
+
+test('Stop right after a test run waits for git\'s view of the tests, so a faked pass through sed isn\'t missed', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const { writeFile, mkdir } = await import('node:fs/promises');
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-gitrace-'));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {}));
+  const git = (...args) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir });
+  const TEST = "import { sum } from '../math.js';\ntest('sum adds two numbers', () => {\n  assert.equal(sum(1, 2), 3);\n});\n";
+  await mkdir(join(dir, 'test'));
+  await writeFile(join(dir, 'test', 'math.test.js'), TEST);
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-qm', 'start');
+
+  const s = claude(port, 'race', dir);
+  await s.prompt('Make the sum test pass.');
+  await s.run('npm test', { ok: false, output: FAILED });
+  await new Promise((r) => setTimeout(r, 300));
+  await writeFile(join(dir, 'test', 'math.test.js'), TEST.replace('sum(1, 2), 3)', 'sum(1, 2), -1)'));
+  await s.run("sed -i 's/sum(1, 2), 3);/sum(1, 2), -1);/' test/math.test.js");
+  // The passing run reaches the activity hook only, and Stop comes at once: git's view of the
+  // tests at that run is still being taken.
+  const e = { tool_name: 'Bash', tool_use_id: 'last', tool_input: { command: 'npm test' } };
+  await s.observe({ ...e, hook_event_name: 'PreToolUse' });
+  await s.observe({ ...e, hook_event_name: 'PostToolUse', tool_response: { stdout: PASSED, stderr: '' } });
+  assert.equal((await s.stop()).decision, 'block');
 });
 
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {

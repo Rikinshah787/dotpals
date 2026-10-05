@@ -118,7 +118,8 @@ export function ships(cmd) {
     const chain = /\|\|/.test(statement) ? [statement] : splitCommands(statement, { pipes: false });
     for (let i = 0; i < chain.length; i++) {
       if (!parts(chain[i]).some((p) => SHIPS.test(p))) continue;
-      if (chain.slice(0, i).some((c) => parts(c).some((p) => p.search(TEST) === 0))) continue;
+      // Not a piped test (`npm test | tail -5 && git commit`): the pipe's exit code is tail's.
+      if (chain.slice(0, i).some((c) => !piped(c) && parts(c).some((p) => p.search(TEST) === 0))) continue;
       return true;
     }
   }
@@ -216,11 +217,12 @@ function piped(cmd) {
 
 /**
  * Whether another command runs after the tests whatever they did (`npm test > out.txt; echo
- * done`): the exit code is then the last command's, not the tests'. After `&&` or `||` it isn't
- * "whatever they did": that only runs when the tests passed, or only when they failed.
+ * done`): the exit code is then the last command's, not the tests'. After `&&` it isn't
+ * "whatever they did": that only runs when the tests passed. After `||` it runs when they
+ * failed, so its exit code (`npm test || true`) hides theirs too.
  */
 function exitNotTests(cmd) {
-  const statements = splitCommands(scriptText(cmd), { pipes: false, ands: false, ors: false }).map((s) => s.trim()).filter(Boolean);
+  const statements = splitCommands(scriptText(cmd), { pipes: false, ands: false }).map((s) => s.trim()).filter(Boolean);
   const i = statements.findLastIndex((s) => parts(s).some((p) => p.search(TEST) === 0));
   return i >= 0 && i < statements.length - 1;
 }
