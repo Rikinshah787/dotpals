@@ -22,7 +22,13 @@
    "e32": "fixed"
   },
   "ready": false,
-  "stopped": "done"
+  "stopped": "done",
+  "weakened": null,
+  "why": {
+   "e32": null,
+   "e34": null,
+   "e36": null
+  }
  },
  "turn": {
   "harness": "claude",
@@ -502,7 +508,10 @@
       "path": "C:\\Dot\\test\\story.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  assert.match(testWords(unsure), /Laya wasn’t sure \\(0\\.55\\)$/);\n+  assert.match(testWords(unsure), /Laya wasn’t sure \\(55% that they passed\\)$/);"
+    }
    },
    {
     "id": "e36",
@@ -564,7 +573,10 @@
       "path": "C:\\Dot\\test\\story.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-/^Tests passed · checked by Jev \\(0\\.94\\) · 7:08 PM, after the last change$/\n+/^Tests passed · checked by Jev, 94% sure · 7:08 PM, after the last change$/"
+    }
    },
    {
     "id": "e41",

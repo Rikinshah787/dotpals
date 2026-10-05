@@ -4,7 +4,7 @@
 // the session's git repository, and when it ends, notes it again: the difference is what
 // changed, however it was changed, including commits.
 //
-// A snapshot is HEAD plus every file `git status` lists (changed, new, deleted; not
+// A snapshot is HEAD (and the branch it's on) plus every file `git status` lists (changed, new, deleted; not
 // ignored ones), each with its size and modification time. A file that was already
 // changed when the request started counts only if it changed again. Nothing is read
 // but the file list and file times; nothing is written.
@@ -22,6 +22,32 @@ export function runGit(args, cwd, { timeoutMs = 10_000 } = {}) {
   return new Promise((resolve) => {
     execFile('git', args, { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true, encoding: 'utf8' }, (err, out) => resolve(err ? null : out));
   });
+}
+
+/**
+ * How the test files differ from the last commit, as git sees them: { 'test/math.test.js':
+ * '-  assert.equal(sum(1, 2), 3);\n+  assert.equal(sum(1, 2), -1);' } (the removed and added
+ * lines of `git diff -U0`), {} when they don't, null when git can't say (not a repository, no
+ * commit yet). Taken at each test run, so the faked-pass check sees how the tests changed
+ * between two runs however they were changed: an edit tool, `sed -i`, a heredoc, a script.
+ * Only tracked files: a new test file can't weaken a test that was there. `isTest` picks them.
+ */
+export async function testDiff(cwd, isTest, { git = runGit, max = 8000 } = {}) {
+  if (!cwd) return null;
+  const globs = ['**/*test*', '**/*spec*', '**/test/**', '**/tests/**', '**/__tests__/**', '**/spec/**'].map((g) => `:(top,glob)${g}`);
+  const out = await git(['-c', 'core.quotepath=off', 'diff', '-U0', '--no-color', '--no-ext-diff', 'HEAD', '--', ...globs], cwd);
+  if (out === null) return null;
+  const files = {};
+  let file = null;
+  let size = 0;
+  for (const line of out.split('\n')) {
+    const head = /^diff --git a\/.+ b\/(.+)$/.exec(line);
+    if (head) { file = isTest(head[1]) ? head[1] : null; continue; }
+    if (!file || /^(?:---|\+\+\+) /.test(line) || (line[0] !== '-' && line[0] !== '+')) continue;
+    if ((size += line.length + 1) > max) break; // enough to judge; a huge rewrite isn't a quiet weakening
+    files[file] = files[file] ? `${files[file]}\n${line}` : line;
+  }
+  return files;
 }
 
 /**
@@ -43,26 +69,30 @@ export function parseStatus(out) {
 }
 
 /**
- * The state of the repository `cwd` is in: { root, head, files: { path: { code, sig } } },
- * { root, tooMany: true }, or null when it isn't a git repository. Paths are relative to
- * the repository's root, with forward slashes.
+ * The state of the repository `cwd` is in: { root, head, branch, files: { path: { code, sig } } },
+ * { root, head, branch, tooMany: true }, or null when it isn't a git repository. Paths are
+ * relative to the repository's root, with forward slashes. `branch` is null when HEAD is
+ * detached (a commit or a tag checked out).
  */
 export async function snapshot(cwd, { git = runGit, statFile = stat, at = Date.now() } = {}) {
   if (!cwd) return null;
   const root = (await git(['rev-parse', '--show-toplevel'], cwd))?.trim();
   if (!root) return null;
-  const head = (await git(['rev-parse', '--verify', '-q', 'HEAD'], root))?.trim() || null;
+  const [head, branch] = (await Promise.all([
+    git(['rev-parse', '--verify', '-q', 'HEAD'], root),
+    git(['symbolic-ref', '--short', '-q', 'HEAD'], root), // works before the first commit too; fails when detached
+  ])).map((out) => out?.trim() || null);
   const out = await git(['-c', 'core.quotepath=off', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], root);
   if (out === null) return null;
   const list = parseStatus(out);
-  if (list.length > LIMIT) return { root, head, at, tooMany: true };
+  if (list.length > LIMIT) return { root, head, branch, at, tooMany: true };
   const files = {};
   await Promise.all(list.map(async ({ code, path }) => {
     let sig = 'gone';
     try { const s = await statFile(join(root, path)); sig = `${s.size}:${Math.round(s.mtimeMs)}`; } catch {}
     files[path] = { code, sig };
   }));
-  return { root, head, at, files };
+  return { root, head, branch, at, files };
 }
 
 const kindOf = (code) => (code === '??' || code.includes('A') ? 'write' : code.includes('D') ? 'delete' : 'edit');
@@ -123,7 +153,8 @@ export async function changesBetween(a, b, { git = runGit } = {}) {
 
 /**
  * For the bridge: snapshots per session, taken when a request starts and compared when it
- * ends. start(session, cwd) and finish(session, cwd) → Promise<changes | null>.
+ * ends. start(session, cwd) and finish(session, cwd) → Promise<changes | null>, with the
+ * branch and HEAD the request ended on.
  */
 export function createGround({ git = runGit, statFile = stat } = {}) {
   const starts = new Map(); // session → Promise<snapshot>
@@ -139,7 +170,7 @@ export function createGround({ git = runGit, statFile = stat } = {}) {
       if (!before) return null;
       const after = await snapshot(cwd, { git, statFile }).catch(() => null);
       const changes = await changesBetween(before, after, { git });
-      return changes && { ...changes, root: before.root, since: before.at };
+      return changes && { ...changes, root: before.root, since: before.at, branch: after.branch, head: after.head };
     },
     has: (session) => starts.has(session),
   };

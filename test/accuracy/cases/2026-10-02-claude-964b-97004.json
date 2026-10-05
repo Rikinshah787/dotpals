@@ -17,7 +17,10 @@
    "e39": "fixed"
   },
   "ready": true,
-  "stopped": "done"
+  "stopped": "done",
+  "why": {
+   "e39": "SyntaxError: Unexpected token '.'"
+  }
  },
  "turn": {
   "harness": "claude",

@@ -790,6 +790,19 @@
       desktop?.notify?.('Two agents, one file', `${c.text}. Check they don’t undo each other’s work.`);
     }
 
+    // -- the fix loop (Settings → Make agents fix failing tests) ------------------------
+    // Claude was told its tests failed, sent back to fix them, or stopped anyway: its pal
+    // says so. Stopping with the tests still failing, or a result nobody could read, is
+    // worth a notification too.
+    function applyLoop(l) {
+      if (!l?.text || !fresh(l.at)) return;
+      slots.get(l.session)?.pal.say?.(l.text, { duration: 6000 });
+      if (l.kind === 'gave-up' || l.kind === 'ask-you' || l.kind === 'bluff') {
+        sound.play('error');
+        desktop?.notify?.(`Claude${l.label ? ` · ${l.label}` : ''}`, l.text);
+      }
+    }
+
     function pick(session, byUser) {
       picked = session;
       if (byUser) pickedByUser = true;
@@ -2035,6 +2048,7 @@
       : type === 'ocask' ? applyOcAsk(data)
       : type === 'helpers' ? applyHelpers(data)
       : type === 'conflict' ? applyConflict(data)
+      : type === 'loop' ? applyLoop(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
       : type === 'ready' ? endReplay()
@@ -2241,6 +2255,7 @@
       source.addEventListener('ocask', (e) => onEvent({ type: 'ocask', data: JSON.parse(e.data) }));
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
       source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
+      source.addEventListener('loop', (e) => onEvent({ type: 'loop', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
       source.addEventListener('ready', () => onEvent({ type: 'ready' }));
     }

@@ -109,6 +109,21 @@ test('applyHook: PostToolUse arriving before PreToolUse still ends ok', () => {
   assert.equal(entries[0].title, 'a.js');
 });
 
+test('applyHook: a Write over a file keeps the diff from its result (its input has only the new text)', () => {
+  const log = createActivityLog();
+  const session = newSession();
+  const ctx = { session, label: 'proj' };
+  const common = { session_id: session, cwd: CWD, tool_name: 'Write', tool_use_id: 'toolu_w', tool_input: { file_path: 'C:\\work\\proj\\t.py', content: 'b\n' } };
+  applyHook({ ...common, hook_event_name: 'PreToolUse' }, log, ctx);
+  assert.equal(log.get(`${session}:toolu_w`).body.patch, '+b\n+');
+  applyHook({ ...common, hook_event_name: 'PostToolUse', tool_response: { type: 'update', structuredPatch: [{ lines: [' x', '-a', '+b'] }] } }, log, ctx);
+  assert.equal(log.get(`${session}:toolu_w`).body.patch, ' x\n-a\n+b');
+  // A new file: its result has no old text, so the input's patch stays.
+  applyHook({ ...common, tool_use_id: 'toolu_n', hook_event_name: 'PreToolUse' }, log, ctx);
+  applyHook({ ...common, tool_use_id: 'toolu_n', hook_event_name: 'PostToolUse', tool_response: { type: 'create', structuredPatch: [] } }, log, ctx);
+  assert.equal(log.get(`${session}:toolu_n`).body.patch, '+b\n+');
+});
+
 test('applyHook: PostToolUseFailure marks the entry failed', () => {
   const log = createActivityLog();
   const session = newSession();

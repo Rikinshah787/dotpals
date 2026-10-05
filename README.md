@@ -6,7 +6,7 @@
 
 **See what your coding agent actually did.**
 
-A small floating pal that watches Claude Code, Codex or any agent and tells you, in plain words, what happened: which files changed, which commands ran, what failed, and what the agent says it did.
+A small floating pal that watches Claude Code, Codex or any agent and checks its work: which files changed, which commands ran, and whether the tests really passed, read from their output, not the agent's word. When Claude breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.
 
 ```bash
 npx dotpals@latest setup
@@ -22,11 +22,21 @@ npx dotpals@latest setup
 
 <sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
-**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](CHANGELOG.md)**
+**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](#new-in-010)**
 
 **[⭐ Star dotpals](https://github.com/Rikinshah787/dotpals/stargazers)** if your agent ever said "Done!" and you weren't sure · **[Tell us what's confusing](https://github.com/Rikinshah787/dotpals/issues/new)**
 
 </div>
+
+## New in 0.10
+
+dotpals used to show you what your agent did. Now it checks the work, and every AI tool can ask it.
+
+- **[Make agents fix failing tests](#features).** When Claude Code's tests fail, it's told at once, with why ("expected 3, got -1 (test/math.test.js:5)"), and sent back if it tries to finish, commit or push anyway. On by default; one switch in Settings, or the gear in the notch, turns it off.
+- **Catches the faked pass.** Green only because a test lost an assertion, got a skip or now expects the wrong thing? Claude is sent back to put the test back and fix the code, and you're told.
+- **[Ask dotpals from any agent (MCP)](#ask-dotpals-from-any-agent-mcp).** Claude Code, Codex, Cursor and other assistants ask `check_my_work`, `ready_to_merge`, `today` and more, and get the evidence instead of the agent's word.
+
+All of it in the [changelog](CHANGELOG.md).
 
 ## Why
 
@@ -34,6 +44,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 - **What did it change?** Every file edited, created or deleted, with the diff one click away.
 - **What did it run, and did it work?** Every command, with its output, duration and ✓ or ✕. A step that failed and was retried says **fixed on try 2** or **still failing after 3 tries**.
+- **Did it fix what it broke?** When Claude Code's tests fail, it's sent back to fix them before it finishes or commits, and a test changed just to make it pass is caught.
 - **Was the code as it is now tested?** "Changed 2 files after the tests passed: not tested since" is impossible to miss, so an old green result doesn't pass for a check of the latest edits.
 - **What is it doing right now?** The pal thinks, works, asks for your OK and celebrates, live.
 - **What did I get done today?** A running tally, and one click copies it as Markdown for a standup or PR.
@@ -42,6 +53,8 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
+- **Make agents fix failing tests** (Claude Code, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure, and a test that was already failing before Claude changed anything is reported, not forced on it. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Turn it off in Settings, or from the gear in the notch.
+- **Ask dotpals from any agent**: `dotpals mcp` lets Claude Code, Codex, Cursor and other assistants ask what your agents really did, with the evidence: `check_my_work` before an agent says "done", `ready_to_merge`, `today`, `recap`, `risky_steps` and more. See [below](#ask-dotpals-from-any-agent-mcp).
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
 - **Two agents, one file**: when an agent is about to change a file another agent changed in the last few minutes, Claude Code asks you first ("Codex (api) changed billing.ts 2 minutes ago. Edit anyway?"), or tells Claude to re-read it. Other agents can't be stopped beforehand: the notch and the pal tell you as it happens.
 - **Hand-off**: **Continue in ▾** hands a session to Codex, Claude Code or Gemini CLI, in a new terminal in the same project, with a note on what was asked, what was done, how the tests stand and what's left. Or copy the note and paste it anywhere.
@@ -183,7 +196,39 @@ dotpals dashboard   # open the dashboard
 dotpals status      # what's running and connected
 dotpals doctor      # no pal or notch? checks and fixes it (setup runs the same check at the end)
 dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dashboard at http://127.0.0.1:5175/dashboard
+dotpals mcp         # an MCP server, so any assistant can ask dotpals what your agents did (see below)
 ```
+
+## Ask dotpals from any agent (MCP)
+
+`dotpals mcp` is an [MCP](https://modelcontextprotocol.io) server: Claude Code, Codex, Cursor and other assistants can ask dotpals what your agents really did, and get the evidence instead of the agent's word. It only reads, from the pal running on this computer, so keep dotpals running.
+
+```bash
+claude mcp add dotpals -- npx dotpals mcp
+```
+
+Codex, in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.dotpals]
+command = "npx"
+args = ["dotpals", "mcp"]
+```
+
+Cursor and others: command `npx`, arguments `dotpals mcp`.
+
+| Tool | Answers |
+| --- | --- |
+| `agents_now` | Which agents worked in the last 2 hours, on what, whether they're still at it, and how their tests stand |
+| `test_status` | Is it really tested? Passed or failed (read from the output), why the last run failed ("expected 3, got -1 (test/math.test.js:5)"), and whether code changed since |
+| `ready_to_merge` | The checks a reviewer would make: tests ran after the last change and passed (not because the tests were changed), nothing left failing, nothing risky, and the work is committed. Mid-request too, as it stands now. Pass `branch` to ask about a git branch |
+| `recap` | What each agent was asked and did, request by request, with the files it changed, why its tests failed, and tests that passed only after they were changed (a project or a session, `since` a time) |
+| `today` | Today's work per agent, for a standup: requests, files changed and test runs, then each request in a sentence |
+| `risky_steps` | Force pushes, recursive deletes, changes to `.env` and other risky steps, each with when, which agent and the command |
+| `handoff_note` | A note for another agent to pick up a session's work: the ask, what was done, the files, how the tests stand, what's left |
+| `check_my_work` | For the agent itself, before it says "done": "Looks done", or what to fix first (with why the tests fail, or "put the test back and fix the code"). Tests that were failing before the session changed anything are its to report, not to fix |
+
+Ask things like "What are my agents doing?", "Is this really tested?", "Is feat/login ready to merge?" or "What did Codex change in billing this morning?". The project is the folder the assistant runs in, unless you name another. dotpals matches it by the folder each agent really works in, so two folders with the same name, a monorepo's packages and git worktrees stay apart (a project's name alone matches by name). It notes the branch when an agent finishes a request in a git repository. Only tests an agent ran count: dotpals can't see the ones you run yourself, or CI.
 
 ## Privacy
 
@@ -191,18 +236,23 @@ Everything stays on your machine. The bridge listens only on `127.0.0.1`. It rea
 
 ## How accurate is it?
 
-We check. `test/accuracy/cases` holds 21 real requests from building dotpals itself (cleaned of paths, keys and prompts), and every claim dotpals makes about them was checked by hand against what really happened: 145 claims.
+We check. `test/accuracy/cases` holds 36 real requests (cleaned of paths, keys and prompts): 21 from building dotpals itself, and 15 from a small practice project with a planted bug, where Claude was asked to run the tests, add code, and fake a passing test. Every claim dotpals makes about them was checked by hand against what really happened: 255 claims.
 
 | Claim | Claims | Right | Wrong | Unsure |
 |---|---:|---:|---:|---:|
-| Test results (passed, failed) | 79 | 74 | 1 | 4 |
-| Risky steps | 13 | 13 | 0 | 0 |
-| Retries ("fixed on try 2") | 11 | 10 | 1 | 0 |
-| Ready to merge? | 21 | 20 | 1 | 0 |
-| Why it stopped | 21 | 20 | 1 | 0 |
-| **All** | **145** | **137 (94.5%)** | **4** | **4** |
+| Test results (passed, failed) | 99 | 91 | 1 | 7 |
+| Risky steps | 14 | 14 | 0 | 0 |
+| Retries ("fixed on try 2") | 15 | 14 | 1 | 0 |
+| Ready to merge? | 36 | 35 | 1 | 0 |
+| Why it stopped | 36 | 35 | 1 | 0 |
+| What changed (git) | 10 | 9 | 1 | 0 |
+| Tests changed to pass | 20 | 20 | 0 | 0 |
+| Why tests failed | 25 | 25 | 0 | 0 |
+| **All** | **255** | **243 (95.3%)** | **5** | **7** |
 
-"Unsure" is a test run dotpals called unclear though a person could tell; that's what the optional [Jev or Laya check](#privacy) is for. The 4 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
+*Tests changed to pass* is the faked pass: green only because an edit to a test took out an assertion, turned a test off or changed what it expects (3 fakes caught; rightly quiet on 17 others: honest test edits while building dotpals, a skip taken out again before a real fix, fixes that didn't touch the tests). *Why tests failed* is the reason dotpals reads from a failed run's output and tells the agent ("expected 3, got -1").
+
+"Unsure" is a missing answer, not a false one: a test run dotpals called unclear though a person could tell (that's what the optional [Jev or Laya check](#privacy) is for), or a failed run it gave no reason for though the output shows one. The 5 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. Git can't tell who changed a file, so a file you reset during a request counts as changed by it. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
 
 ## How it works
 

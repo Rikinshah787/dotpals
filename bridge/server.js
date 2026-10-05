@@ -23,9 +23,16 @@
 //                            helpers:  a session's helper agents (subagents)
 //                            laya:     Laya on this computer: { installed, running, phase, message, line, error }
 //                            conflict: an agent is changing a file another active session just changed (see guard.js)
+//                            loop:     Claude was told its tests failed, or sent back to fix them (see "the fix loop"):
+//                                      { id, at, session, harness, label, kind: 'told' | 'sent-back' | 'blocked-ship' | 'gave-up' | 'fixed', text }
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
+//   GET  /api/sessions   → { sessions: [{ id, cwd, parent, label, harness }] } where each session with
+//                          activity works (its project folder), for `dotpals mcp`; null when not known
+//   GET  /api/loop       → { events } what the fix loop did (`loop` events, kept in history; ?session=<id> for one)
+//   GET  /api/git?session=<id> → { branch, head, changed: [paths], more } the session's repository right now
+//                          (uncommitted files included), for `dotpals mcp`; {} when it isn't one
 //   GET  /api/status     → what's connected, where things are stored; desktop: { pal, notch }, whether
 //                          the desktop app's windows are following the events (/events?window=pal|notch)
 //   GET  /api/config, POST /api/config, POST /api/history/clear
@@ -43,6 +50,8 @@
 //   POST /api/checker/laya/start|stop|uninstall
 //   POST /hook?guard=1   Claude Code's PreToolUse for a file change (bridge/guard-hook.js): another
 //                        session changed that file a moment ago? → "ask" or "deny", else {}
+//   POST /hook?loop=1    Claude Code's test runs, Stop and commits (bridge/loop-hook.js): tests failing? →
+//                        a note for Claude, "block" or "deny", else {} (Settings → fixLoop)
 //   GET  /api/handoff/agents       → { agents: [{ id, name }] } the agents a session can be handed to
 //   POST /api/handoff { session, agent }   write the hand-off note and open that agent in a new
 //                        terminal, in the session's own folder; agent "copy": just the note
@@ -66,9 +75,10 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
-import { applyHook, backfillTranscript, describeTool, lastReply, watchClaude } from './adapters/claude.js';
-import { contextEntries, crossRecap, flags as riskFlags, stepType } from './ui/story.js';
-import { sentence } from './ui/recap.js';
+import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
+import { failureReason } from './ui/testout.js';
+import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
+import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
@@ -77,7 +87,7 @@ import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, gu
 import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
-import { createGround } from './ground.js';
+import { createGround, snapshot, testDiff } from './ground.js';
 import { createChat } from './chat.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -90,15 +100,17 @@ const DAY = 86_400_000;
 
 /**
  * Activity history on disk (~/.dotpals/history.json), so the Summary, Files and
- * dashboard survive restarts. Keeps `historyDays` (default 7), at most 5000 entries.
+ * dashboard survive restarts. Keeps `historyDays` (default 7), at most 5000 entries,
+ * and the fix loop's `loop` events (`loops`, an array the server keeps capped).
  */
-function createHistory(activity, getConfig, meta = { get: () => ({}), set: () => {} }) {
+function createHistory(activity, getConfig, meta = { get: () => ({}), set: () => {} }, loops = []) {
   const file = () => join(home(), 'history.json');
   const keep = () => getConfig().historyDays * DAY;
   if (getConfig().history) {
     try {
-      const { entries = [], sessions = {} } = JSON.parse(readFileSync(file(), 'utf8'));
+      const { entries = [], sessions = {}, loop = [] } = JSON.parse(readFileSync(file(), 'utf8'));
       meta.set(sessions);
+      loops.push(...loop.filter((e) => e?.id && e.session && Date.now() - e.at <= keep()));
       for (const e of entries) {
         if (!e?.id || !e.session || Date.now() - e.at > keep()) continue;
         // Anything still running when the bridge stopped won't finish now.
@@ -121,7 +133,8 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
             await mkdir(home(), { recursive: true });
             const ids = new Set(entries.map((e) => e.session));
             const sessions = Object.fromEntries(Object.entries(meta.get()).filter(([id]) => ids.has(id)));
-            await writeFile(`${file()}.tmp`, JSON.stringify({ version: 1, entries, sessions }));
+            const loop = loops.filter((e) => Date.now() - e.at < keep());
+            await writeFile(`${file()}.tmp`, JSON.stringify({ version: 1, entries, sessions, loop }));
             await rename(`${file()}.tmp`, file());
           } catch {}
         });
@@ -166,10 +179,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (typeof parent === 'string' && parent && parent !== session) m.parent = parent;
     sessionMeta.set(session, m);
   }
+  const loopEvents = []; // the fix loop's `loop` events, newest last (the last LOOP_KEEP), kept in history: GET /api/loop
   const history = createHistory(activity, () => config, {
     get: () => Object.fromEntries(sessionMeta),
     set: (saved) => { for (const [id, m] of Object.entries(saved ?? {})) noteSession(id, m?.cwd, m?.parent); },
-  });
+  }, loopEvents);
   const startedAt = Date.now();
   // OpenCode's permission requests and questions, from sessions started in
   // the pal (bridge/chat.js), shown as cards with buttons. id → { kind, session, … }
@@ -313,6 +327,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (entry.harness) lastSeen[entry.harness] = Math.max(lastSeen[entry.harness] ?? 0, entry.at ?? 0);
       if (Date.now() - (entry.at ?? 0) < 60_000) asleep.delete(entry.session);
       maybeCheck(entry);
+      snapTests(entry);
       checkConflicts(entry);
       groundTruth(entry);
       any = true;
@@ -400,6 +415,24 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // transcript read at startup.
   const checker = createChecker({ getConfig: () => config, getKey: checkerKey });
   let sdkInstall = null; // a running "Install it" (npm install @typesafe-ai/sdk)
+  // Git's view of the test files at each test run that just ended, any agent (testDiff in
+  // bridge/ground.js): the faked-pass check (weakenedTests) compares two runs' views, so it sees
+  // how the tests changed in between however it was done (an edit tool, sed, a script). Not for
+  // runs read from a transcript later: git has moved on since.
+  const testDiffing = new Set();
+  function snapTests(entry) {
+    if (entry.kind !== 'run' || !['ok', 'failed'].includes(entry.status) || entry.body?.testDiff !== undefined || testDiffing.has(entry.id)) return;
+    if (stepType(entry) !== 'test' || Date.now() - ((entry.at ?? 0) + (entry.ms ?? 0)) > 60_000) return;
+    const cwd = sessionMeta.get(entry.session)?.cwd;
+    if (!cwd) return;
+    testDiffing.add(entry.id);
+    testDiff(cwd, isTestFile).then((diff) => {
+      testDiffing.delete(entry.id);
+      const now = activity.get(entry.id);
+      if (diff && now && now.body?.testDiff === undefined) publish([activity.upsert({ id: entry.id, body: { ...now.body, testDiff: diff } })]);
+    }, () => testDiffing.delete(entry.id));
+  }
+
   function maybeCheck(entry) {
     if (!config.checker || config.checker.mode === 'off' || entry.kind !== 'run' || entry.check || stepType(entry) !== 'test') return;
     if (Date.now() - ((entry.at ?? 0) + (entry.ms ?? 0)) > 15 * 60_000) return;
@@ -409,11 +442,221 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }, () => {});
   }
 
+  // -- The fix loop: make Claude Code fix failing tests (Settings: fixLoop, on by default) ------
+  // bridge/loop-hook.js asks here (POST /hook?loop=1) in the foreground, for three hooks:
+  //   a test run just ended (PostToolUse, PostToolUseFailure): failed → Claude is told right
+  //     away, as context. Unclear → the checker is asked first, when one is on.
+  //   Claude tries to finish (Stop) or to commit or push (PreToolUse): while this request's
+  //     tests fail, or weren't run after its last change, it's sent back with what to do.
+  //     Finishing is only held up when this request changed code: one that only runs the
+  //     tests (or says not to change code) may report a failure and stop.
+  // At most twice per request (the count starts again with your next prompt), then it's let go
+  // and you're told. Untested work is never held up: not every project has tests. Each step
+  // is a `loop` event, which the pal says and the notch shows.
+  //   A test run whose result can't be read (piped, cut off) and the checker didn't settle:
+  //     Claude is asked to run the tests again so the output shows it. A second one in the
+  //     same request, or stopping without a clear run, goes to you ("Please take a look").
+  const LOOP_MAX = 2;
+  const LOOP_KEEP = 500;
+  const loopBlocks = new Map(); // session → times it was sent back in this request
+  const loopHelped = new Set(); // sessions told or sent back, until a test run passes ("Fixed")
+  const loopUnclear = new Map(); // session → { n: unreadable test runs in this request, why: what's known about the last }
+  const loopAsked = new Set(); // sessions whose request went to you
+  const loopBluff = new Map(); // session → { text, sentBack }: tests made to pass by changing them, in this request
+  function sendLoop(session, label, kind, text) {
+    if (kind === 'fixed' || kind === 'bluff') loopHelped.delete(session);
+    else if (kind !== 'retry' && kind !== 'ask-you') loopHelped.add(session);
+    const event = { id: randomUUID(), at: Date.now(), session, harness: 'claude', label, kind, text };
+    loopEvents.push(event);
+    loopEvents.splice(0, loopEvents.length - LOOP_KEEP);
+    send('loop', event);
+    history.save();
+  }
+  function askYou(session, label) {
+    if (loopAsked.has(session)) return;
+    loopAsked.add(session);
+    const why = loopUnclear.get(session)?.why;
+    sendLoop(session, label, 'ask-you', `Couldn’t tell whether Claude’s tests passed${why ? `: ${why}` : ''}. Please take a look.`);
+  }
+  const loopNote = (event, text) => ({ hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text } });
+  /** A test run nobody could read: run it again so it shows; the second time, it's yours to look at. */
+  function unclearRun(event, session, label, step, v, check) {
+    const n = (loopUnclear.get(session)?.n ?? 0) + 1;
+    const unsure = typeof check?.p === 'number' ? `${checkerName(checkOf({ check }).who)} wasn’t sure either (${Math.round(check.p * 100)}% that they passed)` : '';
+    // For you, if it comes to that: what ran, why it can't be read, and what the checker thought.
+    loopUnclear.set(session, { n, why: `\`${clip(step.body?.command ?? '', 80)}\`: ${v.note ?? 'its output doesn’t show the result'}${unsure ? `, and ${unsure}` : ''}` });
+    if (n === 1) {
+      sendLoop(session, label, 'retry', 'Couldn’t tell if the tests passed. Asked Claude to run them again.');
+      return loopNote(event, `dotpals: can’t tell whether this test run passed: ${v.note ?? 'its output doesn’t show the result'}.${unsure ? ` ${unsure}.` : ''} Run the tests again without cutting their output (no | tail, head or grep), so the counts and the exit code show.`);
+    }
+    if (n > 2) return null;
+    askYou(session, label);
+    return loopNote(event, 'dotpals: still can’t tell whether the tests passed, so it asked the user to take a look. Tell them what you ran and what you saw.');
+  }
+  /** Every step of a session, all its requests: what was failing before it changed anything (failingBefore). */
+  function sessionSteps(session) {
+    const steps = [];
+    for (const e of activity.each()) if (e.session === session && e.kind !== 'prompt') steps.push(e);
+    return steps;
+  }
+  // "Jev (dotpals' cloud test checker)": the name alone means nothing to an agent, or to you.
+  const checkerName = (who) => `${who} (dotpals’ ${who === 'Jev' ? 'cloud' : 'local'} test checker)`;
+  /** The steps of the request a session is on (since its newest prompt). */
+  function turnSteps(session) {
+    const start = activity.findLast(session, (e) => e.kind === 'prompt')?.at ?? 0;
+    const steps = [];
+    for (const e of activity.each()) if (e.session === session && e.at >= start && e.kind !== 'prompt') steps.push(e);
+    return steps;
+  }
+  /**
+   * A request's steps for the bluff rule (weakenedTests), with the session's last test run before
+   * it when that run failed: changing that test in this request is the bluff too. Only this
+   * request's edits count, so one already told about isn't told again.
+   */
+  function bluffSteps(session) {
+    const start = activity.findLast(session, (e) => e.kind === 'prompt')?.at ?? 0;
+    const before = activity.findLast(session, (e) => e.at < start && e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running');
+    return before && testVerdict(before).state === 'failed' ? [before, ...turnSteps(session)] : turnSteps(session);
+  }
+  // "3 failed, 5 passed: sum adds", "checked by Jev, 80% sure", or the exit code's word.
+  const failedWords = (v) => (v.source === 'exit' ? 'the command exited with an error' : testEvidence(v));
+  // Why the first test failed, from the run's output: "expected 3, got -1 (test/math.test.js:5)", or ''.
+  const failedWhy = (step) => { const r = failureReason(`${step?.body?.output ?? ''}\n${step?.error ?? ''}`); return r ? `${r.why}${r.where ? ` (${r.where})` : ''}` : ''; };
+  /** How this session last ran its tests, without a pipe or redirect (`npm test`), if it ever did. */
+  function sessionTestCommand(session) {
+    const run = activity.findLast(session, (e) => e.kind === 'run' && stepType(e) === 'test');
+    const part = run && parts(String(run.body?.command ?? '')).find((p) => stepType({ kind: 'run', body: { command: p } }) === 'test');
+    return part ? part.replace(/\s+\d?>>?&?\s*\S+/g, '').trim() : null;
+  }
+  /**
+   * What's wrong with this request's tests, if it's worth sending Claude back: failing, or not
+   * run since the last change. When finishing, also: code changed and no tests run at all, in a
+   * session that has run them before (so the project has tests, and that's how).
+   */
+  function testTrouble(session, stopping = false) {
+    const t = testState(turnSteps(session));
+    const files = () => nameList([...new Set(t.since.map(baseName))]);
+    // Only the failures this session caused hold it back (failingBefore): ones it found are told, not forced.
+    if (t?.state === 'failing') return onlyOldFailures(t.last, sessionSteps(session)) ? null : { failing: true, words: failedWords(t.verdict), why: failedWhy(t.last) };
+    if (t?.state === 'stale') return { failing: false, words: files() };
+    const command = stopping && t?.state === 'untested' && sessionTestCommand(session);
+    if (command) return { failing: false, untested: true, command, words: files() };
+    return null;
+  }
+
+  /** A test run just ended: judged from the hook's own event (the activity hook may not have reported it yet). */
+  async function loopTestRun(event, session, label) {
+    if (event.is_interrupt) return null; // you stopped it
+    const tool = event.tool_name;
+    const ok = event.hook_event_name === 'PostToolUse';
+    // The step bridge/adapters/claude.js (applyHook) records, with the same id, so the checker asks once.
+    const d = describeTool(tool, event.tool_input ?? {}, event.cwd);
+    // A failed command's output comes with its error: the counts and the reason are in it.
+    const output = resultText(tool, event.tool_response) ?? (!ok ? failureText(event.error) : undefined);
+    const step = {
+      ...d, id: `${session}:${event.tool_use_id}`, session, tool, status: ok ? 'ok' : 'failed',
+      body: { ...d.body, ...(output ? { output } : {}) },
+      ...(!ok && event.error ? { error: clip(typeof event.error === 'string' ? event.error : event.error.message, 300) } : {}),
+    };
+    if (stepType(step) !== 'test') return null;
+    let v = testVerdict(step);
+    let checked = null;
+    let check = null;
+    if (v.state === 'unclear' && config.checker?.mode && config.checker.mode !== 'off') {
+      check = await checker.check(step).catch(() => null);
+      if (check?.state === 'passed' || check?.state === 'failed') { v = testVerdict({ ...step, check }); checked = checkOf({ ...step, check }); }
+    }
+    if (v.state === 'unclear' && v.reason !== 'no-tests') return unclearRun(event, session, label, step, v, check);
+    if (v.state === 'passed') {
+      // Green, but because the tests were changed, not the code: the bluff. Claude is told, the pal
+      // tells you. Git's view of the tests now goes with this run, as snapTests gives the others.
+      const diff = await testDiff(sessionMeta.get(session)?.cwd ?? event.cwd, isTestFile).catch(() => null);
+      const weak = weakenedTests([...bluffSteps(session).filter((e) => e.id !== step.id), { ...step, at: Date.now(), body: { ...step.body, ...(diff ? { testDiff: diff } : {}) } }]);
+      if (weak && !loopBluff.has(session)) {
+        loopBluff.set(session, { text: weak.text, sentBack: false });
+        sendLoop(session, label, 'bluff', `Claude changed the tests to make them pass: ${weak.text}.`);
+        return loopNote(event, `dotpals: the tests pass now, but only after you changed them: ${weak.text}. Don’t weaken a test to make it pass: put it back and fix the code, or tell the user why the test itself was wrong.`);
+      }
+      // The test is back as it was, and it passes: the real fix.
+      if (!weak && loopBluff.has(session)) { loopBluff.delete(session); sendLoop(session, label, 'fixed', 'Fixed: the test is back and passes now ✓'); }
+      else if (loopHelped.has(session)) sendLoop(session, label, 'fixed', 'Fixed: tests pass now ✓');
+    }
+    if (v.state !== 'failed') return null;
+    // Failing before this session changed anything (failingBefore): found, not caused, so told, not
+    // sent back. Claude's own change broke them: fix it. Nothing changed yet: maybe this request
+    // only asked how the tests stand.
+    const old = !checked && onlyOldFailures(step, [...sessionSteps(session).filter((e) => e.id !== step.id), { ...step, at: Date.now() }]);
+    const mine = !old && changedCode(turnSteps(session));
+    const why = failedWhy(step);
+    sendLoop(session, label, 'told', `${checked ? `${checked.who} thinks the tests failed` : `Tests failed (${failedWords(v)})`}${why ? `: ${why}` : ''}.${old ? ' They were failing before Claude changed anything.' : mine ? ' Told Claude to fix them.' : ''}`);
+    const what = checked ? `${checkerName(checked.who)} thinks this test run failed (${checked.sure}% sure)` : `this test run failed (${failedWords(v)})`;
+    const next = old ? 'These tests were failing before this session changed anything, so they aren’t yours to fix unless the user asks: mention them to the user.'
+      : mine ? 'Fix it before you finish; dotpals checks again when you stop.' : 'If fixing it is part of this request, fix it and run the tests again.';
+    return loopNote(event, `dotpals: ${what}${why ? `: ${why}` : ''}. ${next}`);
+  }
+
+  /** Claude is about to stop (Stop) or to commit or push (PreToolUse): send it back while the tests fail or are out of date. */
+  async function loopGate(event, session, label) {
+    const stopping = event.hook_event_name === 'Stop';
+    const d = stopping ? null : describeTool(event.tool_name, event.tool_input ?? {}, event.cwd);
+    // Only what puts the work in front of others (a commit, a push, a PR, a publish), even from inside
+    // an `if` or after a `;`; not a rebase, merge or tag, which may be how Claude fixes things, and not
+    // `npm test && git commit`, which only commits when the tests pass (story.js ships).
+    if (d && !ships(d.body?.command ?? '')) return null;
+    // The activity hook reports the last steps alongside: give it a moment to finish them.
+    for (let i = 0; stopping && i < 10 && turnSteps(session).some((e) => e.status === 'running'); i++) await new Promise((r) => setTimeout(r, 100));
+    // Asked to run unreadable tests again, and stopping without a clear result: you're asked to look.
+    if (stopping && loopUnclear.has(session) && testState(turnSteps(session))?.state === 'unclear') askYou(session, label);
+    // Finishing: only code this request changed is Claude's to fix. Shipping is held back either way.
+    if (stopping && !changedCode(turnSteps(session))) return null;
+    // The tests pass only because they were changed, as they stand now (a test put back doesn't
+    // count): back once, to put the test back or say why it was wrong.
+    const weak = stopping && weakenedTests(bluffSteps(session));
+    if (weak && !loopBluff.get(session)?.sentBack) {
+      loopBluff.set(session, { text: weak.text, sentBack: true });
+      sendLoop(session, label, 'sent-back', 'Claude changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.');
+      return { decision: 'block', reason: `dotpals: you made the tests pass by changing them (${weak.text}). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.` };
+    }
+    const trouble = testTrouble(session, stopping);
+    if (!trouble) return null;
+    const times = loopBlocks.get(session) ?? 0;
+    if (times >= LOOP_MAX) {
+      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? `Claude stopped, but the tests still fail (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}.` : `Claude stopped, but the tests weren’t run after ${trouble.untested ? 'its changes' : 'its last change'}.`);
+      return null;
+    }
+    loopBlocks.set(session, times + 1);
+    const problem = trouble.failing ? `the tests are failing (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}`
+      : trouble.untested ? `you changed ${trouble.words} but didn’t run the tests` : `you changed ${trouble.words} after the last test run`;
+    const fix = trouble.failing ? 'Fix them and run the tests again' : trouble.untested ? `Run \`${trouble.command}\`` : 'Run the tests again';
+    if (stopping) {
+      sendLoop(session, label, 'sent-back', trouble.failing ? 'Claude tried to finish with failing tests. Sent it back to fix them.'
+        : trouble.untested ? `Claude changed ${trouble.words} without running the tests. Sent it back to run \`${trouble.command}\`.` : `Claude changed ${trouble.words} after the last test run. Sent it back to run them.`);
+      return { decision: 'block', reason: `dotpals: ${problem}. ${fix} before you finish.` };
+    }
+    // The commit never runs: it failed, as far as the story goes (not "committed without testing").
+    const now = Date.now();
+    const id = event.tool_use_id ? `${session}:${event.tool_use_id}` : `${session}:t:${now}`;
+    publish([activity.upsert({ ...(activity.get(id) ? {} : { session, label, harness: 'claude', at: now, tool: event.tool_name, ...d, startedAt: now }), id, status: 'failed', error: `dotpals stopped this: ${problem}` })]);
+    sendLoop(session, label, 'blocked-ship', trouble.failing ? 'Stopped Claude from shipping: the tests are failing.' : `Stopped Claude from shipping: ${trouble.words} changed after the last test run.`);
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `dotpals: ${problem}. ${fix} before you commit or push.` } };
+  }
+
+  function fixLoop(event) {
+    if (!config.fixLoop) return null;
+    const session = String(event.session_id);
+    const label = folderName(event.cwd);
+    const name = event.hook_event_name;
+    if ((name === 'PostToolUse' || name === 'PostToolUseFailure') && event.tool_use_id) return loopTestRun(event, session, label);
+    if (name === 'Stop' || name === 'PreToolUse') return loopGate(event, session, label);
+    return null;
+  }
+
   // -- What git says changed (bridge/ground.js) -----------------------------------------------
   // A snapshot of the session's repository when a request starts, compared when it ends:
   // the files it really changed, also through commands. Goes on the request's `done` entry
-  // as `git`: { files, more, committed, tooMany?, others }, `others` being the other
-  // sessions that were active in the same repository meanwhile (their changes show too).
+  // as `git`: { files, more, committed, tooMany?, others, branch?, head? }, `others` being the
+  // other sessions that were active in the same repository meanwhile (their changes show too),
+  // `branch` and `head` (short) where the request ended (for "is branch X ready?").
   // Only live requests: there's no "before" for one read from a transcript later.
   const ground = createGround();
   const groundPrompt = new Map(); // session → the prompt its snapshot is for
@@ -442,6 +685,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (!changes || activity.get(entry.id)?.git) return;
         const git = { files: changes.files.slice(0, 300), more: Math.max(0, changes.files.length - 300), committed: changes.committed, others: othersIn(changes.root, entry.session, changes.since) };
         if (changes.tooMany) git.tooMany = true;
+        if (changes.branch) git.branch = changes.branch;
+        if (changes.head) git.head = changes.head.slice(0, 7);
         publish([activity.upsert({ id: entry.id, git })]);
       }, () => {});
     }
@@ -512,6 +757,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const label = folderName(event.cwd);
     hooked.add(session);
     noteSession(session, event.cwd);
+    if (event.hook_event_name === 'UserPromptSubmit') { loopBlocks.delete(session); loopUnclear.delete(session); loopAsked.delete(session); loopBluff.delete(session); } // a new request: the fix loop counts again
     // First time we hear from a session: load its history from the transcript.
     if (event.transcript_path && !backfilled.has(session)) {
       backfilled.add(session);
@@ -770,10 +1016,32 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
   async function api(req, res, path) {
     if (req.method === 'GET' && path === '/api/activity') return json(res, 200, { entries: activity.all() });
+    if (req.method === 'GET' && path === '/api/loop') {
+      const session = new URL(req.url, 'http://localhost').searchParams.get('session');
+      return json(res, 200, { events: loopEvents.filter((e) => !session || e.session === session) });
+    }
     if (req.method === 'GET' && path === '/api/status') return json(res, 200, await status());
     if (req.method === 'GET' && path === '/api/config') return json(res, 200, withLaya());
     if (req.method === 'GET' && path === '/api/checker/laya') return json(res, 200, laya.status());
     if (req.method === 'GET' && path === '/api/agents') return json(res, 200, { agents: agents() });
+    // Where each session works, for `dotpals mcp` to tell projects apart by their real folder
+    // (two "api" folders, a monorepo's packages, worktrees) instead of the folder's name.
+    // The session's repository right now (bridge/ground.js snapshot): its branch, its commit and what
+    // isn't committed yet, so "is it ready to merge?" can say "not committed". Read-only.
+    if (req.method === 'GET' && path === '/api/git') {
+      const cwd = sessionMeta.get(new URL(req.url, 'http://localhost').searchParams.get('session') ?? '')?.cwd;
+      const snap = cwd ? await snapshot(cwd).catch(() => null) : null;
+      if (!snap) return json(res, 200, {});
+      const changed = Object.keys(snap.files ?? {});
+      return json(res, 200, { branch: snap.branch ?? null, head: snap.head?.slice(0, 7) ?? null, changed: changed.slice(0, 50), more: Math.max(0, changed.length - 50), tooMany: !!snap.tooMany });
+    }
+    if (req.method === 'GET' && path === '/api/sessions') {
+      const list = [...sessionMeta].filter(([id]) => activity.has(id)).map(([id, m]) => ({
+        id, cwd: m.cwd ?? null, parent: m.parent ?? null,
+        label: activity.findLast(id, (e) => e.label)?.label ?? null, harness: activity.findLast(id, (e) => e.harness)?.harness ?? null,
+      }));
+      return json(res, 200, { sessions: list });
+    }
     // What other agents did in this project, for a Claude Code hook to hand to a session
     // (Settings → Share with your agents). `mode=start`: the whole note. `mode=prompt`:
     // only when there's news since the last note this session got.
@@ -974,6 +1242,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       activity.clear();
       backfilled.clear();
       contexts.clear();
+      loopEvents.length = 0;
       await history.clear();
       send('reset', {});
       return json(res, 200, { ok: true });
@@ -1028,6 +1297,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (url.pathname === '/hook' && url.searchParams.get('guard') === '1') {
           // bridge/guard-hook.js: only the conflict check (bridge/hook.js reports the activity).
           if (event.hook_event_name === 'PreToolUse' && event.session_id && enabled('claude')) reply = guardEdit(event);
+        } else if (url.pathname === '/hook' && url.searchParams.get('loop') === '1') {
+          // bridge/loop-hook.js: only the fix loop (bridge/hook.js reports the activity).
+          if (typeof event.hook_event_name === 'string' && event.session_id && enabled('claude')) reply = await fixLoop(event);
         } else {
           const update = await handleEvent(event, url.searchParams.get('agent'));
           if (update) print(`${new Date().toLocaleTimeString()}  ${update.label ?? update.session.slice(0, 8)}  ${update.state}${update.text ? `  "${update.text}"` : ''}`);

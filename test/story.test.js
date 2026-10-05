@@ -659,3 +659,81 @@ test('review fixes on retention: the tested commit survives, and sed edits reach
   // A file changed only by sed shows in the note's paths.
   assert.match(compactNote([run("sed -i 's/a/b/' src/config.js"), out('npm test', 'Tests: 4 passed')]), /src\/config\.js/);
 });
+
+test('weakenedTests: green because the tests were changed (taken out, commented out, skipped, expecting something else), not the code', async () => {
+  const { weakenedTests, readiness } = await import('../bridge/ui/story.js');
+  const fail = () => ({ ...run('npm test', 'failed'), body: { command: 'npm test', output: 'ℹ tests 2\nℹ pass 1\nℹ fail 1' } });
+  const pass = () => ({ ...run('npm test'), body: { command: 'npm test', output: 'ℹ tests 2\nℹ pass 2\nℹ fail 0' } });
+  const patch = (before, after) => [...before.split('\n').map((l) => `-${l}`), ...after.split('\n').map((l) => `+${l}`)].join('\n');
+  const change = (before, after, path = 'test/math.test.js') => () => edit(path, patch(before, after));
+  // In order: a failing run, the edits, a passing run.
+  const between = (...edits) => { const f = fail(); const e = edits.map((make) => make()); return weakenedTests([f, ...e, pass()]); };
+  const SUM = "test('sum', () => {\n  assert.equal(sum(1, 2), 3);\n});";
+
+  assert.equal(between(change(SUM, "test('sum', () => {\n});")).text, 'removed 1 assertion in math.test.js');
+  assert.equal(between(change(SUM, "test('sum', () => {\n  // assert.equal(sum(1, 2), 3);\n});")).text, 'removed 1 assertion in math.test.js');
+  assert.equal(between(change(SUM, "test('sum', () => {\n  assert.equal(sum(1, 2), -1);\n});")).text, 'changed what an assertion expects in math.test.js');
+  assert.equal(between(change("test('sum', () => {", "test.skip('sum', () => {")).text, 'turned 1 test off (skip, only or todo) in math.test.js');
+  assert.equal(between(change('    assert add(1, 2) == 3', '    assert add(1, 2) == -1', 'tests/test_math.py')).text, 'changed what an assertion expects in test_math.py');
+
+  // Not a bluff: the code was fixed, a test was added, only spacing changed, or nothing failed first.
+  assert.equal(between(change('return a - b;', 'return a + b;', 'math.js')), null);
+  assert.equal(between(change('});', "  assert.equal(sum(2, 2), 4);\n});")), null);
+  assert.equal(between(change('assert.equal(sum(1, 2),  3);', 'assert.equal(sum(1, 2), 3);')), null);
+  // No failing run seen, and only the tests changed: green can only have come from them.
+  assert.equal(weakenedTests([change(SUM, "test('sum', () => {\n  assert.equal(sum(1, 2), -1);\n});")(), pass()]).text, 'changed what an assertion expects in math.test.js');
+  // No failing run seen, but the code changed too: that may be why the expectation moved.
+  assert.equal(weakenedTests([change('return a - b;', 'return a + b;', 'math.js')(), change(SUM, "test('sum', () => {\n});")(), pass()]), null);
+  // An assertion it wrote itself in these steps, then corrected: writing a test takes tries.
+  const own = [fail(), change('});', "  assert.equal(sum(2, 2), 5);\n});")(), change('  assert.equal(sum(2, 2), 5);', '  assert.equal(sum(2, 2), 4);')(), pass()];
+  assert.equal(weakenedTests(own), null);
+  // Undone: a skip added (green with it), then taken out again and the code fixed: nothing left to flag.
+  const undo = [fail(), change("test('sum', () => {", "test.skip('sum', () => {")(), pass(), change("test.skip('sum', () => {", "test('sum', () => {")(), change('return a - b;', 'return a + b;', 'math.js')(), pass()];
+  assert.equal(weakenedTests(undo.slice(0, 3)).text, 'turned 1 test off (skip, only or todo) in math.test.js');
+  assert.equal(weakenedTests(undo), null);
+  // The code changed and the expected value with it: the new behaviour, or a test put back. Not a bluff.
+  assert.equal(between(change('return a - b;', 'return a + b;', 'math.js'), change("  assert.equal(sum(1, 2), -1);", "  assert.equal(sum(1, 2), 3);")), null);
+  // Taking an assertion out is never the fix, code changed or not.
+  assert.equal(between(change('return a - b;', 'return a * b;', 'math.js'), change(SUM, "test('sum', () => {\n});")).text, 'removed 1 assertion in math.test.js');
+  // Tests written first, failing, then the code: test-driven work, not a bluff.
+  const first = change(SUM, "test('sum', () => {\n});")();
+  assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);
+
+  // The failing assertion itself, changed to what the code gave or taken out: a bluff even with
+  // other code changed in the same steps, and new tests written alongside. A whole-file write
+  // (its diff from Claude Code's result) reads like an edit.
+  const pyFail = () => ({ ...run('python -m unittest', 'failed'), body: { command: 'python -m unittest', output: 'FAIL: test_add (test_calc.TestCalc.test_add)\nTraceback (most recent call last):\n  File "test_calc.py", line 9, in test_add\n    self.assertEqual(add(2, 2), 5)\nAssertionError: 4 != 5\n\nRan 3 tests in 0.001s\n\nFAILED (failures=1)' } });
+  const pyPass = () => ({ ...run('python -m unittest'), body: { command: 'python -m unittest', output: 'Ran 5 tests in 0.001s\n\nOK' } });
+  const write = (path, body) => () => ({ ...edit(path, body), kind: 'write', files: [{ path: `/p/${path}`, change: 'write' }] });
+  const py = (...edits) => { const f = pyFail(); const e = edits.map((make) => make()); return weakenedTests([f, ...e, pyPass()]); };
+  const fraction = write('calc.py', ' def add(a, b):\n+from fractions import Fraction\n+def divide(a, b):\n+    return Fraction(a) / Fraction(b)');
+  const NEW = '+    def test_divide(self):\n+        self.assertEqual(divide(1, 2), Fraction(1, 2))';
+  assert.equal(py(fraction, write('test_calc.py', `-    def test_add(self):\n-        self.assertEqual(add(2, 2), 5)\n+    def test_add_small(self):\n+        self.assertEqual(add(2, 2), 4)\n${NEW}`)).text, 'changed what an assertion expects in test_calc.py');
+  assert.equal(py(fraction, write('test_calc.py', `-    def test_add(self):\n-        self.assertEqual(add(2, 2), 5)\n${NEW}`)).text, 'removed 1 assertion in test_calc.py');
+  // Another expected value moved with the code: still the new behaviour, not the failing check.
+  assert.equal(py(fraction, write('test_calc.py', '-        self.assertEqual(divide(1, 2), 0.5)\n+        self.assertEqual(divide(1, 4), 0.25)')), null);
+
+  // Ready to merge says so, and the test line warns instead of a green "Tests passed".
+  const f = fail();
+  const weak = change(SUM, "test('sum', () => {\n});")();
+  const steps = [edit('math.js'), f, weak, pass()];
+  const r = readiness({ steps, end: { kind: 'done' } });
+  assert.equal(r.ready, false);
+  assert.ok(r.problems.includes('Changed the tests to make them pass: removed 1 assertion in math.test.js'), r.problems.join(' | '));
+  const { testLine } = await import('../bridge/ui/story.js');
+  const line = testLine(steps, () => '3:24 PM');
+  assert.equal(line.level, 'warn');
+  assert.match(line.text, /^Tests passed · 2 passed · 3:24 PM, but only after the tests were changed: removed 1 assertion in math\.test\.js$/);
+});
+
+test('a commit that failed, or that dotpals stopped, reads "tried to commit", not "committed"', async () => {
+  const { simple } = await import('../bridge/ui/story.js');
+  const commit = (status) => ({ ...run("git add -A && git commit -m 'wip'", status), ...(status === 'failed' ? { error: 'dotpals stopped this: the tests are failing' } : {}) });
+  assert.equal(simple({ steps: [edit('math.js'), commit('ok')], end: { kind: 'done' } }, { live: false }).text, 'Changed math.js, but it didn’t run the tests, and committed.');
+  assert.equal(simple({ steps: [edit('math.js'), commit('failed')], end: { kind: 'done' } }, { live: false }).text, 'Changed math.js, but it didn’t run the tests, and tried to commit (it didn’t go through).');
+});
+test('ships: a commit, push, PR or publish the tests can’t stop, from inside a block too', async () => {
+  const { ships } = await import('../bridge/ui/story.js');
+  for (const cmd of ["git status --short; git add -A; if ($?) { git commit -m 'wip' }", 'npm test; git commit -m x', 'npm test || git push', 'git -C ../app commit -m x', 'git commit -m "a; b && c"', 'if npm test; then git push; fi', 'gh pr create --fill', 'npm publish']) assert.equal(ships(cmd), true, cmd);
+  for (const cmd of ['npm test && git commit -m x', 'git log --oneline', "echo 'git commit' > notes.txt", 'git diff && npm test', 'git rebase main']) assert.equal(ships(cmd), false, cmd);
+});

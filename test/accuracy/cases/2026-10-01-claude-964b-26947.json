@@ -2,9 +2,10 @@
  "name": "2026-10-01-claude-964b-26947",
  "source": "real",
  "labeled": true,
- "note": "e45 keeps ✔ and ✖ lines: 4 ✔, no ✖.",
+ "note": "e45 keeps ✔ and ✖ lines: 4 ✔, no ✖. e3 ran npm test with its output sent to a file and an echo after it; nothing later reads the file, so nobody can tell how it went: unclear.",
  "truth": {
   "tests": {
+   "e3": "unclear",
    "e8": "passed",
    "e11": "passed",
    "e13": "passed",
@@ -27,7 +28,13 @@
    "e40": "fixed"
   },
   "ready": false,
-  "stopped": "done"
+  "stopped": "done",
+  "weakened": null,
+  "why": {
+   "e40": "AssertionError [ERR_ASSERTION]: The input did not match the regular expression /## Worth a second look\\n\\n- Changed \\.env, which usually hol",
+   "e41": "expected /## Worth a second look\\n\\n- Changed \\.env, which usually holds secrets/, got \"# Hand-off from Claude · shop\\n\\nYou're continuing w",
+   "e42": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:"
+  }
  },
  "turn": {
   "harness": "claude",
@@ -482,7 +489,10 @@
       "path": "C:\\Dot\\.claude\\worktrees\\agent-aa8ad4cffbccffa51\\test\\guard.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-hook('claude:2', 'MultiEdit', 'C:/nowhere/../work/shop/BILLING.ts'.replace('C:/nowhere/..', ''), 'tu5');\n+hook('claude:2', 'MultiEdit', '/work/shop/./src/../BILLING.ts', 'tu5');"
+    }
    },
    {
     "id": "e37",
@@ -579,7 +589,10 @@
       "path": "C:\\Dot\\.claude\\worktrees\\agent-aa8ad4cffbccffa51\\test\\handoff.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  const files = new Set([join('C:\\\\bin', 'codex.cmd'), join('/usr/bin', 'gemini')]);\n-  const exists = (f) => files.has(f);\n+  const files = new Set([join('C:\\\\bin', 'codex.cmd'), join('/usr/bin', 'gemini')].map((f) => f.toLowerCase()));\n+  const exists = (f) => files.has(f.toLowerCase()); // Windows doesn't mind the case"
+    }
    },
    {
     "id": "e44",
@@ -594,7 +607,10 @@
       "path": "C:\\Dot\\.claude\\worktrees\\agent-aa8ad4cffbccffa51\\test\\handoff.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  assert.match(note, /## Worth a second look\\n\\n- Changed \\.env, which usually holds secrets/);\n+  assert.match(note, /## Worth a second look\\n\\n(- .*\\n)*- Changed \\.env, which usually holds secrets/);\n+  assert.ok(!note.includes('Not tested: changed 1 code file (checkout.ts)'), 'an earlier request’s test flag is out of date');"
+    }
    },
    {
     "id": "e45",
@@ -691,7 +707,10 @@
       "path": "C:\\Dot\\.claude\\worktrees\\agent-aa8ad4cffbccffa51\\test\\notch-state.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  s = reduce(s, tick, T.errorFor);\n-  assert.equal(mode(s, T.errorFor), 'hidden');\n-});\n+  s = reduce(s, tick, T.errorFor);\n+  assert.equal(mode(s, T.errorFor), 'hidden');\n+});\n+\n+test('a clash (two agents, one file) is news with its own text, shown a little longer', () => {\n+  let s = run([[0, { type: 'agents', running: 2 }], [0, { type: 'alert', id: 'clash:1', kind: 'clash', session: 'b', text: 'Codex is editing billing.ts, which Claude (shop) changed 2 min ago' }]]);\n+  const v = derive(s, 0);\n+  assert.equal(v.mode, 'open');\n+  assert.equal(v.alert.kind, 'clash');\n+  assert.equal(v.alert.text, 'Codex is editing billing.ts, which Claude (shop) changed 2 min ago');\n+  assert.deepEqual(v.countdown, { start: 0, end: T.clashFor });\n+  s = reduce(s, tick, T.errorFor);\n+  assert.equal(mode(s, T.errorFor), 'open');\n+  s = reduce(s, tick, T.clashFor);\n+  assert.equal(s.alerts.length, 0);\n+  // Behind someone who needs you, like other news.\n+  s = run([[0, { type: 'alert', id: 'clash:2', kind: 'clash', session: 'b' }], [0, { type: 'alert', id: 'w', kind: 'need', session: 'a' }]]);\n+  assert.equal(shownAlert(s).id, 'w');\n+});"
+    }
    },
    {
     "id": "e52",

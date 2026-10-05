@@ -60,6 +60,18 @@ const responseText = (r) => {
   return typeof v === 'string' ? v : JSON.stringify(v ?? '', null, 2);
 };
 
+/**
+ * How run_shell_command ended, from what it tells the model (llmContent): cancelled ("Command
+ * was cancelled by user before it could complete."), or its exit code ("Exit Code: 1", only
+ * there when it isn't 0). Its error field is set only when the command couldn't run at all.
+ */
+function shellEnd(r) {
+  const llm = typeof r?.llmContent === 'string' ? r.llmContent : '';
+  if (/\bCommand was cancelled by user before it could complete\b/.test(llm)) return { status: 'stopped' };
+  const code = Number([...llm.matchAll(/^Exit Code: (-?\d+)/gm)].at(-1)?.[1] ?? 0);
+  return code ? { status: 'failed', line: `Exit Code: ${code}` } : null;
+}
+
 // Gemini's tool events have no call id: pair BeforeTool and AfterTool by tool and input.
 const pending = new Map(); // `${session}|${tool}|${input}` → [entry id, …]
 const keyOf = (session, e) => `${session}|${e.tool_name}|${JSON.stringify(e.tool_input ?? {})}`;
@@ -105,13 +117,17 @@ export function applyGemini(e, log) {
       const id = ids.shift();
       if (ids.length) pending.set(key, ids); else pending.delete(key);
       const failed = !!e.tool_response?.error;
-      const text = clipEnds(responseText(e.tool_response), 3000);
+      const shell = e.tool_name === 'run_shell_command' ? shellEnd(e.tool_response) : null;
+      const status = shell?.status === 'stopped' ? 'stopped' : failed || shell ? 'failed' : 'ok';
+      const raw = responseText(e.tool_response);
+      // The output shown (returnDisplay) doesn't say how it exited: add the line that does.
+      const text = clipEnds(shell?.line && !raw.includes(shell.line) ? `${raw}\n${shell.line}` : raw, 3000);
       const known = id && log.get(id);
       if (known) {
-        add({ id, status: failed ? 'failed' : 'ok', ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, error: failed ? clip(text, 300) : undefined, body: { output: text || undefined } });
+        add({ id, status, ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, error: failed ? clip(text, 300) : undefined, body: { output: text || undefined } });
       } else {
         // No BeforeTool seen (the pal started mid-call): record it finished.
-        add({ ...base, id: `${session}:t:${at}-${n}`, tool: e.tool_name, ...describeTool(e.tool_name, e.tool_input ?? {}, e.cwd), status: failed ? 'failed' : 'ok', body: { output: text || undefined } });
+        add({ ...base, id: `${session}:t:${at}-${n}`, tool: e.tool_name, ...describeTool(e.tool_name, e.tool_input ?? {}, e.cwd), status, body: { output: text || undefined } });
       }
       out.state = { state: 'thinking' };
       break;

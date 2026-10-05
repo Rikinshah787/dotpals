@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTestOutput } from '../bridge/ui/testout.js';
+import { failureReason, parseTestOutput } from '../bridge/ui/testout.js';
 
 const counts = (out) => { const f = parseTestOutput(out); return [f.runner, f.passed, f.failed, f.errors, f.skipped]; };
 
@@ -55,4 +55,26 @@ test('parseTestOutput: the worst case wins, and a type checker adds its errors',
   assert.equal(parseTestOutput('\u001b[32m===== 3 passed in 0.1s =====\u001b[0m').passed, 3);
   // A last resort for runners without their own parser (Playwright).
   assert.deepEqual(counts('  1 failed\n    [chromium] › a.spec.ts:3:1 › works\n  4 passed (3.0s)'), ['tests', 4, 1, 0, 0]);
+});
+
+test('failureReason: why the first test failed, and where, in each runner’s words', () => {
+  const node = '✖ sum adds two numbers (1.2ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n  -1 !== 3\n\n      at TestContext.<anonymous> (file:///C:/w/app/test/math.test.js:5:10)\n      at Test.runInAsyncScope (node:internal/test_runner/test:1004:9) {\n    actual: -1,\n    expected: 3,\n  }';
+  assert.deepEqual(failureReason(node), { why: 'expected 3, got -1', where: 'test/math.test.js:5' });
+  assert.deepEqual(failureReason('  ● cart › adds items\n\n    Expected: 3\n    Received: -1\n\n      at Object.<anonymous> (src/cart.test.js:12:20)'), { why: 'expected 3, got -1', where: 'src/cart.test.js:12' });
+  assert.deepEqual(failureReason('>       assert sum(1, 2) == 3\nE       assert -1 == 3\nE        +  where -1 = sum(1, 2)\n\ntests/test_math.py:4: AssertionError'), { why: 'assert -1 == 3', where: 'tests/test_math.py:4' });
+  assert.deepEqual(failureReason('--- FAIL: TestSum (0.00s)\n    math_test.go:8: sum(1, 2) = -1; want 3\nFAIL'), { why: 'sum(1, 2) = -1; want 3', where: 'math_test.go:8' });
+  assert.deepEqual(failureReason('     AssertionError: expected -1 to equal 3\n      at Context.<anonymous> (test/sum.spec.js:7:24)'), { why: 'AssertionError: expected -1 to equal 3', where: 'test/sum.spec.js:7' });
+  // No values to compare: the assertion's own words, and what follows its colon.
+  assert.deepEqual(failureReason('AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n-1 !== 3'), { why: 'AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: -1 !== 3' });
+  // "Must not match": not "expected X, got Y" (that reads backwards), but the assertion's own words.
+  assert.equal(failureReason("✖ redacts\n  AssertionError [ERR_ASSERTION]: The input was expected to not match the regular expression /secret/. Input:\n    actual: 'token=secret',\n    expected: /secret/,").why.slice(0, 80), 'AssertionError [ERR_ASSERTION]: The input was expected to not match the regular ');
+  // Another command crashed before the tests ran (`node -e …; npm test`): that isn't why the tests failed.
+  assert.equal(failureReason('SyntaxError: Invalid hexadecimal escape sequence\n    at node:internal/main/eval_string:37:3\n✖ findConflict: own session (7.4ms)\nℹ fail 1'), null);
+  // A test file that wouldn't load: its error, printed just before it, is the reason.
+  assert.equal(failureReason("SyntaxError: Unexpected token '.'\n✖ test\\tracing.test.js (77.2ms)").why, "SyntaxError: Unexpected token '.'");
+  // Through `grep -n`: line numbers in front.
+  assert.equal(failureReason('160-  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n161-  + actual - expected').why, 'AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected');
+  // Cut off before the reason (`| tail -3`), or passing: nothing to say.
+  assert.equal(failureReason("    operator: 'strictEqual',\n    diff: 'simple'\n  }"), null);
+  assert.equal(failureReason('ℹ tests 2\nℹ pass 2\nℹ fail 0'), null);
 });

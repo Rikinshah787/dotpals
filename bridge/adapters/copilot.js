@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipEnds, clipText, folderName, relative } from '../activity.js';
+import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 import { hookCommand, isOurs, readJson, removeOwnFile, writeOwnFile } from './setup.js';
 
 const ID = 'copilot';
@@ -20,7 +20,8 @@ const file = () => join(dir(), 'hooks', 'dotpals.json');
 const MARKER = 'bridge/hook.js';
 
 // The docs name the tools but only show `command` among their arguments, so
-// anything else is read carefully and shown as-is.
+// anything else is read carefully and shown as-is. The CLI's own code names the
+// file tools' text: edit { path, old_str, new_str }, create { path, file_text }.
 const KIND = { bash: 'run', powershell: 'run', view: 'read', create: 'write', edit: 'edit', grep: 'search', rg: 'search', glob: 'search', web_fetch: 'web', web_search: 'web', task: 'agent', update_todo: 'plan' };
 
 const parse = (v) => { if (typeof v !== 'string') return v ?? {}; try { return JSON.parse(v); } catch { return { value: v }; } };
@@ -32,7 +33,12 @@ export function describeTool(name = '', raw = {}, cwd) {
   const path = [args.path, args.file_path, args.filePath].find((p) => typeof p === 'string');
   const body = { args: clipText(JSON.stringify(args, null, 2), 3000) };
   if (kind === 'run') return { kind, title: clip(args.description || args.command, 80), detail: args.description ? clip(args.command, 160) : undefined, body: { command: clipEnds(args.command, 4000) } };
-  if (path && (kind === 'read' || kind === 'write' || kind === 'edit')) return { kind, title: relative(path, cwd), files: [{ path, change: kind }], body };
+  if (path && (kind === 'read' || kind === 'write' || kind === 'edit')) {
+    // What an edit took out and put in, as for the other agents (so a weakened test shows).
+    const patch = kind === 'edit' && typeof args.old_str === 'string' && typeof args.new_str === 'string' ? toPatch(args.old_str, args.new_str)
+      : kind === 'write' && typeof args.file_text === 'string' ? toPatch('', args.file_text) : null;
+    return { kind, title: relative(path, cwd), files: [{ path, change: kind }], body: patch ? { patch } : body };
+  }
   const what = [args.pattern, args.query, args.url, args.description].find((v) => typeof v === 'string');
   return { kind, title: clip(what || name.replace(/_/g, ' '), 80), body };
 }
@@ -66,8 +72,11 @@ export function applyCopilot(e, log) {
       const failed = e.hook_event_name === 'postToolUseFailure' || (e.toolResult?.resultType && e.toolResult.resultType !== 'success');
       const described = describeTool(e.toolName, e.toolArgs, e.cwd);
       const output = e.toolResult?.textResultForLlm;
+      // Still running after its wait ("<command with shellId: 3 is still running after 30 seconds. …>"):
+      // not a result yet. If nothing says how it ended, the turn's end marks it stopped.
+      const running = described.kind === 'run' && /<command with shellId: \S+ is still running after\b/.test(output ?? '');
       add({
-        ...base, id: `${session}:t:${at}-${n}`, tool: e.toolName, ...described, status: failed ? 'failed' : 'ok',
+        ...base, id: `${session}:t:${at}-${n}`, tool: e.toolName, ...described, status: failed ? 'failed' : running ? 'running' : 'ok',
         error: failed ? clip(typeof e.error === 'string' ? e.error : e.error?.message ?? output, 300) || undefined : undefined,
         body: { ...described.body, output: clipEnds(output, 3000) || undefined },
       });

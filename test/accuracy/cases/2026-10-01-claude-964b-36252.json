@@ -33,7 +33,16 @@
    "e180": "fixed"
   },
   "ready": false,
-  "stopped": "done"
+  "stopped": "done",
+  "weakened": null,
+  "why": {
+   "e102": "expected 1, got 3",
+   "e104": "expected 1, got 2",
+   "e106": "expected 1, got 2",
+   "e111": "expected 'unclear', got 'stale'",
+   "e119": "AssertionError [ERR_ASSERTION]: The input was expected to not match the regular expression /AbCdEf123456789xyz|me@x\\.io|192\\.168\\.1\\.20|MIIE",
+   "e180": null
+  }
  },
  "turn": {
   "harness": "claude",
@@ -1513,7 +1522,10 @@
       "path": "C:\\Dot\\test\\story.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  // Unclear is never a pass.\n-  const unclear = ran('ℹ tests 0\\nℹ pass 0\\nℹ fail 0');\n-  assert.equal(testPassed(unclear), null);\n-  const t = testState([edit('src/a.js'), unclear, run('git commit -m x')]);\n-  assert.equal(t.state, 'unclear');\n-  assert.equal(t.commit.tested, false);\n-  const line = testLine([edit('src/a.js'), unclear], () => '7:08 PM');\n+  // Unclear is never a pass.\n+  const change = edit('src/a.js');\n+  const unclear = ran('ℹ tests 0\\nℹ pass 0\\nℹ fail 0');\n+  assert.equal(testPassed(unclear), null);\n+  const t = testState([change, unclear, run('git commit -m x')]);\n+  assert.equal(t.state, 'unclear');\n+  assert.equal(t.commit.tested, false);\n+  const line = testLine([change, unclear], () => '7:08 PM');"
+    }
    },
    {
     "id": "e113",
@@ -1528,7 +1540,10 @@
       "path": "C:\\Dot\\test\\story.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  assert.match(story({ steps: [edit('src/a.js'), unclear], end: { kind: 'done' } }).flags[0].text\n+  assert.match(story({ steps: [change, unclear], end: { kind: 'done' } }).flags[0].text"
+    }
    },
    {
     "id": "e114",
@@ -1543,7 +1558,10 @@
       "path": "C:\\Dot\\test\\story.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  const checked = ran(crash, 'ok', { by: 'jev', state: 'passed', p: 0.94 });\n-  assert.match(testLine([edit('src/a.js'), checked]\n+  const change = edit('src/a.js');\n+  const checked = ran(crash, 'ok', { by: 'jev', state: 'passed', p: 0.94 });\n+  assert.match(testLine([change, checked]"
+    }
    },
    {
     "id": "e115",
@@ -1571,7 +1589,10 @@
       "path": "C:\\Dot\\test\\activity.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-import { clip, clipText, createActivityLog, folderName, relative, toPatch } from '../bridge/activity.js';\n+import { clip, clipEnds, clipText, createActivityLog, folderName, relative, toPatch } from '../bridge/activity.js';\n+import { testVerdict } from '../bridge/ui/story.js';\n+\n+test('clipEnds keeps the start and the end of long output, so a test summary survives', () => {\n+  assert.equal(clipEnds('short\\r\\nout\\n\\n'), 'short\\nout');\n+  const long = `> npm test\\n${'✔ a test that passed (1ms)\\n'.repeat(400)}ℹ tests 400\\nℹ pass 399\\nℹ fail 1`;\n+  const kept = clipEnds(long, 3000);\n+  assert.ok(kept.length < 3100);\n+  assert.ok(kept.startsWith('> npm test\\n'));\n+  assert.ok(kept.endsWith('ℹ fail 1'));\n+  assert.match(kept, /\\n… \\(\\d+ characters cut\\) …\\n/);\n+  // clipText loses the summary; clipEnds keeps it, so the run reads as failed, not \"exit code only\".\n+  const entry = (output) => ({ kind: 'run', status: 'ok', body: { command: 'npm test', output } });\n+  assert.equal(testVerdict(entry(clipText(long, 3000))).source, 'exit');\n+  assert.deepEqual([testVerdict(entry(kept)).state, testVerdict(entry(kept)).summary], ['failed', '1 failed, 399 passed']);\n+});"
+    }
    },
    {
     "id": "e117",

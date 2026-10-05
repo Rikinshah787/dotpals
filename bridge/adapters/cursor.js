@@ -29,6 +29,17 @@ const KIND = { Read: 'read', Grep: 'search', Glob: 'search', Delete: 'edit', Tas
 
 const replies = new Map(); // session → the agent's last reply, until the turn ends
 
+// Cursor reports a shell command twice, in either order: afterShellExecution (its output, no
+// exit code) and postToolUse / postToolUseFailure (its exit code in tool_output, or that it
+// failed). They're one step: the second report completes the step the first one made.
+const unpaired = new WeakMap(); // step → which report made it ('shell' or 'post'), until the other arrives
+function partner(log, session, command, from, now) {
+  const cmd = clipEnds(command, 4000);
+  const step = log.findLast(session, (x) => unpaired.get(x) === from && x.body?.command === cmd && Math.abs(now - (x.at + (x.ms ?? 0))) < 60_000);
+  if (step) unpaired.delete(step);
+  return step;
+}
+
 const text = (v) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2));
 const parse = (v) => { if (typeof v !== 'string') return v ?? {}; try { return JSON.parse(v); } catch { return {}; } };
 
@@ -65,11 +76,17 @@ export function applyCursor(e, log) {
     }
     case 'afterShellExecution': {
       const cmd = String(e.command ?? '');
-      add({
-        ...base, id: `${session}:sh:${now}-${n}`, at: started(e.duration), tool: 'Shell', kind: 'run', title: clip(cmd, 80),
-        detail: e.cwd && e.cwd !== root ? relative(e.cwd, root) : undefined, status: 'ok', ms: Number(e.duration) || undefined,
+      const report = {
+        detail: e.cwd && e.cwd !== root ? relative(e.cwd, root) : undefined, ms: Number(e.duration) || undefined,
         body: { command: clipEnds(cmd, 4000), output: clipEnds(e.output, 3000) || undefined },
-      });
+      };
+      // Its exit code came first: add the output to that step. Otherwise it's 'ok' until postToolUse says.
+      const step = partner(log, session, cmd, 'post', now);
+      if (step) add({ id: step.id, ...report });
+      else {
+        add({ ...base, id: `${session}:sh:${now}-${n}`, at: started(e.duration), tool: 'Shell', kind: 'run', title: clip(cmd, 80), status: 'ok', ...report });
+        unpaired.set(out.entries.at(-1), 'shell');
+      }
       out.state = { state: 'working', text: clip(cmd, 40) };
       break;
     }
@@ -99,17 +116,33 @@ export function applyCursor(e, log) {
     case 'postToolUseFailure': {
       const tool = String(e.tool_name ?? '');
       const failed = e.hook_event_name === 'postToolUseFailure';
-      if (!tool || (!failed && COVERED.test(tool))) break;
       const input = parse(e.tool_input);
+      // You stopped it: it didn't finish, which isn't failing.
+      let status = failed ? (e.is_interrupt ? 'stopped' : 'failed') : 'ok';
+      const error = failed ? clip(e.error_message ?? e.failure_type, 300) : undefined;
+      const result = tool === 'Shell' && !failed ? parse(e.tool_output) : {};
+      if (tool === 'Shell') {
+        // How the command exited ({"exitCode":1,"stdout":…}), or that it failed: for the step its output made.
+        if (!failed && typeof result.exitCode !== 'number') break; // nothing afterShellExecution doesn't say
+        if (!failed) status = result.exitCode === 0 ? 'ok' : 'failed';
+        const step = partner(log, session, String(input.command ?? ''), 'shell', now);
+        if (step) {
+          step.status = status; // it was 'ok' only for want of an exit code
+          add({ id: step.id, error });
+          break;
+        }
+      } else if (!tool || (!failed && COVERED.test(tool))) break;
       const target = input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.command ?? input.description;
       const kind = tool === 'Shell' ? 'run' : tool.startsWith('MCP:') ? 'mcp' : KIND[tool] ?? 'tool';
       add({
         ...base, id: `${session}:${e.tool_use_id ?? `t:${now}-${n}`}`, at: started(e.duration), tool, kind,
-        title: clip(typeof target === 'string' ? relative(target, root) : tool, 80), status: failed ? 'failed' : 'ok',
-        ms: Number(e.duration) || undefined, error: failed ? clip(e.error_message ?? e.failure_type, 300) : undefined,
+        title: clip(typeof target === 'string' ? relative(target, root) : tool, 80), status,
+        ms: Number(e.duration) || undefined, error,
         ...(kind === 'read' && typeof target === 'string' ? { files: [{ path: target, change: 'read' }] } : {}),
-        body: { args: clipText(text(input), 3000), output: failed ? undefined : clipEnds(text(e.tool_output), 3000) || undefined },
+        body: tool === 'Shell' ? { command: clipEnds(String(input.command ?? ''), 4000), output: clipEnds(result.stdout, 3000) || undefined } : { args: clipText(text(input), 3000), output: failed ? undefined : clipEnds(text(e.tool_output), 3000) || undefined },
       });
+      // A shell command reported here first: its output (afterShellExecution) joins this step.
+      if (tool === 'Shell') unpaired.set(out.entries.at(-1), 'post');
       break;
     }
     case 'subagentStop':
@@ -139,7 +172,8 @@ export function applyCursor(e, log) {
       const ok = e.status !== 'error';
       add({
         ...base, id: `${session}:s:${e.generation_id ?? now}`, at: now, kind: ok ? 'done' : 'error',
-        title: e.status === 'aborted' ? 'Stopped' : ok ? 'Finished' : 'Stopped with an error', status: ok ? 'ok' : 'failed',
+        // Aborted (you stopped it): it ended, unfinished.
+        title: e.status === 'aborted' ? 'Stopped' : ok ? 'Finished' : 'Stopped with an error', status: e.status === 'aborted' ? 'stopped' : ok ? 'ok' : 'failed',
         ms: prompt ? Math.max(0, now - prompt.at) : undefined, summary: replies.get(session),
       });
       replies.delete(session);

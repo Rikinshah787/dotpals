@@ -444,8 +444,10 @@ b.green { color: var(--green) !important; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
 .seg-sm button { min-height: 36px; padding: 0 .8rem; font-size: .85rem; }
 
-/* ---------- new: was it really tested? ---------- */
+/* ---------- new in 0.10: the fix loop, and ask dotpals (MCP) ---------- */
 .new-sec { padding-bottom: clamp(40px, 6vw, 80px); }
+.new-sec + .new-sec { padding-top: clamp(40px, 6vw, 80px); }
+.new-sec .install { margin-top: .4rem; }
 .new-sec .credit { color: var(--dim); font-size: .85rem; margin-top: .4rem; }
 .new-sec .credit a { color: var(--muted); }
 .new-mock {
@@ -469,6 +471,14 @@ b.green { color: var(--green) !important; }
 .nm-check pre { margin: 0; padding: .6rem .75rem; border-radius: 10px; background: #0b0a0e; border: 1px solid var(--line); font: .8rem/1.5 var(--f-mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .nm-verdict { font-size: .88rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .nm-verdict .badge { color: var(--red); background: rgb(255 107 107 / .14); border-radius: 6px; padding: .1rem .5rem; font-weight: 600; }
+.nm-line .ok, .nm-list .ok { color: var(--green); font-weight: 700; }
+.nm-line small { color: var(--dim); font-size: .85rem; }
+.nm-ask-alt { border-left-color: var(--codex); }
+.nm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; font-size: .9rem; color: var(--muted); }
+.nm-list li { display: flex; gap: .55rem; align-items: baseline; }
+.nm-list .x { color: var(--red); font-weight: 700; }
+.nm-say { margin: 0; color: var(--muted); font-size: .95rem; }
+.nm-say b { color: var(--codex); }
 
 /* ---------- story ---------- */
 .story { padding: clamp(40px, 8vw, 90px) 0 clamp(60px, 8vw, 100px); }

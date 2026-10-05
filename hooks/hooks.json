@@ -55,6 +55,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/loop-hook.js\"",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -67,6 +77,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/loop-hook.js\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
@@ -77,6 +97,16 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/hook.js\"",
             "async": true,
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/loop-hook.js\"",
+            "timeout": 10
           }
         ]
       }
@@ -147,6 +177,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/hook.js\"",
             "async": true,
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bridge/loop-hook.js\"",
             "timeout": 5
           }
         ]
