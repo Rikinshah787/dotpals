@@ -1,10 +1,16 @@
 // Codex adapter: follows Codex's session logs (~/.codex/sessions/**/rollout-*.jsonl),
 // so Codex CLI, the Codex IDE extension and the Codex app all show up with
 // nothing to install on the Codex side. Set DOTPALS_CODEX=0 to turn it off.
+//
+// The fix loop (Make agents fix failing tests) needs Codex's hooks, which can answer:
+// `codexHooks.connect()` adds `node ".../bridge/loop-hook.js" codex` to ~/.codex/hooks.json
+// for the events below, and Codex asks you to trust it once (/hooks in Codex).
+import { existsSync } from 'node:fs';
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
+import { backup, backupPath, isOurLoop, loopCommand, readJson, writeJson } from './setup.js';
 
 const HARNESS = 'codex';
 const RECENT = 12 * 60 * 60 * 1000; // follow logs touched in the last 12 hours
@@ -316,11 +322,88 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
     }
   }
 
+  // One read at a time: two at once would read the same lines twice.
+  let reading = Promise.resolve();
+  const readNow = () => (reading = reading.then(poll).catch(() => {}));
   (async () => {
     while (!stopped) {
-      try { await poll(); } catch {}
+      await readNow();
       await new Promise((r) => setTimeout(r, interval));
     }
   })();
-  return () => { stopped = true; };
+  const stop = () => { stopped = true; };
+  /** Read what Codex logged since the last look, now (the fix loop, before it judges). */
+  stop.poll = readNow;
+  return stop;
 }
+
+// -- The fix loop's hook in ~/.codex/hooks.json -----------------------------------------------
+// Codex's hooks answer the way Claude Code's do: after a test run (PostToolUse) Codex can be told
+// why it failed, Stop can send it back, and PreToolUse can hold back a commit. UserPromptSubmit
+// starts a new request, so the loop counts again. Timeouts are in seconds.
+const LOOP_EVENTS = {
+  UserPromptSubmit: { timeout: 5 },
+  PreToolUse: { matcher: '^Bash$', timeout: 5 },
+  PostToolUse: { matcher: '^Bash$', timeout: 10 },
+  Stop: { timeout: 10 },
+};
+const codexHome = () => process.env.DOTPALS_CODEX_HOME || join(homedir(), '.codex');
+const hooksFile = () => join(codexHome(), 'hooks.json');
+
+/** Our command in a hooks.json object, if it's there. */
+function ourLoop(config) {
+  for (const groups of Object.values(config.hooks ?? {})) {
+    for (const g of Array.isArray(groups) ? groups : []) {
+      const ours = (Array.isArray(g?.hooks) ? g.hooks : []).find((h) => isOurLoop(h?.command, HARNESS));
+      if (ours) return ours.command;
+    }
+  }
+  return null;
+}
+
+/** Remove our hooks from a hooks.json object, and groups left empty; true if anything changed. */
+function stripLoop(config) {
+  let changed = false;
+  for (const [event, groups] of Object.entries(config.hooks ?? {})) {
+    if (!Array.isArray(groups)) continue;
+    const kept = groups.flatMap((g) => {
+      if (!Array.isArray(g?.hooks)) return [g];
+      const hooks = g.hooks.filter((h) => !isOurLoop(h?.command, HARNESS));
+      if (hooks.length === g.hooks.length) return [g];
+      changed = true;
+      return hooks.length ? [{ ...g, hooks }] : [];
+    });
+    if (kept.length) config.hooks[event] = kept;
+    else delete config.hooks[event];
+  }
+  return changed;
+}
+
+export const codexHooks = {
+  file: hooksFile,
+  /** The fix loop's command in ~/.codex/hooks.json, as Codex will run it, or null. */
+  installed() {
+    try { return ourLoop(readJson(hooksFile())); } catch { return null; }
+  },
+  connect() {
+    const config = readJson(hooksFile(), { hooks: {} });
+    if (config.hooks != null && (typeof config.hooks !== 'object' || Array.isArray(config.hooks))) throw new Error(`${hooksFile()} has an unexpected "hooks" value, so it wasn’t changed.`);
+    const saved = backup(hooksFile());
+    config.hooks ??= {};
+    stripLoop(config); // an older install location, or adding it twice
+    const command = loopCommand(HARNESS);
+    for (const [event, { matcher, timeout }] of Object.entries(LOOP_EVENTS)) {
+      if (!Array.isArray(config.hooks[event])) config.hooks[event] = [];
+      config.hooks[event].push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command, timeout }] });
+    }
+    writeJson(hooksFile(), config);
+    return { file: hooksFile(), backup: saved, command, note: 'In Codex, run /hooks and trust it once, so it runs.' };
+  },
+  disconnect() {
+    if (!existsSync(hooksFile())) return { file: hooksFile() };
+    const config = readJson(hooksFile());
+    if (!stripLoop(config)) return { file: hooksFile() };
+    writeJson(hooksFile(), config);
+    return { file: hooksFile(), backup: existsSync(backupPath(hooksFile())) ? backupPath(hooksFile()) : null };
+  },
+};

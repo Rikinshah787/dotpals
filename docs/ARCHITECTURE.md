@@ -62,7 +62,7 @@ Everything runs on your computer. Nothing is fetched from, or sent to, the inter
 | Adapters | `bridge/adapters/*.js` | One module per agent. The registry is `bridge/adapters/index.js`; shared config-editing helpers are in `setup.js`. |
 | Hook forwarder | `bridge/hook.js` | The command agents run for each hook event. Forwards stdin JSON to the bridge, always exits 0, and can start the pal. |
 | Context hook | `bridge/context-hook.js` | Claude Code only: on `SessionStart` and `UserPromptSubmit`, fetches `GET /api/recap` and prints it as `additionalContext` (Share with your agents). |
-| Fix-loop hook | `bridge/loop-hook.js` | Claude Code only, in the foreground: after a test run, before a commit or push, and on `Stop`, asks `POST /hook?loop=1` and prints the answer (a note, `block` or `deny`). See [The fix loop](#the-fix-loop). |
+| Fix-loop hook | `bridge/loop-hook.js` | Claude Code (the plugin) and Codex (`loop-hook.js codex`, in `~/.codex/hooks.json`), in the foreground: after a test run, before a commit or push, and on `Stop`, asks `POST /hook?loop=1` and prints the answer (a note, `block` or `deny`). See [The fix loop](#the-fix-loop). |
 | Claude Code plugin | `hooks/hooks.json`, `commands/pals.md`, `.claude-plugin/` | Registers `hook.js` (and `context-hook.js` and `loop-hook.js`) for Claude Code's hook events, and the `/dotpals:pals` command. |
 | Usage | `bridge/usage.js`, `bridge/statusline.js` | Plan limits (5-hour and weekly) and Claude context-window sizes, read from local files. |
 | Story engine | `bridge/ui/story.js`, `bridge/ui/recap.js` | Pure functions shared by every view (and Node): requests, chapters, flags, plan, headline, toolkit, overlaps, compact note, Markdown recaps. |
@@ -247,7 +247,9 @@ Off unless `shareRecap` is on. It tells each Claude Code session what other agen
 
 ## The fix loop
 
-On unless `fixLoop` is off. It makes Claude Code fix the tests it broke, and catches tests changed to make them pass.
+On unless `fixLoop` is off. It makes Claude Code and Codex fix the tests they broke, and catches tests changed to make them pass.
+
+- **Codex** runs `loop-hook.js codex` from `~/.codex/hooks.json` (added by `codexHooks.connect()` in `bridge/adapters/codex.js`: setup, or Dashboard → Agents), on `UserPromptSubmit`, `PreToolUse` and `PostToolUse` (`^Bash$`) and `Stop`. Its hooks answer in Claude Code's format, so the bridge's answers are the same. It posts to `POST /hook?loop=1&agent=codex`; the session is `codex:<id>`, as its logs name it, and the bridge reads Codex's log up to now (the watcher's `stop.poll()`) before it judges. A command that failed comes as `PostToolUse` with `tool_response.exit_code`. `UserPromptSubmit` starts a new request's count.
 
 - `hooks/hooks.json` runs `bridge/loop-hook.js` in the foreground on `PreToolUse` (Bash and PowerShell, 3 s), `PostToolUse` and `PostToolUseFailure` (Bash and PowerShell, 10 s) and `Stop` (5 s). The hook skips commands that neither run tests (`stepType`) nor ship (`ships`: a commit, push, pull request or publish not guarded by its own passing tests) without asking the bridge. Otherwise it posts the event to `POST /hook?loop=1` on `DOTPALS_BRIDGE` and prints the answer as is. It never starts anything and always exits 0, so with no bridge or no answer in time Claude carries on.
 - After a test run, the bridge reads the verdict from the output (`testVerdict`; an unclear run goes to the checker first, when one is on). A failure the request caused gets a note (`additionalContext`) with why it failed (`failureReason` in `bridge/ui/testout.js`); a failure from before the session changed anything (`onlyOldFailures`) is reported, not forced. An unreadable result asks Claude to run the tests again once.

@@ -144,6 +144,7 @@
 <h2 id="codex">Codex</h2>
 <h3 id="codex-connect">Connect</h3>
 <p>Nothing to install. dotpals follows Codex's session logs in <code>~/.codex/sessions</code>, so the Codex CLI, the IDE extension and the app all show up while the pal is running. The one-command setup starts dotpals when you log in, so it's always there.</p>
+<p>To make Codex fix the tests it broke too (<a href="features.html#fix-loop">Make agents fix failing tests</a>), setup adds dotpals' hook (<code>loop-hook.js codex</code>) to <code>~/.codex/hooks.json</code>, backing up the original. Codex runs a new hook only once you trust it: run <code>/hooks</code> in Codex. <strong>Add fix-loop hook</strong> and <strong>Remove fix-loop hook</strong> on its card in Dashboard → Agents do the same, and <code>dotpals setup --no-codex</code> skips it.</p>
 <h3 id="codex-reports">What it reports</h3>
 <ul>
   <li>Your prompts, commands (with Codex's own reason for running them), patches with their diffs and the files they touched, images viewed, web searches, helper agents, MCP tools and its plan.</li>

@@ -6,7 +6,9 @@
 //   via      what it connects through, in a few words
 //   how      one plain sentence for the dashboard
 //   setup    'plugin'  installed from inside the agent (Claude Code)
-//            'auto'    nothing to install: dotpals reads the agent's logs (Codex)
+//            'auto'    nothing to install: dotpals reads the agent's logs (Codex). It may
+//                      still have connect(), disconnect() and connected() for an optional
+//                      hook: Codex's for the fix loop, in ~/.codex/hooks.json
 //            'connect' dotpals adds a hook or plugin to the agent's config; the
 //                      dashboard's Connect button runs connect(), Disconnect runs
 //                      disconnect(), and connected() says which it is
@@ -14,7 +16,8 @@
 //   detect() → { found, where }   is the agent installed, and where
 //   apply(event, log) → { entries, session, label, state? }
 //            for events its hook sends to POST /hook?agent=<id>
-//   watch(log, { emit, state }) → stop     for agents followed through their logs
+//   watch(log, { emit, state }) → stop     for agents followed through their logs;
+//            stop.poll(), if there, reads what the agent logged since, now
 //   command() the hook command as installed, and sample(token) a payload for it:
 //            "Send a test event" runs the real command, so a wrong path shows up
 //   probe({ url, token })   the same for a plugin that runs inside the agent
@@ -23,7 +26,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { watchCodex } from './codex.js';
+import { codexHooks, watchCodex } from './codex.js';
 import copilot from './copilot.js';
 import cursor from './cursor.js';
 import gemini from './gemini.js';
@@ -48,8 +51,8 @@ const codexDir = () => process.env.DOTPALS_CODEX_DIR || join(homedir(), '.codex'
 const codex = {
   id: 'codex',
   name: 'Codex',
-  via: 'Session logs',
-  how: 'Nothing to install: dotpals follows the session logs in ~/.codex/sessions (CLI, IDE extension and app).',
+  via: 'Session logs, and a hook for fixing failing tests',
+  how: 'Nothing to install to see its sessions: dotpals follows the logs in ~/.codex/sessions (CLI, IDE extension and app). To make Codex fix failing tests, add the fix loop’s hook to ~/.codex/hooks.json, then trust it once in Codex (/hooks).',
   docs: 'https://developers.openai.com/codex',
   setup: 'auto',
   detect() {
@@ -57,6 +60,11 @@ const codex = {
     return { found: existsSync(where), where };
   },
   watch: (log, opts) => watchCodex(log, { ...opts, dir: codexDir() }),
+  // The fix loop's hook (Dashboard → Agents, or `dotpals setup`).
+  file: codexHooks.file,
+  connected: () => !!codexHooks.installed(),
+  connect: () => codexHooks.connect(),
+  disconnect: () => codexHooks.disconnect(),
 };
 
 const generic = {

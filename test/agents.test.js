@@ -15,6 +15,7 @@ process.env.DOTPALS_CURSOR_DIR = join(tmp, 'cursor');
 process.env.DOTPALS_GEMINI_DIR = join(tmp, 'gemini');
 process.env.DOTPALS_OPENCODE_DIR = join(tmp, 'opencode');
 process.env.DOTPALS_COPILOT_DIR = join(tmp, 'copilot');
+process.env.DOTPALS_CODEX_HOME = join(tmp, 'codex');
 after(() => rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 const { startBridge } = await import('../bridge/server.js');
@@ -67,7 +68,20 @@ test('agents API: list, connect, test through the real hook, switch off, disconn
   assert.equal((await call(port, 'POST', '/api/agents/cursor/connect', {})).status, 403);
   assert.equal((await call(port, 'POST', '/api/agents/cursor/connect', {}, { ...ours, host: 'evil.example' })).status, 421);
   assert.equal((await call(port, 'POST', '/api/agents/nope/connect', {}, ours)).status, 404);
-  assert.equal((await call(port, 'POST', '/api/agents/codex/connect', {}, ours)).status, 400);
+  assert.equal((await call(port, 'POST', '/api/agents/claude/connect', {}, ours)).status, 400);
+
+  // Codex: its logs are followed either way; connect only adds the fix loop's hook to its hooks.json.
+  const codex = list.json.agents.find((a) => a.id === 'codex');
+  assert.equal(codex.setup, 'auto');
+  assert.equal(codex.connected, false);
+  const added = await call(port, 'POST', '/api/agents/codex/connect', {}, ours);
+  assert.equal(added.status, 200, JSON.stringify(added.json));
+  assert.equal(added.json.agent.connected, true);
+  assert.match(added.json.note, /\/hooks/);
+  const codexHooks = JSON.parse(await readFile(join(tmp, 'codex', 'hooks.json'), 'utf8')).hooks;
+  assert.deepEqual(Object.keys(codexHooks), ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']);
+  assert.match(codexHooks.Stop[0].hooks[0].command, /[\\/]bridge[\\/]loop-hook\.js" codex$/);
+  assert.equal((await call(port, 'POST', '/api/agents/codex/disconnect', {}, ours)).json.agent.connected, false);
 
   const connected = await call(port, 'POST', '/api/agents/cursor/connect', {}, ours);
   assert.equal(connected.status, 200, JSON.stringify(connected.json));
