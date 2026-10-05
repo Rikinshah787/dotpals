@@ -232,7 +232,7 @@ Ask things like "What are my agents doing?", "Is this really tested?", "Is feat/
 
 ## Privacy
 
-Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
+Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. *Make agents fix failing tests* (on by default) adds short notes about Claude's own test runs to its context, which Claude Code sends to its model like anything else there; turn it off in Settings. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
 
 ## How accurate is it?
 
@@ -611,7 +611,6 @@ For contributors, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the 
 
 ## Roadmap
 
-- **The source of truth for every AI tool**: a dotpals MCP server, so Claude Code, Codex, Cursor and the Claude and ChatGPT apps can ask dotpals what your agents really did ("Is this PR really tested?", "What did Codex change in billing this morning?") and get the evidence, not the agent's word. Agents can check themselves before they say "done".
 - **"It's stuck" alerts**: a gentle ping when an agent goes in circles (no progress, the same file back and forth, a test that won't pass).
 - **Morning brief and weekly recap**: what your agents did, what's unfinished and what's failing, per project.
 - **Token use per request**, from the agents' own logs.
