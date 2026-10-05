@@ -1,13 +1,16 @@
 {
   "name": "dotpals",
   "version": "0.10.0",
-  "description": "See what your coding agent actually did: a floating pal for Claude Code, Codex and any agent that shows every file changed, command run and step taken, in plain words. Also a zero-dependency animated Web Component for agent UIs.",
+  "description": "See what your coding agent actually did, and make it fix the tests it broke: a floating pal for Claude Code, Codex and any agent that checks every file changed, command run and test result, plus an MCP server any AI tool can ask for the evidence. Also a zero-dependency animated Web Component for agent UIs.",
   "keywords": [
     "claude-code",
     "codex",
     "coding-agent",
     "ai-agent",
     "developer-tools",
+    "mcp",
+    "mcp-server",
+    "testing",
     "activity-log",
     "ai",
     "agent",

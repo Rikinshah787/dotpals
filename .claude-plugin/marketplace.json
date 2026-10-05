@@ -3,12 +3,12 @@
   "owner": {
     "name": "dotpals contributors"
   },
-  "description": "Fluffy animated pals that react live to your Claude Code sessions.",
+  "description": "Fluffy animated pals that check what your Claude Code sessions really did, and make Claude fix the tests it broke.",
   "plugins": [
     {
       "name": "dotpals",
       "source": "./",
-      "description": "A floating pal that shows every tool call, command and file change your agent makes, live."
+      "description": "A floating pal that checks every change, command and test result your agent makes, live, and sends Claude back to fix the tests it broke."
     }
   ]
 }
