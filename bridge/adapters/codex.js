@@ -90,6 +90,18 @@ function patchFromScript(code = '') {
   return patch;
 }
 
+/**
+ * The commands a code-mode script runs: `tools.exec_command({"cmd":"npm test", …})`.
+ * Only commands written out as a string; one built at run time can't be read.
+ */
+function scriptCommands(code = '') {
+  const cmds = [];
+  for (const m of String(code).matchAll(/tools\.exec_command\(\s*\{\s*(?:"cmd"|'cmd'|cmd)\s*:\s*("(?:[^"\\]|\\.)*")/g)) {
+    try { cmds.push(JSON.parse(m[1])); } catch {}
+  }
+  return cmds;
+}
+
 /** Codex puts context (AGENTS.md, environment…) in user messages too; those aren't prompts. */
 const isPrompt = (text) => !!text?.trim() && !/^\s*(<[a-z_]+>|# AGENTS\.md|<INSTRUCTIONS>)/i.test(text);
 
@@ -100,12 +112,32 @@ const outputText = (output) =>
 const looksFailed = (text) => /exit(?:ed)?(?: with)? code:? ?-?[1-9]\d*|^\s*(error|fatal)\b/im.test(text) && !/exit(?:ed)?(?: with)? code:? ?0\b/i.test(text);
 
 /**
+ * How a tool call ended, from what Codex sent back: 'stopped' when you interrupted it
+ * ("aborted by user", a script "terminated"), 'failed' for a patch that didn't apply
+ * ("apply_patch verification failed: …"), a script that threw ("Script failed") or a
+ * non-zero exit, else 'ok'.
+ */
+const outcome = (text) => (/^(?:Wall time:[^\n]*\n)?aborted by user\b|^Script terminated\b/.test(text) ? 'stopped'
+  : /^(?:apply_patch verification failed|Script failed)\b/.test(text) || looksFailed(text) ? 'failed' : 'ok');
+
+/**
+ * A command (exec_command) or script (exec) that outlived its wait: Codex says it's still
+ * running and checks on it later (write_stdin with the process's session ID, or wait with
+ * the cell ID), where the rest of its output and its exit code arrive. → 'Process:73606'.
+ */
+const stillRunning = (text) => {
+  const m = text.split(/\nOutput:/)[0].match(/^(Process|Script) running with (?:session|cell) ID (\d+)/m);
+  return m ? `${m[1]}:${m[2]}` : null;
+};
+
+/**
  * Follow Codex's logs. Calls `emit(entries)` for activity,
  * `state(session, label, { state, text }, at)` for the pal, and `cwd(session, folder, parent?)`
  * when a session's project folder (and, for a helper, the session that started it) is known.
  */
 export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd = () => {}, dir = join(homedir(), '.codex', 'sessions'), interval = 1000 } = {}) {
-  const files = new Map(); // path → { offset, session, label, cwd, partial }
+  // path → { offset, session, label, cwd, partial, running: (still-running process or cell → entry id), follow: (call id of a check on one → { id, interrupt }) }
+  const files = new Map();
   let stopped = false;
 
   async function recentFiles() {
@@ -182,13 +214,26 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
         break;
       case 'response_item/function_call':
       case 'response_item/custom_tool_call': {
-        if (QUIET_TOOLS.has(p.name)) break;
         let args = {};
         if (kind.endsWith('/function_call')) { try { args = JSON.parse(p.arguments || '{}'); } catch {} }
         else args = { input: p.input };
+        // Checking on a command still running from an earlier call: what it says belongs to that call.
+        const key = p.name === 'write_stdin' ? `Process:${args.session_id}` : p.name === 'wait' ? `Script:${args.cell_id}` : null;
+        const earlier = key && log.get(file.running.get(key));
+        if (earlier) {
+          file.running.delete(key);
+          file.follow.set(p.call_id, { id: earlier.id, interrupt: String(args.chars ?? '').includes('\u0003') });
+          setState('working', earlier.title);
+          break;
+        }
+        if (QUIET_TOOLS.has(p.name)) break;
         let described;
         const scripted = p.name === 'exec' ? patchFromScript(p.input) : null;
+        const cmds = p.name === 'exec' && !scripted ? scriptCommands(p.input) : [];
         if (scripted) described = describePatch(scripted, cwd, 'apply_patch');
+        // A script that runs commands: the commands are what it did (a test run reads as one). How
+        // they exited isn't in the log unless the script prints it, so its output has to tell.
+        else if (cmds.length) described = { kind: 'run', title: clip(cmds.join('; '), 80), exitUnknown: true, body: { command: clipEnds(cmds.join('\n'), 4000), args: clipEnds(p.input, 4000) } };
         else if (p.name === 'exec') described = { kind: 'run', title: 'Ran a script', body: { command: clipEnds(p.input, 4000) } };
         else described = describeCall(p.name, args, cwd);
         out.push(log.upsert({ ...base, id: `${session}:${p.call_id}`, tool: p.name, ...described, status: 'running', startedAt: at }));
@@ -197,12 +242,31 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
       }
       case 'response_item/function_call_output':
       case 'response_item/custom_tool_call_output': {
-        const id = `${session}:${p.call_id}`;
+        // A check on a running command reports for that command: its output adds to what it said before.
+        const follow = file.follow.get(p.call_id);
+        file.follow.delete(p.call_id);
+        const id = follow?.id ?? `${session}:${p.call_id}`;
         const entry = log.get(id);
         if (!entry) break;
         const text = outputText(p.output);
-        const failed = looksFailed(text);
-        out.push(log.upsert({ id, status: failed ? 'failed' : 'ok', ms: entry.startedAt ? Math.max(0, at - entry.startedAt) : undefined, body: { output: clipEnds(text, 3000) } }));
+        const output = clipEnds(follow ? `${entry.body?.output ?? ''}\n${text}` : text, 3000);
+        const still = stillRunning(text);
+        if (still) {
+          // Not finished: it keeps running until a later check says how it ended.
+          file.running.set(still, id);
+          out.push(log.upsert({ id, body: { output } }));
+        } else {
+          // Stopped with Ctrl-C (sent as input): it didn't finish, whatever the exit code says.
+          let status = follow?.interrupt ? 'stopped' : outcome(text);
+          // A script printed its commands' results whole (`text(JSON.stringify(r))`): their exit codes count.
+          let exitUnknown;
+          const codes = entry.exitUnknown && status !== 'stopped' ? [...text.matchAll(/"exit_code":(-?\d+)/g)].map((m) => Number(m[1])) : [];
+          if (codes.length && codes.length >= scriptCommands(entry.body?.args).length) {
+            exitUnknown = false;
+            status = codes.some((c) => c !== 0) ? 'failed' : 'ok';
+          }
+          out.push(log.upsert({ id, status, exitUnknown, ms: entry.startedAt ? Math.max(0, at - entry.startedAt) : undefined, body: { output } }));
+        }
         setState('thinking');
         break;
       }
@@ -219,6 +283,12 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
         setState(error ? 'error' : 'done', error ? clip(error, 60) : 'Done!');
         break;
       }
+      // You stopped it (Esc): the turn ends here, unfinished.
+      case 'event_msg/turn_aborted':
+        out.push(...log.settle(session));
+        out.push(log.upsert({ ...base, id: `${session}:s:${p.turn_id ?? at}`, kind: 'done', title: 'Stopped', status: 'stopped', ms: p.duration_ms }));
+        setState('done', 'Stopped');
+        break;
     }
     if (out.length) emit(out);
   }
@@ -226,7 +296,7 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
   async function poll() {
     for (const { path, size, mtime } of await recentFiles()) {
       let file = files.get(path);
-      if (!file) files.set(path, (file = { offset: 0, partial: '' }));
+      if (!file) files.set(path, (file = { offset: 0, partial: '', running: new Map(), follow: new Map() }));
       if (size <= file.offset) continue;
       const live = Date.now() - mtime < LIVE;
       let handle_;

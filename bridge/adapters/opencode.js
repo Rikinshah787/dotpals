@@ -33,6 +33,8 @@ export const DotpalsPlugin = async ({ directory, worktree } = {}, options) => {
   const cwd = worktree || directory || ""
   const texts = new Map() // session → the latest text it wrote
   const cut = (s, n) => (typeof s === "string" && s.length > n ? s.slice(0, n) : s)
+  // A command's output keeps its start and its end: test runners print their summary last.
+  const ends = (s, n) => (typeof s === "string" && s.length > n ? s.slice(0, n / 2) + "\\n… (" + (s.length - n) + " characters cut) …\\n" + s.slice(-n / 2) : s)
   const send = (body) => {
     try {
       fetch(url + (url.includes("?") ? "&" : "?") + "agent=opencode", {
@@ -55,7 +57,8 @@ export const DotpalsPlugin = async ({ directory, worktree } = {}, options) => {
       try { send({ type: "tool.before", tool: input.tool, sessionID: input.sessionID, callID: input.callID, args: output.args }) } catch {}
     },
     "tool.execute.after": async (input, output) => {
-      try { send({ type: "tool.after", tool: input.tool, sessionID: input.sessionID, callID: input.callID, title: output.title, output: cut(output.output, 4000) }) } catch {}
+      // metadata.exit: how a bash command exited (null when it was stopped or timed out).
+      try { send({ type: "tool.after", tool: input.tool, sessionID: input.sessionID, callID: input.callID, title: output.title, output: ends(output.output, 6000), exit: (output.metadata || {}).exit }) } catch {}
     },
     event: async ({ event }) => {
       try {
@@ -142,8 +145,10 @@ export function applyOpenCode(e, log) {
     case 'tool.after': {
       const id = `${session}:${e.callID}`;
       const known = log.get(id);
-      if (known) add({ id, status: 'ok', ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, body: { output: clipEnds(e.output, 3000) || undefined } });
-      else add({ ...base, id, tool: e.tool, ...describeTool(e.tool, {}, e.cwd), title: clip(e.title || e.tool, 80), status: 'ok', body: { output: clipEnds(e.output, 3000) || undefined } });
+      // The bash tool's exit code (plugins written before it was sent have none): null is stopped or timed out.
+      const status = e.exit === null ? 'stopped' : typeof e.exit === 'number' && e.exit !== 0 ? 'failed' : 'ok';
+      if (known) add({ id, status, ms: known.startedAt ? Math.max(0, at - known.startedAt) : undefined, body: { output: clipEnds(e.output, 3000) || undefined } });
+      else add({ ...base, id, tool: e.tool, ...describeTool(e.tool, {}, e.cwd), title: clip(e.title || e.tool, 80), status, body: { output: clipEnds(e.output, 3000) || undefined } });
       out.state = { state: 'thinking' };
       break;
     }
