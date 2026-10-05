@@ -39,7 +39,7 @@ body:
     attributes:
       label: Versions
       description: dotpals version, Node version and operating system.
-      placeholder: dotpals 0.9.6, Node 22, Windows 11
+      placeholder: dotpals 0.10.0, Node 22, Windows 11
     validations:
       required: true
   - type: textarea

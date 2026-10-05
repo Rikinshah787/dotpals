@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-04
+
 ### Added
 
 - **Chat with your agents from the pal** (OpenCode for now; Claude Code and others are coming), from @agusalay in #13. Optional and off by default: Dashboard → Settings → *Chat with your agents*. A message box on the pal sends prompts to the OpenCode session on show, or starts one in a folder you name. The bridge starts its own `opencode serve` on `127.0.0.1` the first time you send something, with a random password only it knows, and stops it when you turn chat off. Replies come back through the OpenCode plugin like any other session. In small mode the speech-bubble button opens the box above the pal's head. `POST /api/chat`, `/api/chat/abort` (sending answers 409 while chat is off; Stop always works).
@@ -353,7 +355,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/rikinshah787/dotpals/compare/v0.9.3...v0.9.4
