@@ -711,3 +711,15 @@ test('weakenedTests: green because the tests were changed (taken out, commented 
   assert.equal(line.level, 'warn');
   assert.match(line.text, /^Tests passed · 2 passed · 3:24 PM, but only after the tests were changed: removed 1 assertion in math\.test\.js$/);
 });
+
+test('a commit that failed, or that dotpals stopped, reads "tried to commit", not "committed"', async () => {
+  const { simple } = await import('../bridge/ui/story.js');
+  const commit = (status) => ({ ...run("git add -A && git commit -m 'wip'", status), ...(status === 'failed' ? { error: 'dotpals stopped this: the tests are failing' } : {}) });
+  assert.equal(simple({ steps: [edit('math.js'), commit('ok')], end: { kind: 'done' } }, { live: false }).text, 'Changed math.js, but it didn’t run the tests, and committed.');
+  assert.equal(simple({ steps: [edit('math.js'), commit('failed')], end: { kind: 'done' } }, { live: false }).text, 'Changed math.js, but it didn’t run the tests, and tried to commit (it didn’t go through).');
+});
+test('ships: a commit, push, PR or publish the tests can’t stop, from inside a block too', async () => {
+  const { ships } = await import('../bridge/ui/story.js');
+  for (const cmd of ["git status --short; git add -A; if ($?) { git commit -m 'wip' }", 'npm test; git commit -m x', 'npm test || git push', 'git -C ../app commit -m x', 'git commit -m "a; b && c"', 'if npm test; then git push; fi', 'gh pr create --fill', 'npm publish']) assert.equal(ships(cmd), true, cmd);
+  for (const cmd of ['npm test && git commit -m x', 'git log --oneline', "echo 'git commit' > notes.txt", 'git diff && npm test', 'git rebase main']) assert.equal(ships(cmd), false, cmd);
+});

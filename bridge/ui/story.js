@@ -50,10 +50,15 @@ function runsTests(cmd) {
  * `./node_modules/.bin/` are looked through.
  */
 export function parts(cmd) {
-  return scriptText(cmd).split(/\n|&&|\|\||[;|]/).map((part) => {
+  return splitCommands(scriptText(cmd)).map((part) => {
     let s = part.trim();
     for (let i = 0; i < 6; i++) {
       s = s
+        // Inside a block: PowerShell's `if ($?) { git commit … }`, bash's `then git push`, `{ …; }`, `( … )`.
+        .replace(/^(?:if|elseif|while|foreach|for)\s*\((?:[^()]|\([^()]*\))*\)\s*\{\s*/i, '')
+        .replace(/^(?:if|elif|while|until)\s+(?=[^\s(])/i, '')
+        .replace(/^(?:then|do|else|try|finally)\b\s*\{?\s*/i, '')
+        .replace(/^[{(]\s*/, '')
         .replace(/^&\s*/, '') // PowerShell's call operator
         .replace(/^(\w+=\S*\s+)+/, '') // FOO=1 npm test
         // Wrappers, with their options, including the ones that take a value (`xargs -n 1 rm -rf`, `sudo -u root …`).
@@ -66,6 +71,58 @@ export function parts(cmd) {
     }
     return s;
   }).filter(Boolean);
+}
+
+/**
+ * A command line cut at && || ; new lines and (with `pipes`) single |, but not inside quotes:
+ * `sed -i 's/a;/b;/' x.js` is one command, `grep -E "a|b"` isn't a pipe. A quote that's never
+ * closed (`echo don't`) can't be told from an apostrophe, so then it's cut as if there were none.
+ */
+function splitCommands(text, { pipes = true, ands = true, ors = true } = {}) {
+  const out = [];
+  let cur = '';
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      cur += c;
+      if (c === '\\' && quote === '"' && i + 1 < text.length) cur += text[++i];
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; cur += c; continue; }
+    if (c === '\\' && i + 1 < text.length) { cur += c + text[++i]; continue; }
+    if (c === '&' && text[i + 1] === '&' && !ands) { cur += '&&'; i++; continue; }
+    if (c === '|' && text[i + 1] === '|' && !ors) { cur += '||'; i++; continue; }
+    if ((c === '&' || c === '|') && text[i + 1] === c) { out.push(cur); cur = ''; i++; continue; }
+    if (c === '\n' || c === ';' || (pipes && c === '|')) { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  if (quote) return text.split(pipes ? /\n|&&|\|\||[;|]/ : /\n|&&|\|\||;/);
+  out.push(cur);
+  return out;
+}
+
+// What puts work in front of others: a commit, a push (`git -C dir push` too), a pull request, a publish.
+const SHIPS = /^git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|push)\b|^gh\s+pr\s+create\b|^npm\s+publish\b/i;
+
+/**
+ * Whether a command commits, pushes, opens a pull request or publishes, for the fix loop's
+ * gate. Not when it only does that after its own tests pass (`npm test && git commit`); it
+ * does when the tests can't stop it (`npm test; git commit`, `npm test || git push`), or from
+ * inside a block (`if ($?) { git commit … }`).
+ */
+export function ships(cmd) {
+  for (const statement of splitCommands(scriptText(cmd), { pipes: false, ands: false })) {
+    // A && chain: each step runs only if the one before it worked. With an || in it, no such promise.
+    const chain = /\|\|/.test(statement) ? [statement] : splitCommands(statement, { pipes: false });
+    for (let i = 0; i < chain.length; i++) {
+      if (!parts(chain[i]).some((p) => SHIPS.test(p))) continue;
+      if (chain.slice(0, i).some((c) => parts(c).some((p) => p.search(TEST) === 0))) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -150,11 +207,22 @@ function countWords(f) {
  * then reports the last command's exit code (grep's), not the tests'. `2>&1 | tee` too.
  */
 function piped(cmd) {
-  for (const statement of scriptText(cmd).split(/\n|&&|\|\||;/)) {
-    const pipeline = statement.split(/(?<!\|)\|(?!\|)/);
+  for (const statement of splitCommands(scriptText(cmd), { pipes: false })) {
+    const pipeline = splitCommands(statement);
     if (pipeline.length > 1 && parts(pipeline.slice(0, -1).join(';')).some((p) => TEST.test(p))) return true;
   }
   return false;
+}
+
+/**
+ * Whether another command runs after the tests whatever they did (`npm test > out.txt; echo
+ * done`): the exit code is then the last command's, not the tests'. After `&&` or `||` it isn't
+ * "whatever they did": that only runs when the tests passed, or only when they failed.
+ */
+function exitNotTests(cmd) {
+  const statements = splitCommands(scriptText(cmd), { pipes: false, ands: false, ors: false }).map((s) => s.trim()).filter(Boolean);
+  const i = statements.findLastIndex((s) => parts(s).some((p) => p.search(TEST) === 0));
+  return i >= 0 && i < statements.length - 1;
 }
 
 export function testVerdict(e) {
@@ -166,7 +234,10 @@ export function testVerdict(e) {
   else if (facts.parsed && facts.passed > 0) v = { state: 'passed', source: 'output', summary: countWords(facts) };
   else if (facts.parsed) v = { state: 'unclear', source: 'output', summary: countWords(facts), reason: 'no-tests', note: 'no tests actually ran' };
   else if (e.status === 'stopped') v = { state: 'unclear', source: 'exit', reason: 'stopped', note: 'it didn’t finish' };
+  // The agent didn't say how the command exited (a script ran it): only its output could tell.
+  else if (e.exitUnknown) v = { state: 'unclear', source: 'exit', reason: 'no-exit-code', note: 'its exit code wasn’t recorded' };
   else if (piped(commandOf(e))) v = { state: 'unclear', source: 'exit', reason: 'piped', note: 'its output went through a pipe, so the exit code isn’t the tests’' };
+  else if (exitNotTests(commandOf(e))) v = { state: 'unclear', source: 'exit', reason: 'not-last', note: 'another command ran after the tests, so the exit code isn’t theirs' };
   else if (e.status === 'failed') {
     v = FINE.test(out) && !BROKE.test(out)
       ? { state: 'unclear', source: 'exit', reason: 'clean-but-failed', note: 'the exit code says failed, but the output looks fine' }
@@ -422,8 +493,10 @@ function describe({ type, steps }) {
       break;
     }
     case 'ship': {
-      // Only what the commands ran, one per line, not what they wrote into files.
-      const all = cmds.flatMap((c) => parts(commandOf(c))).join('\n');
+      // Only what the commands ran, one per line, not what they wrote into files. A commit that
+      // failed, or that dotpals stopped, didn't happen: "tried to commit".
+      const went = cmds.filter((c) => c.status !== 'failed');
+      const all = (went.length ? went : cmds).flatMap((c) => parts(commandOf(c))).join('\n');
       const did = [];
       const msg = /^git\s+commit\b[^\n]*?-m\s+(["'])([\s\S]*?)\1/m.exec(all)?.[2];
       if (/^git\s+commit\b/m.test(all)) did.push(live ? 'committing' : 'committed');
@@ -434,7 +507,9 @@ function describe({ type, steps }) {
       if (/^gh\s+pr\s+create/m.test(all)) did.push('opened a pull request');
       if (/^(?:gh\s+pr\s+merge|git\s+merge)/m.test(all)) did.push('merged');
       if (/^npm\s+publish/m.test(all)) did.push('published to npm');
-      const text = did.length ? did.join(', ').replace(/, ([^,]*)$/, ' and $1') : 'shipped';
+      const tried = { committed: 'commit', pushed: 'push', tagged: 'tag', merged: 'merge', 'opened a pull request': 'open a pull request', 'published to npm': 'publish to npm' };
+      const text = !went.length ? `tried to ${did.length ? did.map((d) => tried[d] ?? d).join(' and ') : 'ship'} (it didn’t go through)`
+        : did.length ? did.join(', ').replace(/, ([^,]*)$/, ' and $1') : 'shipped';
       ch.title = text[0].toUpperCase() + text.slice(1);
       ch.detail = msg ? quote(msg, 60) : '';
       if (failed) { ch.status = cmds.at(-1)?.status === 'failed' ? 'failed' : 'ok'; ch.detail = [ch.detail, `${failed} failed`].filter(Boolean).join(' · '); }
@@ -1061,7 +1136,7 @@ export const minorChapter = (c) => c.type === 'scratch' || c.type === 'memory' |
  */
 export function simple(turn, { live = !turn.end } = {}) {
   // Not finished and not working any more (you sent something new, or it was interrupted).
-  const stopped = !turn.end && !live;
+  const stopped = (!turn.end || turn.end.status === 'stopped') && !live;
   const chs = chapters(turn.steps);
   const by = (type) => chs.find((c) => c.type === type);
   const parts = [];
@@ -1246,6 +1321,8 @@ export const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change
 export function whyStopped(turn, { live = !turn.end, waiting = false } = {}) {
   if (live) return waiting ? { kind: 'waiting', text: 'Waiting for you' } : null;
   if (!turn.end) return { kind: 'cut', text: 'Cut off before it finished (interrupted, or a new message came in)' };
+  // You stopped it (Esc in Codex, Stop in Cursor): it ended, unfinished.
+  if (turn.end.status === 'stopped') return { kind: 'cut', text: 'Stopped before it finished (interrupted)' };
   if (turn.end.kind === 'error') {
     const why = String(turn.end.error || turn.end.title || '').split('\n')[0].trim().slice(0, 90);
     return { kind: 'error', text: `Stopped with an error${why ? `: ${why}` : ''}` };
@@ -1293,6 +1370,7 @@ export function gitLine(truth) {
 
 // A test file: in a test folder, or named like one (cart.test.js, cart.spec.ts, test_cart.py, cart_test.go, cart_spec.rb).
 const TEST_FILE = /(^|[\\/])(tests?|__tests__|spec)[\\/]|\.(test|spec)\.\w+$|(^|[\\/])test_[^\\/]*\.py$|_test\.go$|_spec\.rb$/i;
+export const isTestFile = (path) => TEST_FILE.test(String(path));
 // A line that checks something, in the usual test libraries.
 const ASSERTION = /\b(?:assert\w*|expect)\s*[.(]|^assert\s|\bt\.(?:equal|deepEqual|is|ok|true|false|same)\s*\(|\bself\.assert\w+\s*\(|\.should\b|\bXCTAssert\w*\s*\(|\brequire\.\w+\s*\(/;
 // Turning tests off: skip, todo or only (the others stop running), xit, pytest's and unittest's skips, go's t.Skip, rust's #[ignore].
@@ -1316,6 +1394,50 @@ function lineChanges(patch) {
 }
 
 /**
+ * The tests that were failing before an agent changed anything in its session: the failing
+ * test names of its last test run before its first change (an empty set when that run passed),
+ * or null when it can't be said (no test run before the first change, or failures without
+ * names). An agent is held to the failures it caused, not the ones it found.
+ */
+export function failingBefore(steps) {
+  const sorted = [...steps].sort((a, b) => a.at - b.at);
+  const first = sorted.find((e) => changedCode([e]))?.at ?? Infinity;
+  const last = sorted.findLast((e) => e.at < first && e.kind === 'run' && stepType(e) === 'test' && !running(e));
+  if (!last) return null;
+  const v = testVerdict(last);
+  if (v.state === 'passed') return new Set();
+  const names = v.state === 'failed' ? v.facts?.failing ?? [] : [];
+  return names.length ? new Set(names) : null;
+}
+
+/** Whether a failed test run only fails tests that were failing before the agent changed anything (failingBefore). */
+export function onlyOldFailures(run, steps) {
+  const old = failingBefore(steps);
+  const names = testVerdict(run).facts?.failing ?? [];
+  return !!old && names.length > 0 && names.every((n) => old.has(n));
+}
+
+/**
+ * How the test files changed between two runs, from git's view at each (`body.testDiff`, see
+ * bridge/ground.js): file → { gone, added }, however they were changed (an edit tool, sed, a
+ * script). Lines added since the last commit and changed again are the agent's own work in
+ * progress (writing a new test takes tries): only taking out what was committed counts as gone.
+ * A committed line put back counts as added.
+ */
+function gitDelta(a, b) {
+  const minus = (x, y) => { const r = [...x]; for (const l of y) { const i = r.indexOf(l); if (i >= 0) r.splice(i, 1); } return r; };
+  const net = new Map();
+  for (const file of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const A = lineChanges(a[file]);
+    const B = lineChanges(b[file]);
+    const gone = minus(B.gone, A.gone);
+    const added = [...minus(B.added, A.added), ...minus(A.gone, B.gone)];
+    if (gone.length || added.length) net.set(file, { gone, added });
+  }
+  return net;
+}
+
+/**
  * Tests made to pass by changing them: before the passing test run, an edit to a test file
  * took out assertions (or commented them out), turned tests off (skip, only, todo) or changed
  * what an assertion expects. Fixing the code is the job; weakening the test is the bluff.
@@ -1323,8 +1445,9 @@ function lineChanges(patch) {
  * all of them, but only if no other code changed (then green can only have come from the
  * tests). They're taken all told, per file: a skip added and taken out again is nothing. An
  * assertion the agent itself added doesn't count (writing a new test takes tries).
- * { files, text: "removed 2 assertions in math.test.js" } or null. Whole-file writes can't
- * be compared (their old text isn't known), so only edits count.
+ * { files, text: "removed 2 assertions in math.test.js" } or null. When git's view of the test
+ * files was taken at both runs (`body.testDiff`), that's what counts: any way of changing them
+ * shows. Without it, only edit tools' patches can be read (whole-file writes and commands can't).
  */
 export function weakenedTests(steps) {
   const sorted = [...steps].sort((a, b) => a.at - b.at);
@@ -1333,16 +1456,22 @@ export function weakenedTests(steps) {
   if (!passed) return null;
   const failed = tests.findLast((e) => e.at < passed.at && testVerdict(e).state === 'failed');
   const isTest = (path) => TEST_FILE.test(String(path));
-  const otherCode = changedCode(sorted.filter((e) => e.at < passed.at).map((e) => ({ ...e, files: (e.files ?? []).filter((f) => !isTest(f.path)) })));
+  // Code other than the tests changed, by a file tool or a command (`sed -i` on a test is the tests).
+  const codeChange = (e) => e.status !== 'failed' && ((stepType(e) === 'change' && !outside(e)
+    && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)) && !isTest(f.path))) || commandEdits(e).some((p) => !isTest(p)));
+  const otherCode = sorted.some((e) => e.at < passed.at && codeChange(e));
   if (!failed && otherCode) return null;
   const from = failed?.at ?? -Infinity;
   // A changed expected value with the code changed too may be the new behaviour ("return 201, and
   // update the test"), or a test put back as it was. Alone, it's the bluff. Taking assertions out
   // or turning tests off is never a fix.
-  const codeToo = changedCode(sorted.filter((e) => e.at > from && e.at < passed.at).map((e) => ({ ...e, files: (e.files ?? []).filter((f) => !isTest(f.path)) })));
+  const codeToo = sorted.some((e) => e.at > from && e.at < passed.at && codeChange(e));
   const own = new Set(); // lines the agent added before `from`: its own, to change as it likes
-  const net = new Map(); // test file → what the edits since `from` took out and put in, all told
-  for (const e of sorted) {
+  // Git's view at both runs: how the tests changed in between, however it was done.
+  const before = failed ? failed.body?.testDiff : {};
+  const byGit = before && passed.body?.testDiff ? gitDelta(before, passed.body.testDiff) : null;
+  const net = byGit ?? new Map(); // test file → what the edits since `from` took out and put in, all told
+  for (const e of byGit ? [] : sorted) {
     if (e.at >= passed.at || e.kind !== 'edit' || e.status === 'failed') continue;
     const file = (e.files ?? []).find((f) => isTest(f.path));
     if (!file) continue;

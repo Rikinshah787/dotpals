@@ -66,6 +66,14 @@ test('failureReason: why the first test failed, and where, in each runner’s wo
   assert.deepEqual(failureReason('     AssertionError: expected -1 to equal 3\n      at Context.<anonymous> (test/sum.spec.js:7:24)'), { why: 'AssertionError: expected -1 to equal 3', where: 'test/sum.spec.js:7' });
   // No values to compare: the assertion's own words, and what follows its colon.
   assert.deepEqual(failureReason('AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n-1 !== 3'), { why: 'AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: -1 !== 3' });
+  // "Must not match": not "expected X, got Y" (that reads backwards), but the assertion's own words.
+  assert.equal(failureReason("✖ redacts\n  AssertionError [ERR_ASSERTION]: The input was expected to not match the regular expression /secret/. Input:\n    actual: 'token=secret',\n    expected: /secret/,").why.slice(0, 80), 'AssertionError [ERR_ASSERTION]: The input was expected to not match the regular ');
+  // Another command crashed before the tests ran (`node -e …; npm test`): that isn't why the tests failed.
+  assert.equal(failureReason('SyntaxError: Invalid hexadecimal escape sequence\n    at node:internal/main/eval_string:37:3\n✖ findConflict: own session (7.4ms)\nℹ fail 1'), null);
+  // A test file that wouldn't load: its error, printed just before it, is the reason.
+  assert.equal(failureReason("SyntaxError: Unexpected token '.'\n✖ test\\tracing.test.js (77.2ms)").why, "SyntaxError: Unexpected token '.'");
+  // Through `grep -n`: line numbers in front.
+  assert.equal(failureReason('160-  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n161-  + actual - expected').why, 'AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected');
   // Cut off before the reason (`| tail -3`), or passing: nothing to say.
   assert.equal(failureReason("    operator: 'strictEqual',\n    diff: 'simple'\n  }"), null);
   assert.equal(failureReason('ℹ tests 2\nℹ pass 2\nℹ fail 0'), null);

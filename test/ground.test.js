@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { changesBetween, parseStatus, snapshot } from '../bridge/ground.js';
+import { changesBetween, createGround, parseStatus, snapshot } from '../bridge/ground.js';
 import { gitLine, gitTruth, readiness, turnMarkdown } from '../bridge/ui/story.js';
 
 const dirs = [];
@@ -165,6 +165,20 @@ test('switching branches isn’t a change: only commits made during the request 
   const changes = await changesBetween(a, await snapshot(dir));
   assert.equal(changes.committed, true);
   assert.deepEqual(changes.files, [{ path: 'new.js', change: 'write' }]); // not sibling.js
+});
+
+test('a snapshot knows its branch (none when HEAD is detached), and the request gets where it ended', async () => {
+  const { dir, git } = await repo();
+  const before = await snapshot(dir);
+  assert.match(before.branch, /^(main|master)$/);
+  const ground = createGround();
+  await ground.start('s1', dir);
+  git('checkout', '-q', '-b', 'feat/login');
+  const changes = await ground.finish('s1', dir);
+  assert.equal(changes.branch, 'feat/login');
+  assert.equal(changes.head, before.head);
+  git('checkout', '-q', '--detach');
+  assert.equal((await snapshot(dir)).branch, null);
 });
 
 test('a commit or a look-up after the tests doesn’t make git’s changes "untimed"', () => {

@@ -683,13 +683,21 @@ const WHERE = /((?:[\w.@-]+[\\/])*[\w.@-]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java
  *          isn't a dependency's or the runtime's
  */
 export function failureReason(output) {
-  const lines = toLines(output).map((l) => l.trim());
+  // `grep -n` puts "160-" or "160:" before each line.
+  const lines = toLines(output).map((l) => l.trim().replace(/^\d+[-:]\s*/, ''));
   const value = (re) => { for (const l of lines) { const m = re.exec(l); if (m) return m[1].replace(/,$/, ''); } return null; };
-  const expected = value(/^Expected(?: value)?:\s+(.+)$/) ?? value(/^expected:\s+(.+)$/);
-  const actual = value(/^Received(?: value)?:\s+(.+)$/) ?? value(/^actual:\s+(.+)$/);
+  // "Must not equal" or "must not match": expected and actual are the same thing, so its own words say it better.
+  const negated = lines.some((l) => /^operator:\s*'(?:not\w+|doesNot\w+)'/.test(l) || (/Error\b/.test(l) && /\b(?:to not|not to|unequal)\b/i.test(l)));
+  const expected = negated ? null : value(/^Expected(?: value)?:\s+(.+)$/) ?? value(/^expected:\s+(.+)$/);
+  const actual = negated ? null : value(/^Received(?: value)?:\s+(.+)$/) ?? value(/^actual:\s+(.+)$/);
   let why = expected != null && actual != null ? `expected ${expected}, got ${actual}` : null;
   if (!why) {
-    const i = lines.findIndex((l) => /^E\s+\S/.test(l) || /^[\w./\\-]+_test\.go:\d+:\s/.test(l) || /^(?:\w+\s+)?\[?\w*(?:Assertion)?Error\b[^:]*:/.test(l) || /^assertion\b.*\bfailed\b/i.test(l));
+    // An error line can be another command's, crashed before the tests ran: look from the first
+    // failing test on. Unless that's a test file that wouldn't load ("✖ test/x.test.js"): its error comes just before.
+    const at = lines.findIndex((l) => /^(?:✖|✗|×|●|not ok\b|FAIL\b|FAILED\b|--- FAIL\b|E\s+\S|\d+\) )/.test(l));
+    const from = at > 0 && !/\.(?:test|spec)\.\w+\b|\btest_\w+\.py\b|_test\.\w+\b/.test(lines[at]) ? at : 0;
+    const j = lines.slice(from).findIndex((l) => /^E\s+\S/.test(l) || /^[\w./\\-]+_test\.go:\d+:\s/.test(l) || /^(?:\w+\s+)?\[?\w*(?:Assertion)?Error\b[^:]*:/.test(l) || /^assertion\b.*\bfailed\b/i.test(l));
+    const i = j < 0 ? -1 : from + j;
     if (i >= 0) {
       why = lines[i].replace(/^E\s+/, '').replace(/^[\w./\\-]+_test\.go:\d+:\s+/, '');
       // "Expected values to be strictly equal:" says what follows: the values.
