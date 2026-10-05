@@ -101,6 +101,8 @@
     <tr><td><code>POST /hook?agent=&lt;id&gt;</code></td><td>Another agent's hook events, read by its adapter.</td></tr>
     <tr><td><code>GET /events</code></td><td><a href="#events">The live feed</a>, as Server-Sent Events.</td></tr>
     <tr><td><code>GET /api/activity</code></td><td><code>{ entries }</code>: every activity entry the bridge holds, oldest first.</td></tr>
+    <tr><td><code>GET /api/sessions</code></td><td><code>{ sessions: [{ id, cwd, parent, label, harness }] }</code>: the folder each session works in (<code>cwd</code>) and the session that started it, if it's a helper (<code>parent</code>), for the sessions in <code>/api/activity</code>. <code>null</code> when not known. <code>dotpals mcp</code> uses it to match projects by their real folder.</td></tr>
+    <tr><td><code>GET /api/git?session=&lt;id&gt;</code></td><td><code>{ branch, head, changed: [paths], more }</code>: the session's git repository right now, including what isn't committed yet. <code>{}</code> when it isn't in one. Read-only; <code>dotpals mcp</code> uses it for "is it ready to merge?".</td></tr>
     <tr><td><code>GET /api/status</code></td><td><a href="#get-status">What's running and connected</a>, and where files are.</td></tr>
     <tr><td><code>GET /api/config</code></td><td>The settings (see <a href="configuration.html#keys">keys</a>).</td></tr>
     <tr><td><code>POST /api/config</code></td><td><a href="#post-config">Change settings.</a></td></tr>
