@@ -48,7 +48,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 - **Chat with your agents** (optional, off by default): type to an agent from the pal, and answer its permission requests and questions right there. OpenCode for now; Claude Code and others are coming. Turn it on in Dashboard → Settings.
 - **Retries**: when a step fails and the agent tries the same thing again, the tries are linked: *fixed on try 2*, *still failing after 3 tries*. Click a try to jump to it. On the dashboard, paste a step's ID (`toolu_…`) to open it.
 - **Was it tested?** One line per session says *Tests passed · 48 passed · 7:08 PM, after the last change*, *Tests passed at 7:08 PM · 3 files changed since* or *No tests run by the agent*, and whether the last commit was tested. Each result says where it came from: the test output's own summary (jest, vitest, mocha, node:test, pytest, go, cargo, dotnet, Maven, Gradle, PHPUnit, RSpec and more), or *(exit code only)*. Zero tests or only skipped ones read as *Tests unclear: no tests actually ran*, never as passed. Optionally, an unclear result can be double-checked by [Laya](https://huggingface.co/convaiinnovations/laya) on your computer (one click sets it up: *Settings → Set up Laya*, or `dotpals laya`; needs Python 3.10+) or TypeSafe's Jev in the cloud (off by default). Only tests the agent ran count.
-- **Make agents fix failing tests** (Claude Code, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Turn it off in Settings, or from the gear in the notch.
+- **Make agents fix failing tests** (Claude Code, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure, and a test that was already failing before Claude changed anything is reported, not forced on it. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Turn it off in Settings, or from the gear in the notch.
 - **Simple or Detailed**: *Simple* (the default) sums up each request in one plain sentence, such as *Changed billing.ts, the tests passed after one retry, and committed and pushed.*, plus only the warnings that matter. *Detailed* shows every chapter, with small steps folded away. Switch in the pal, the notch or the dashboard.
 - **Setup asks, in the terminal**: your pal, the notch, Simple or Detailed, approvals, test double-checks (Off, Local Laya or Cloud Jev, with your key typed hidden) and more. Press Enter for the defaults, or run `setup --yes`.
 - **The notch**: an island at the top of your screen with every agent, a live diff of the file it's editing, its plan ("2/4 · Detecting the system setting"), its context window and your Claude and Codex usage limits. It opens by itself when an agent needs you, and you can allow or deny from the keyboard. Hide the pal and the notch takes over; **–** minimizes it, so nothing sits at the top while agents work.
@@ -208,12 +208,15 @@ Cursor and others: command `npx`, arguments `dotpals mcp`.
 | Tool | Answers |
 | --- | --- |
 | `agents_now` | Which agents worked in the last 2 hours, on what, whether they're still at it, and how their tests stand |
-| `test_status` | Is it really tested? Passed or failed (read from the output), and whether code changed since |
-| `ready_to_merge` | The checks a reviewer would make: tests ran after the last change and passed, nothing left failing, nothing risky |
-| `recap` | What each agent was asked and did, request by request, with the files it changed (a project or a session, `since` a time) |
-| `check_my_work` | For the agent itself, before it says "done": "Looks done", or what to fix first |
+| `test_status` | Is it really tested? Passed or failed (read from the output), why the last run failed ("expected 3, got -1 (test/math.test.js:5)"), and whether code changed since |
+| `ready_to_merge` | The checks a reviewer would make: tests ran after the last change and passed (not because the tests were changed), nothing left failing, nothing risky, and the work is committed. Mid-request too, as it stands now. Pass `branch` to ask about a git branch |
+| `recap` | What each agent was asked and did, request by request, with the files it changed, why its tests failed, and tests that passed only after they were changed (a project or a session, `since` a time) |
+| `today` | Today's work per agent, for a standup: requests, files changed and test runs, then each request in a sentence |
+| `risky_steps` | Force pushes, recursive deletes, changes to `.env` and other risky steps, each with when, which agent and the command |
+| `handoff_note` | A note for another agent to pick up a session's work: the ask, what was done, the files, how the tests stand, what's left |
+| `check_my_work` | For the agent itself, before it says "done": "Looks done", or what to fix first (with why the tests fail, or "put the test back and fix the code"). Tests that were failing before the session changed anything are its to report, not to fix |
 
-Ask things like "What are my agents doing?", "Is this really tested?" or "What did Codex change in billing this morning?". The project is the folder the assistant runs in, unless you name another. Only tests an agent ran count: dotpals can't see the ones you run yourself, or CI.
+Ask things like "What are my agents doing?", "Is this really tested?", "Is feat/login ready to merge?" or "What did Codex change in billing this morning?". The project is the folder the assistant runs in, unless you name another. dotpals matches it by the folder each agent really works in, so two folders with the same name, a monorepo's packages and git worktrees stay apart (a project's name alone matches by name). It notes the branch when an agent finishes a request in a git repository. Only tests an agent ran count: dotpals can't see the ones you run yourself, or CI.
 
 ## Privacy
 
@@ -221,18 +224,23 @@ Everything stays on your machine. The bridge listens only on `127.0.0.1`. It rea
 
 ## How accurate is it?
 
-We check. `test/accuracy/cases` holds 21 real requests from building dotpals itself (cleaned of paths, keys and prompts), and every claim dotpals makes about them was checked by hand against what really happened: 145 claims.
+We check. `test/accuracy/cases` holds 36 real requests (cleaned of paths, keys and prompts): 21 from building dotpals itself, and 15 from a small practice project with a planted bug, where Claude was asked to run the tests, add code, and fake a passing test. Every claim dotpals makes about them was checked by hand against what really happened: 255 claims.
 
 | Claim | Claims | Right | Wrong | Unsure |
 |---|---:|---:|---:|---:|
-| Test results (passed, failed) | 79 | 74 | 1 | 4 |
-| Risky steps | 13 | 13 | 0 | 0 |
-| Retries ("fixed on try 2") | 11 | 10 | 1 | 0 |
-| Ready to merge? | 21 | 20 | 1 | 0 |
-| Why it stopped | 21 | 20 | 1 | 0 |
-| **All** | **145** | **137 (94.5%)** | **4** | **4** |
+| Test results (passed, failed) | 99 | 91 | 1 | 7 |
+| Risky steps | 14 | 14 | 0 | 0 |
+| Retries ("fixed on try 2") | 15 | 14 | 1 | 0 |
+| Ready to merge? | 36 | 35 | 1 | 0 |
+| Why it stopped | 36 | 35 | 1 | 0 |
+| What changed (git) | 10 | 9 | 1 | 0 |
+| Tests changed to pass | 20 | 20 | 0 | 0 |
+| Why tests failed | 25 | 25 | 0 | 0 |
+| **All** | **255** | **243 (95.3%)** | **5** | **7** |
 
-"Unsure" is a test run dotpals called unclear though a person could tell; that's what the optional [Jev or Laya check](#privacy) is for. The 4 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
+*Tests changed to pass* is the faked pass: green only because an edit to a test took out an assertion, turned a test off or changed what it expects (3 fakes caught; rightly quiet on 17 others: honest test edits while building dotpals, a skip taken out again before a real fix, fixes that didn't touch the tests). *Why tests failed* is the reason dotpals reads from a failed run's output and tells the agent ("expected 3, got -1").
+
+"Unsure" is a missing answer, not a false one: a test run dotpals called unclear though a person could tell (that's what the optional [Jev or Laya check](#privacy) is for), or a failed run it gave no reason for though the output shows one. The 5 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. Git can't tell who changed a file, so a file you reset during a request counts as changed by it. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
 
 ## How it works
 
