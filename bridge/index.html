@@ -80,7 +80,9 @@
     .slot[hidden] { display: none; }
     .slot span { font-size: 11px; color: var(--muted); padding: 4px 8px 8px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #stage.solo .slot span { display: none; }
-    .empty { color: var(--muted); align-self: center; text-align: center; max-width: 300px; margin: 0; }
+    .empty { color: var(--muted); text-align: center; max-width: 300px; margin: 0; }
+    .empty[hidden] { display: none; }
+    body.compact .empty span { display: none; }
 
     /* -- tabs ----------------------------------------------------------- */
     .tabs { display: flex; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); }
@@ -444,7 +446,8 @@
 <body>
   <div class="card">
     <main id="stage">
-      <p class="empty" id="empty">Waiting for your agent…<br>Send a prompt in Claude Code or Codex and your pal will appear here.</p>
+      <!-- A pal waits here from the start (also in small mode), until an agent's own pal takes over. -->
+      <div class="empty slot" id="empty"><dot-pal id="empty-pal" idle="float"></dot-pal><span id="empty-text">Waiting for your agent…</span></div>
     </main>
 
     <!-- The bars come after the stage on purpose: on Windows, Electron applies drag regions in
@@ -662,12 +665,14 @@
     if (!cast.includes(first)) first = 'blu';
     for (const name of cast) $('first').add(new Option(name, name));
     $('first').value = first;
+    $('empty-pal').character = first;
     $('first').onchange = (e) => {
       first = e.target.value;
       try { localStorage.setItem('dotpals.first', first); } catch {}
       saveConfig({ character: first });
       const firstSlot = slots.values().next().value;
       if (firstSlot) firstSlot.pal.character = first;
+      $('empty-pal').character = first;
     };
 
     // -- sessions ----------------------------------------------------------------
@@ -701,6 +706,7 @@
       if (sameOrigin) fetch(`/api/sessions/${encodeURIComponent(s.id)}/dismiss`, { method: 'POST', headers: { 'x-dotpals': '1' } }).catch(() => {});
       const slot = slots.get(s.id);
       if (slot) { slot.el.remove(); slots.delete(s.id); }
+      if (!slots.size) $('empty').hidden = false; // the waiting pal is back at once
       if (picked === s.id) {
         const next = [...sessions.values()].filter((o) => o.id !== s.id && !isDismissed(o)).sort((a, b) => b.lastAt - a.lastAt)[0];
         pickedByUser = false;
@@ -1053,7 +1059,7 @@
     function slotFor(update) {
       let slot = slots.get(update.session);
       if (slot) return slot;
-      $('empty')?.remove();
+      $('empty').hidden = true; // back when the last agent's pal leaves
       const i = slots.size;
       const box = el('div', 'slot');
       const pal = document.createElement('dot-pal');
@@ -1096,7 +1102,8 @@
       if (!document.body.classList.contains('compact')) return;
       const bar = document.querySelector('.bar');
       let top = Infinity;
-      for (const slot of slots.values()) {
+      const waiting = $('empty').hidden ? [] : [{ el: $('empty'), pal: $('empty-pal') }];
+      for (const slot of [...slots.values(), ...waiting]) {
         if (slot.el.hidden) continue;
         const pal = slot.pal;
         const r = pal.getBoundingClientRect();
@@ -1112,6 +1119,7 @@
     setInterval(placePill, 300);
 
     function resizePals() {
+      $('empty-pal').setAttribute('size', String(palSize()));
       const visible = [...slots.values()].filter((s) => !s.el.hidden);
       stage.classList.toggle('solo', visible.length <= 1);
       for (const [id, slot] of slots) {
@@ -1159,12 +1167,16 @@
       if (document.body.classList.contains('compact') && slots.has(update.session) && slots.get(update.session).el.hidden !== !slotShown(update.session)) queueMicrotask(() => { syncSlots(); renderSessions(); });
       stateSound(update);
       scheduleRecap();
+      // Nothing on show to put to sleep (you dismissed it, or it already left): don't bring
+      // a pal back just to send it away again.
+      if (update.state === 'sleeping' && !slots.has(update.session)) return;
       const slot = slotFor(update);
       slot.pal.setState(update.state, { text: bubbleText(update) });
       if (update.state === 'sleeping') {
         setTimeout(() => {
           slot.el.remove();
           slots.delete(update.session);
+          if (!slots.size) $('empty').hidden = false;
           resizePals();
           renderSessions();
         }, 6000);
@@ -2019,7 +2031,9 @@
         $('first').value = first;
         const firstSlot = slots.values().next().value;
         if (firstSlot) firstSlot.pal.character = first;
+        $('empty-pal').character = first;
       }
+      $('empty-text').textContent = config.chat ? 'Ready. Click 💬 to start' : 'Waiting for your agent…';
     }
     function resetAll() {
       entries.clear();
@@ -2171,6 +2185,7 @@
           add(slot.pal);
           add(slot.pal.shadowRoot?.querySelector('.dp-bubble.dp-show'));
         }
+        if (!$('empty').hidden) { add($('empty-pal')); add($('empty-pal').shadowRoot?.querySelector('.dp-bubble.dp-show')); }
         const key = JSON.stringify(rects);
         if (key !== lastAreas) { lastAreas = key; desktop.setSolidAreas?.(rects); }
       }
@@ -2320,7 +2335,7 @@
           list.append(b);
         }
         // The first pal on show waves and says it too.
-        const slot = [...slots.values()].find((s) => !s.el.hidden);
+        const slot = [...slots.values()].find((s) => !s.el.hidden) ?? ($('empty').hidden ? null : { pal: $('empty-pal') });
         if (slot) { slot.pal.greet?.(); slot.pal.say?.(`${greeting()}! What are we working on today?`, { duration: 5000 }); }
       }
 

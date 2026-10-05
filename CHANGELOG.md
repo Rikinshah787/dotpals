@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The pal disappeared when the bridge crashed.** The desktop app now runs the bridge as a process of its own (the app's binary as plain Node) instead of inside the app, so a busy or crashed bridge can't freeze or take down the pal: the app starts it again. Programs the bridge starts (OpenCode, terminals, checkers) don't inherit `ELECTRON_RUN_AS_NODE`, and the app never runs a second bridge while the first is still starting. When `dotpals setup` asks the app to quit, the bridge exits with code 75 and the app quits with it.
+- **The pal was missing until an agent did something.** The empty state now shows a pal (in small mode too) from the moment the window opens, until an agent's own pal takes over.
+- **Opening the chat in small mode could push the window off the top of the screen.** The window now stays inside the work area; the pal moves down a little instead.
+- **Dismissing the last session brought its pal back for a moment.** The pal said hello again and left 6 seconds later. Now it stays gone, and the waiting pal is back right away.
 - **The notch's Story tab scrolled sideways.** A long file name or chapter title stretched every request card past the edge of the column, so a horizontal scrollbar appeared and the ends of lines ("Continue in ▾", "…was also changed by…") were cut off. Long titles now end in "…" and notes wrap, so everything fits the column.
 - **"+ N small steps" in the notch couldn't be opened.** It only said that steps were hidden. Click it (or press Enter) to show them; "Hide small steps" folds them again.
 

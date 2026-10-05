@@ -1103,7 +1103,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 const invoked = process.argv[1] && (() => { try { return realpathSync(process.argv[1]); } catch { return ''; } })();
 if (invoked && invoked === realpathSync(fileURLToPath(import.meta.url))) {
   // Run on its own (by a hook, or setup without the desktop app), it quits when setup asks, so the pal can take over.
-  startBridge({ onQuit: () => process.exit(0) }).catch((err) => {
+  // Run by the desktop app (desktop/main.js), it exits with QUIT_APP so the app quits with it.
+  const QUIT_APP = 75;
+  // The app runs us as plain Node with ELECTRON_RUN_AS_NODE=1; what we start (OpenCode,
+  // terminals, checkers) mustn't get it, or an Electron app among them would start as Node.
+  if (process.env.DOTPALS_DESKTOP_CHILD === '1') delete process.env.ELECTRON_RUN_AS_NODE;
+  startBridge({ onQuit: () => process.exit(process.env.DOTPALS_DESKTOP_CHILD === '1' ? QUIT_APP : 0) }).catch((err) => {
     console.error(err.code === 'EADDRINUSE' ? 'The dotpals bridge is already running.' : err.message);
     process.exit(err.code === 'EADDRINUSE' ? 0 : 1);
   });
