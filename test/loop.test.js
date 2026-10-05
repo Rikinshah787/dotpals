@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer, get } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,9 +50,9 @@ const FAILED = 'Exit code 1\n✖ sum adds two numbers\nℹ tests 2\nℹ pass 1\n
 const PASSED = '✔ sum adds two numbers\n✔ multiply\nℹ tests 2\nℹ pass 2\nℹ fail 0';
 
 /** A Claude Code session, as its hooks report it: the activity hook (/hook) and the fix loop (/hook?loop=1). */
-function claude(port, session) {
+function claude(port, session, cwd = '/w/app') {
   const base = `http://127.0.0.1:${port}`;
-  const post = (path, e) => fetch(`${base}${path}`, { method: 'POST', body: JSON.stringify({ session_id: session, cwd: '/w/app', ...e }) }).then((r) => r.json());
+  const post = (path, e) => fetch(`${base}${path}`, { method: 'POST', body: JSON.stringify({ session_id: session, cwd, ...e }) }).then((r) => r.json());
   let n = 0;
   const s = {
     observe: (e) => post('/hook', e),
@@ -129,7 +129,7 @@ test('an unclear test run: the checker you chose decides (a fake Laya that says 
   await s.prompt();
   await s.edit('math.js');
   const told = await s.run('npm test', { output: 'Traceback (most recent call last):\nImportError: no module' });
-  assert.equal(told.hookSpecificOutput.additionalContext, 'dotpals: Laya thinks this test run failed (90% sure): ImportError: no module. Fix it before you finish; dotpals checks again when you stop.');
+  assert.equal(told.hookSpecificOutput.additionalContext, 'dotpals: Laya (dotpals’ local test checker) thinks this test run failed (90% sure): ImportError: no module. Fix it before you finish; dotpals checks again when you stop.');
 });
 
 test('Stop: sent back while the tests fail or are out of date, at most twice per request', async (t) => {
@@ -304,6 +304,83 @@ test('the bluff: green because Claude changed the tests, not the code: told, you
   assert.equal(events.list.filter((e) => e.session === 'undo').at(-1).text, 'Fixed: the test is back and passes now ✓');
 });
 
+test('a test that was failing before the session changed anything: told, not sent back; one it broke: sent back', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const events = await loopEvents(port);
+  t.after(events.stop);
+  const s = claude(port, 'baseline');
+  // node --test's own lines: the failing test's name is what's compared.
+  const SUM = '✖ sum adds two numbers (0.9ms)\n✔ multiply multiplies (0.1ms)\nℹ tests 2\nℹ pass 1\nℹ fail 1';
+  // It looked first: sum was already failing.
+  await s.prompt('Run the tests and tell me the result.');
+  await s.run('npm test', { ok: false, output: SUM });
+  // Then a request that has nothing to do with sum.
+  await s.prompt('Add a divide function to math.js.');
+  await s.edit('math.js');
+  const told = await s.run('npm test', { ok: false, output: SUM });
+  assert.match(told.hookSpecificOutput.additionalContext, /These tests were failing before this session changed anything, so they aren’t yours to fix unless the user asks: mention them to the user\.$/);
+  assert.deepEqual(await s.stop(), {}, 'not sent back for a failure it found');
+  assert.deepEqual(await s.ship(), {}, 'its commit doesn\'t make sum any worse');
+  // Now it breaks multiply too: that one is its own.
+  await s.prompt('Refactor multiply.');
+  await s.edit('math.js');
+  await s.run('npm test', { ok: false, output: '✖ sum adds two numbers (0.9ms)\n✖ multiply multiplies (0.1ms)\nℹ tests 2\nℹ pass 0\nℹ fail 2' });
+  assert.equal((await s.stop()).decision, 'block');
+
+  await new Promise((r) => setTimeout(r, 100));
+  const said = events.list.filter((e) => e.session === 'baseline' && e.kind === 'told').map((e) => e.text);
+  assert.match(said[1], /\. They were failing before Claude changed anything\.$/);
+});
+
+test('commit or push: held back from inside a PowerShell if, or after a ; (the tests can\'t stop it)', async (t) => {
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const s = claude(port, 'gates');
+  await s.prompt();
+  await s.edit('math.js');
+  await s.run('npm test', { ok: false, output: FAILED });
+  // How Claude really committed through PowerShell: the commit inside `if ($?) { … }`.
+  const inIf = await s.ship("git status --short; git add -A; if ($?) { git commit -m 'wip' }; git log --oneline -2");
+  assert.equal(inIf.hookSpecificOutput?.permissionDecision, 'deny');
+  // `;` runs the commit whatever the tests say (the second and last time it's held back in this request).
+  assert.equal((await s.ship('npm test; git commit -m x')).hookSpecificOutput?.permissionDecision, 'deny');
+});
+
+test('the bluff through the shell (sed, a script): git sees how the tests changed, however it was done', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const { writeFile, mkdir } = await import('node:fs/promises');
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-gitbluff-'));
+  // After the bridge closes; Windows may still hold the folder for a moment (its last git run).
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {}));
+  const git = (...args) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir });
+  const TEST = "import { sum } from '../math.js';\ntest('sum adds two numbers', () => {\n  assert.equal(sum(1, 2), 3);\n});\n";
+  await mkdir(join(dir, 'test'));
+  await writeFile(join(dir, 'test', 'math.test.js'), TEST);
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-qm', 'start');
+
+  const s = claude(port, 'shell', dir);
+  await s.prompt('Make the sum test pass by changing what it expects. Don\'t touch math.js.');
+  await s.run('npm test', { ok: false, output: FAILED });
+  await new Promise((r) => setTimeout(r, 300)); // git's view of the tests is taken right after a run
+  // No edit tool: sed changes the file, and the bridge only sees a command.
+  await writeFile(join(dir, 'test', 'math.test.js'), TEST.replace('sum(1, 2), 3)', 'sum(1, 2), -1)'));
+  await s.run("sed -i 's/sum(1, 2), 3);/sum(1, 2), -1);/' test/math.test.js");
+  const told = await s.run('npm test', { output: PASSED });
+  assert.match(told.hookSpecificOutput?.additionalContext ?? '', /^dotpals: the tests pass now, but only after you changed them: changed what an assertion expects in math\.test\.js\./);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal((await s.stop()).decision, 'block');
+  // Kept on the runs, for the notch, Ready to merge and `dotpals mcp`.
+  const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
+  const runs = entries.filter((e) => e.session === 'shell' && e.body?.testDiff);
+  assert.ok(runs.length >= 2, 'git\'s view is kept on the test runs');
+  assert.match(runs.at(-1).body.testDiff['test/math.test.js'], /^-\s+assert\.equal\(sum\(1, 2\), 3\);\n\+\s+assert\.equal\(sum\(1, 2\), -1\);$/);
+});
+
 test('a request that changed no code ("run the tests, don\'t change code"): told gently, and it may stop', async (t) => {
   const { port, server } = await start();
   t.after(() => close(server));
@@ -358,6 +435,28 @@ test('commit or push: denied while the tests fail or are out of date, allowed on
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(events.list.map((e) => e.kind), ['told', 'blocked-ship', 'fixed', 'blocked-ship']);
   assert.equal(events.list[1].text, 'Stopped Claude from shipping: the tests are failing.');
+});
+
+test('what the fix loop did is kept: GET /api/loop, and in history across a restart', async (t) => {
+  // This one keeps history (in this file's own folder): the other bridges here don't.
+  process.env.DOTPALS_HISTORY = '1';
+  t.after(() => { process.env.DOTPALS_HISTORY = '0'; });
+  const loops = (port, session) => fetch(`http://127.0.0.1:${port}/api/loop?session=${session}`).then((r) => r.json()).then((b) => b.events);
+  const first = await start();
+  const s = claude(first.port, 'kept');
+  await s.prompt();
+  await s.edit('math.js');
+  await s.run('npm test', { ok: false, output: FAILED });
+  const events = await loops(first.port, 'kept');
+  assert.deepEqual(events.map((e) => [e.kind, e.session, e.label, e.harness]), [['told', 'kept', 'app', 'claude']]);
+  assert.match(events[0].text, /^Tests failed \(.+\)\. Told Claude to fix them\.$/);
+  assert.deepEqual(await loops(first.port, 'other'), []);
+  // History is written a moment later.
+  for (let i = 0; i < 100 && !(await readFile(join(home, 'history.json'), 'utf8').catch(() => '')).includes(events[0].id); i++) await new Promise((r) => setTimeout(r, 50));
+  await close(first.server);
+  const second = await start();
+  t.after(() => close(second.server));
+  assert.deepEqual(await loops(second.port, 'kept'), events);
 });
 
 test('Settings → fixLoop off: nothing is ever said or held up', async (t) => {

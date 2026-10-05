@@ -10,7 +10,7 @@
 // bridge. It never starts anything and always exits 0: with no bridge, a slow one or
 // nothing to say, it prints nothing and Claude carries on as usual.
 // (The activity itself is reported by bridge/hook.js, which runs alongside, async.)
-import { stepType } from './ui/story.js';
+import { ships, stepType } from './ui/story.js';
 
 const bridge = process.env.DOTPALS_BRIDGE || `http://127.0.0.1:${Number(process.env.DOTPALS_PORT) || 5175}`;
 // A test run's result may go to the checker first, which takes up to 5 s; at Stop the bridge
@@ -24,8 +24,9 @@ process.stdin.on('end', async () => {
   try {
     const event = JSON.parse(body);
     const name = event.hook_event_name;
-    const kind = name === 'Stop' ? null : stepType({ kind: 'run', body: { command: String(event.tool_input?.command ?? '') } });
-    const worth = name === 'Stop' || (name === 'PreToolUse' ? kind === 'ship' : kind === 'test');
+    const command = String(event.tool_input?.command ?? '');
+    // Before: a commit, a push, a PR, a publish (story.js ships). After: a test run.
+    const worth = name === 'Stop' || (name === 'PreToolUse' ? ships(command) : stepType({ kind: 'run', body: { command } }) === 'test');
     if (event.session_id && worth) {
       const res = await fetch(`${bridge}/hook?loop=1`, {
         method: 'POST',
