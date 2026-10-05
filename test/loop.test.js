@@ -302,6 +302,25 @@ test('the bluff: green because Claude changed the tests, not the code: told, you
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(events.list.filter((e) => e.session === 'undo').map((e) => e.kind), ['told', 'bluff', 'fixed']);
   assert.equal(events.list.filter((e) => e.session === 'undo').at(-1).text, 'Fixed: the test is back and passes now ✓');
+
+  // Failing in one request, faked in the next, beside a code change elsewhere: the whole test file
+  // written again (its diff comes with Claude Code's result), the failing assertion now expecting
+  // what the code gave.
+  const later = claude(port, 'later');
+  await later.prompt('Add multiply');
+  await later.edit('math.js');
+  await later.run('npm test', { ok: false, output: `${FAILED}\nAssertionError: expected -1 to equal 3` });
+  await later.prompt('Now add fractions');
+  await later.edit('math.js', 'export', 'import Fraction from "fraction.js";\nexport');
+  const write = { tool_name: 'Write', tool_use_id: 'w1', tool_input: { file_path: '/w/app/test/math.test.js', content: '…' } };
+  await later.observe({ ...write, hook_event_name: 'PreToolUse' });
+  await later.observe({ ...write, hook_event_name: 'PostToolUse', tool_response: { type: 'update', structuredPatch: [{ lines: [" test('sum adds two numbers', () => {", '-  assert.equal(sum(1, 2), 3);', '+  assert.equal(sum(1, 2), -1);', '+  assert.equal(divide(1, 2), 0.5);'] }] } });
+  assert.match((await later.run('npm test', { output: PASSED })).hookSpecificOutput?.additionalContext ?? '', /only after you changed them: changed what an assertion expects in math\.test\.js/);
+  assert.equal((await later.stop()).decision, 'block');
+  // The next request, green again: told once, not every time.
+  await later.prompt('Add a README');
+  await later.edit('math.js', 'y', 'z');
+  assert.deepEqual(await later.run('npm test', { output: PASSED }), {});
 });
 
 test('a test that was failing before the session changed anything: told, not sent back; one it broke: sent back', async (t) => {

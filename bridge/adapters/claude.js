@@ -123,6 +123,12 @@ export function resultText(name, result) {
   return clipText(JSON.stringify(result, null, 2), 3000);
 }
 
+/** A Write over a file that was there: its result has the diff (its input only has the new text). */
+function writePatch(result) {
+  if (result?.type !== 'update' || !Array.isArray(result.structuredPatch)) return undefined;
+  return clipText(result.structuredPatch.map((h) => (h.lines ?? []).join('\n')).join('\n@@\n'), 6000);
+}
+
 /**
  * What a command printed when it failed (PostToolUseFailure): Claude Code sends it with the
  * error, a string or { message, stdout, stderr }. Its start and end, like resultText.
@@ -161,6 +167,7 @@ export function applyHook(e, log, { session, label }) {
       const entry = (id && log.get(id)) || log.findLast(session, (x) => x.tool === tool && x.status === 'running');
       // A failed command's output comes with its error: a failing test run's counts are in it.
       const output = resultText(tool, e.tool_response) ?? (!ok && (tool === 'Bash' || tool === 'PowerShell') ? failureText(e.error) : undefined);
+      const patch = tool === 'Write' ? writePatch(e.tool_response) : undefined;
       add(log.upsert({
         ...base,
         id: entry?.id ?? id ?? `${session}:t:${at}`,
@@ -168,7 +175,7 @@ export function applyHook(e, log, { session, label }) {
         ...(entry ? {} : describeTool(tool, e.tool_input, rootOf(session, e.cwd))),
         status: ok ? 'ok' : 'failed',
         ...(entry?.startedAt ? { ms: at - entry.startedAt } : {}),
-        ...(output ? { body: { output } } : {}),
+        ...(output ? { body: { output } } : patch ? { body: { patch } } : {}),
         ...(!ok && e.error ? { error: clip(typeof e.error === 'string' ? e.error : e.error.message, 300) } : {}),
       }));
       break;
@@ -226,11 +233,12 @@ export function transcriptReader(log, { session, label }) {
         const start = starts.get(block.tool_use_id);
         if (!start && !log.get(`${session}:${block.tool_use_id}`)) continue;
         const output = resultText(start?.name, o.toolUseResult ?? block.content);
+        const patch = start?.name === 'Write' ? writePatch(o.toolUseResult) : undefined;
         changed.push(log.upsert({
           id: `${session}:${block.tool_use_id}`,
           status: block.is_error ? 'failed' : 'ok',
           ...(start ? { ms: Math.max(0, at - start.at) } : {}),
-          ...(output ? { body: { output } } : {}),
+          ...(output ? { body: { output } } : patch ? { body: { patch } } : {}),
           ...(block.is_error ? { error: clip(typeof block.content === 'string' ? block.content : block.content?.[0]?.text, 300) } : {}),
         }));
         set('thinking');

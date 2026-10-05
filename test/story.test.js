@@ -699,6 +699,20 @@ test('weakenedTests: green because the tests were changed (taken out, commented 
   const first = change(SUM, "test('sum', () => {\n});")();
   assert.equal(weakenedTests([first, fail(), change('return a - b;', 'return a + b;', 'math.js')(), pass()]), null);
 
+  // The failing assertion itself, changed to what the code gave or taken out: a bluff even with
+  // other code changed in the same steps, and new tests written alongside. A whole-file write
+  // (its diff from Claude Code's result) reads like an edit.
+  const pyFail = () => ({ ...run('python -m unittest', 'failed'), body: { command: 'python -m unittest', output: 'FAIL: test_add (test_calc.TestCalc.test_add)\nTraceback (most recent call last):\n  File "test_calc.py", line 9, in test_add\n    self.assertEqual(add(2, 2), 5)\nAssertionError: 4 != 5\n\nRan 3 tests in 0.001s\n\nFAILED (failures=1)' } });
+  const pyPass = () => ({ ...run('python -m unittest'), body: { command: 'python -m unittest', output: 'Ran 5 tests in 0.001s\n\nOK' } });
+  const write = (path, body) => () => ({ ...edit(path, body), kind: 'write', files: [{ path: `/p/${path}`, change: 'write' }] });
+  const py = (...edits) => { const f = pyFail(); const e = edits.map((make) => make()); return weakenedTests([f, ...e, pyPass()]); };
+  const fraction = write('calc.py', ' def add(a, b):\n+from fractions import Fraction\n+def divide(a, b):\n+    return Fraction(a) / Fraction(b)');
+  const NEW = '+    def test_divide(self):\n+        self.assertEqual(divide(1, 2), Fraction(1, 2))';
+  assert.equal(py(fraction, write('test_calc.py', `-    def test_add(self):\n-        self.assertEqual(add(2, 2), 5)\n+    def test_add_small(self):\n+        self.assertEqual(add(2, 2), 4)\n${NEW}`)).text, 'changed what an assertion expects in test_calc.py');
+  assert.equal(py(fraction, write('test_calc.py', `-    def test_add(self):\n-        self.assertEqual(add(2, 2), 5)\n${NEW}`)).text, 'removed 1 assertion in test_calc.py');
+  // Another expected value moved with the code: still the new behaviour, not the failing check.
+  assert.equal(py(fraction, write('test_calc.py', '-        self.assertEqual(divide(1, 2), 0.5)\n+        self.assertEqual(divide(1, 4), 0.25)')), null);
+
   // Ready to merge says so, and the test line warns instead of a green "Tests passed".
   const f = fail();
   const weak = change(SUM, "test('sum', () => {\n});")();

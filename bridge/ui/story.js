@@ -6,7 +6,7 @@
 // Plain rules, no AI: instant, free and the same every time. Shared by the pal
 // (bridge/index.html) and the dashboard (bridge/dashboard.html); runs in Node too.
 import { baseName, facts, harnessName, plural, secs, turnTime } from './recap.js';
-import { parseTestOutput } from './testout.js';
+import { failureReason, parseTestOutput } from './testout.js';
 
 // -- what a command is for ---------------------------------------------------------
 
@@ -1376,6 +1376,9 @@ const ASSERTION = /\b(?:assert\w*|expect)\s*[.(]|^assert\s|\bt\.(?:equal|deepEqu
 // Turning tests off: skip, todo or only (the others stop running), xit, pytest's and unittest's skips, go's t.Skip, rust's #[ignore].
 const SKIPS = /\b(?:it|test|describe|context)\.(?:skip|todo|only)\b|\bx(?:it|test|describe)\s*\(|@pytest\.mark\.(?:skip|xfail)|@unittest\.skip|\bt\.Skip(?:Now|f)?\(|#\[ignore\]|\bskip:\s*true\b/;
 const COMMENT = /^(?:\/\/|#(?!\[)|\/\*|\*|--)/;
+// The values in a line: strings, numbers, true/false/null.
+const VALUES = /(['"`])(?:\\.|(?!\1).)*\1|-?\b\d[\d_.]*\b|\b(?:true|false|null|undefined|None|True|False|nil)\b/g;
+const valuesOf = (text) => (String(text).match(VALUES) ?? []).map((v) => v.replace(/^(['"`])(.*)\1$/, '$2'));
 
 /** What an edit took out and put in, without the lines it kept (its patch has the old text as -, the new as +). */
 function lineChanges(patch) {
@@ -1447,7 +1450,7 @@ function gitDelta(a, b) {
  * assertion the agent itself added doesn't count (writing a new test takes tries).
  * { files, text: "removed 2 assertions in math.test.js" } or null. When git's view of the test
  * files was taken at both runs (`body.testDiff`), that's what counts: any way of changing them
- * shows. Without it, only edit tools' patches can be read (whole-file writes and commands can't).
+ * shows. Without it, only file tools' patches can be read (commands can't).
  */
 export function weakenedTests(steps) {
   const sorted = [...steps].sort((a, b) => a.at - b.at);
@@ -1472,7 +1475,7 @@ export function weakenedTests(steps) {
   const byGit = before && passed.body?.testDiff ? gitDelta(before, passed.body.testDiff) : null;
   const net = byGit ?? new Map(); // test file → what the edits since `from` took out and put in, all told
   for (const e of byGit ? [] : sorted) {
-    if (e.at >= passed.at || e.kind !== 'edit' || e.status === 'failed') continue;
+    if (e.at >= passed.at || (e.kind !== 'edit' && e.kind !== 'write') || e.status === 'failed') continue;
     const file = (e.files ?? []).find((f) => isTest(f.path));
     if (!file) continue;
     const { gone, added } = lineChanges(e.body?.patch);
@@ -1484,14 +1487,25 @@ export function weakenedTests(steps) {
     for (const l of added) { const i = n.gone.indexOf(l); if (i >= 0) n.gone.splice(i, 1); else n.added.push(l); }
   }
   // The shape of an assertion without its values: the same check with a different expected value.
-  const shape = (l) => l.replace(/(['"`])(?:\\.|(?!\1).)*\1|-?\b\d[\d_.]*\b|\b(?:true|false|null|undefined|None|True|False|nil)\b/g, '#');
+  const shape = (l) => l.replace(VALUES, '#');
+  // The check the failing run showed failing: changed from one of the failure's values to the
+  // other ("4 != 5": 5 to 4), or taken out when the output shows its line (Python's and jest's
+  // tracebacks print it) with one of them in it. Changing or taking out that one isn't new
+  // behaviour, whatever other code changed.
+  const output = failed ? `${failed.body?.output ?? ''}\n${failed.error ?? ''}` : '';
+  const told = valuesOf(failureReason(output)?.why ?? '');
+  const swapped = (a, b) => valuesOf(a).some((v) => told.includes(v) && !valuesOf(b).includes(v));
+  const failing = (l, k) => !!failed && (k ? swapped(l, k) && swapped(k, l)
+    : output.replace(/\s+/g, ' ').includes(l) && valuesOf(l).some((v) => told.includes(v)));
   let removed = 0, skipped = 0, changed = 0;
   const files = [];
   for (const [path, { gone, added }] of net) {
     const lost = gone.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
     const kept = added.filter((l) => !COMMENT.test(l) && ASSERTION.test(l));
-    const c = codeToo ? 0 : lost.filter((l) => kept.some((k) => shape(k) === shape(l))).length;
-    const r = Math.max(0, lost.length - kept.length);
+    const pair = (l) => kept.find((k) => shape(k) === shape(l));
+    const c = lost.filter((l) => pair(l) && (!codeToo || failing(l, pair(l)))).length;
+    // New tests written alongside don't make up for taking out the failing one.
+    const r = Math.max(lost.filter((l) => !pair(l) && failing(l)).length, lost.length - kept.length);
     const s = added.filter((l) => !COMMENT.test(l) && SKIPS.test(l)).length;
     if (c + r + s) files.push(baseName(path));
     changed += c; removed += r; skipped += s;

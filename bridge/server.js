@@ -508,6 +508,16 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     for (const e of activity.each()) if (e.session === session && e.at >= start && e.kind !== 'prompt') steps.push(e);
     return steps;
   }
+  /**
+   * A request's steps for the bluff rule (weakenedTests), with the session's last test run before
+   * it when that run failed: changing that test in this request is the bluff too. Only this
+   * request's edits count, so one already told about isn't told again.
+   */
+  function bluffSteps(session) {
+    const start = activity.findLast(session, (e) => e.kind === 'prompt')?.at ?? 0;
+    const before = activity.findLast(session, (e) => e.at < start && e.kind === 'run' && stepType(e) === 'test' && e.status !== 'running');
+    return before && testVerdict(before).state === 'failed' ? [before, ...turnSteps(session)] : turnSteps(session);
+  }
   // "3 failed, 5 passed: sum adds", "checked by Jev, 80% sure", or the exit code's word.
   const failedWords = (v) => (v.source === 'exit' ? 'the command exited with an error' : testEvidence(v));
   // Why the first test failed, from the run's output: "expected 3, got -1 (test/math.test.js:5)", or ''.
@@ -561,7 +571,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       // Green, but because the tests were changed, not the code: the bluff. Claude is told, the pal
       // tells you. Git's view of the tests now goes with this run, as snapTests gives the others.
       const diff = await testDiff(sessionMeta.get(session)?.cwd ?? event.cwd, isTestFile).catch(() => null);
-      const weak = weakenedTests([...turnSteps(session).filter((e) => e.id !== step.id), { ...step, at: Date.now(), body: { ...step.body, ...(diff ? { testDiff: diff } : {}) } }]);
+      const weak = weakenedTests([...bluffSteps(session).filter((e) => e.id !== step.id), { ...step, at: Date.now(), body: { ...step.body, ...(diff ? { testDiff: diff } : {}) } }]);
       if (weak && !loopBluff.has(session)) {
         loopBluff.set(session, { text: weak.text, sentBack: false });
         sendLoop(session, label, 'bluff', `Claude changed the tests to make them pass: ${weak.text}.`);
@@ -601,7 +611,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (stopping && !changedCode(turnSteps(session))) return null;
     // The tests pass only because they were changed, as they stand now (a test put back doesn't
     // count): back once, to put the test back or say why it was wrong.
-    const weak = stopping && weakenedTests(turnSteps(session));
+    const weak = stopping && weakenedTests(bluffSteps(session));
     if (weak && !loopBluff.get(session)?.sentBack) {
       loopBluff.set(session, { text: weak.text, sentBack: true });
       sendLoop(session, label, 'sent-back', 'Claude changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.');
