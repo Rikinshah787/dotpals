@@ -706,6 +706,7 @@
       if (sameOrigin) fetch(`/api/sessions/${encodeURIComponent(s.id)}/dismiss`, { method: 'POST', headers: { 'x-dotpals': '1' } }).catch(() => {});
       const slot = slots.get(s.id);
       if (slot) { slot.el.remove(); slots.delete(s.id); }
+      if (!slots.size) $('empty').hidden = false; // the waiting pal is back at once
       if (picked === s.id) {
         const next = [...sessions.values()].filter((o) => o.id !== s.id && !isDismissed(o)).sort((a, b) => b.lastAt - a.lastAt)[0];
         pickedByUser = false;
@@ -1166,6 +1167,9 @@
       if (document.body.classList.contains('compact') && slots.has(update.session) && slots.get(update.session).el.hidden !== !slotShown(update.session)) queueMicrotask(() => { syncSlots(); renderSessions(); });
       stateSound(update);
       scheduleRecap();
+      // Nothing on show to put to sleep (you dismissed it, or it already left): don't bring
+      // a pal back just to send it away again.
+      if (update.state === 'sleeping' && !slots.has(update.session)) return;
       const slot = slotFor(update);
       slot.pal.setState(update.state, { text: bubbleText(update) });
       if (update.state === 'sleeping') {
