@@ -17,7 +17,11 @@
    "e6": "fixed"
   },
   "ready": false,
-  "stopped": "done"
+  "stopped": "done",
+  "weakened": null,
+  "why": {
+   "e6": null
+  }
  },
  "turn": {
   "harness": "claude",
@@ -137,7 +141,10 @@
       "path": "C:\\Dot\\test\\guard.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  assert.ok(findConflict([edit('codex:1', path, at - 11 * MIN)], { session: 'claude:1', path, at, within: 15 * MIN }));\n+  assert.ok(findConflict([edit('codex:1', path, at - 11 * MIN)], { session: 'claude:1', path, at, within: 15 * MIN, states: new Map([['codex:1', 'working']]) }));"
+    }
    },
    {
     "id": "e10",
@@ -152,7 +159,10 @@
       "path": "C:\\Dot\\test\\guard.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  assert.ok(findConflict(entries, { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'done']]) }));\n+  assert.ok(findConflict(entries, { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'done']]) })); // done 2 min ago: still at it\n+  // Finished its turn 8 minutes ago, and idle since: it changed the file, but it isn't editing it now.\n+  assert.equal(findConflict([edit('codex:1', path, NOW - 8 * MIN)], { session: 'claude:1', path, at: NOW, states: new Map([['codex:1', 'idle']]) }), null);\n+  // Relative paths with \"..\" resolve the same with or without a folder.\n+  assert.equal(pathKey('src/../lib/a.js'), 'lib/a.js');\n+  assert.equal(pathKey('a/../../b'), '../b');\n+  assert.equal(pathKey('/x/../../y'), '/y');"
+    }
    },
    {
     "id": "e11",
