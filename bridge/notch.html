@@ -1033,7 +1033,7 @@
         head.append(el('b', '', 'Settings'), el('span', 'grow'));
         const row = el('label');
         const text = el('span', '', 'Make agents fix failing tests');
-        text.append(el('small', '', 'Claude Code is told when a test run fails, and sent back if it tries to finish or commit while the tests fail or weren’t run after its last change.'));
+        text.append(el('small', '', 'Claude Code and Codex are told when a test run fails, and sent back if they try to finish or commit while the tests fail or weren’t run after their last change.'));
         const box = el('input');
         box.type = 'checkbox';
         box.checked = loop;

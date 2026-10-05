@@ -203,7 +203,7 @@
 </div>
 
 <h2 id="fix-loop">Make agents fix failing tests</h2>
-<p>An agent can say it's done while its tests fail. dotpals reads the result from the test output, not from what the agent says, and holds Claude Code to it. It's on by default.</p>
+<p>An agent can say it's done while its tests fail. dotpals reads the result from the test output, not from what the agent says, and holds Claude Code and Codex to it. It's on by default.</p>
 <ul>
   <li><strong>A test run fails</strong>: Claude is told at once, with why, read from the output: “dotpals: this test run failed (1 failed, 1 passed: sum adds): expected 3, got -1 (test/math.test.js:5). Fix it before you finish; dotpals checks again when you stop.” The pal says it too. When the result is <a href="#test-evidence">unclear</a> and a <a href="#test-checker">checker</a> is on, the checker is asked first.</li>
   <li><strong>Claude tries to finish, commit or push</strong> while this request's tests fail, or after changing code it didn't test again: it's sent back with what to do (“Fix them and run the tests again before you finish”). A commit, push, pull request or publish is stopped the same way, unless it only runs after its own passing tests (<code>npm test &amp;&amp; git commit</code>).</li>
@@ -221,7 +221,7 @@
 <p>The pal says each step. The notch opens with a <strong>Tests</strong> card when Claude is sent back, stopped from shipping or let go with failing tests, when it <a href="#faked-pass">changed the tests to make them pass</a>, when you're asked to look, and when the tests pass again.</p>
 <p>It fails open. If dotpals isn't running, or doesn't answer within a few seconds, Claude carries on as usual. The hook only asks dotpals after a test run, before a commit, push, pull request or publish, and when Claude stops, so other commands run as fast as before.</p>
 <div class="g-note info">
-  <p>This works with Claude Code only, through its plugin's hooks. Other agents can't be held back by hooks, but they can check their own work: ask them to call <a href="#mcp"><code>check_my_work</code></a> before they say they're done.</p>
+  <p>This works with Claude Code and Codex, through their hooks. For Codex, setup (or <strong>Add fix-loop hook</strong> on its card in Dashboard → Agents) adds dotpals' hook to <code>~/.codex/hooks.json</code>, and Codex runs it once you trust it: <code>/hooks</code> in Codex. Other agents can't be held back by hooks, but they can check their own work: ask them to call <a href="#mcp"><code>check_my_work</code></a> before they say they're done.</p>
 </div>
 
 <h3 id="faked-pass">Tests changed to pass</h3>

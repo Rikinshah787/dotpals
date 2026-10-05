@@ -455,6 +455,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   //   A test run whose result can't be read (piped, cut off) and the checker didn't settle:
   //     Claude is asked to run the tests again so the output shows it. A second one in the
   //     same request, or stopping without a clear run, goes to you ("Please take a look").
+  // Codex gets the same through its own hooks (loop-hook.js codex, ?agent=codex): its session is
+  // `codex:<id>`, as its logs name it, and they're read up to now before each answer.
   const LOOP_MAX = 2;
   const LOOP_KEEP = 500;
   const loopBlocks = new Map(); // session → times it was sent back in this request
@@ -462,10 +464,16 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const loopUnclear = new Map(); // session → { n: unreadable test runs in this request, why: what's known about the last }
   const loopAsked = new Set(); // sessions whose request went to you
   const loopBluff = new Map(); // session → { text, sentBack }: tests made to pass by changing them, in this request
+  const loopAgent = new Map(); // session → 'claude' | 'codex'
+  const loopWho = (session) => (loopAgent.get(session) === 'codex' ? 'Codex' : 'Claude');
+  /** A new request (UserPromptSubmit): the fix loop counts again. */
+  function loopRequest(session) {
+    loopBlocks.delete(session); loopUnclear.delete(session); loopAsked.delete(session); loopBluff.delete(session);
+  }
   function sendLoop(session, label, kind, text) {
     if (kind === 'fixed' || kind === 'bluff') loopHelped.delete(session);
     else if (kind !== 'retry' && kind !== 'ask-you') loopHelped.add(session);
-    const event = { id: randomUUID(), at: Date.now(), session, harness: 'claude', label, kind, text };
+    const event = { id: randomUUID(), at: Date.now(), session, harness: loopAgent.get(session) ?? 'claude', label, kind, text };
     loopEvents.push(event);
     loopEvents.splice(0, loopEvents.length - LOOP_KEEP);
     send('loop', event);
@@ -475,7 +483,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (loopAsked.has(session)) return;
     loopAsked.add(session);
     const why = loopUnclear.get(session)?.why;
-    sendLoop(session, label, 'ask-you', `Couldn’t tell whether Claude’s tests passed${why ? `: ${why}` : ''}. Please take a look.`);
+    sendLoop(session, label, 'ask-you', `Couldn’t tell whether ${loopWho(session)}’s tests passed${why ? `: ${why}` : ''}. Please take a look.`);
   }
   const loopNote = (event, text) => ({ hookSpecificOutput: { hookEventName: event.hook_event_name, additionalContext: text } });
   /** A test run nobody could read: run it again so it shows; the second time, it's yours to look at. */
@@ -485,7 +493,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     // For you, if it comes to that: what ran, why it can't be read, and what the checker thought.
     loopUnclear.set(session, { n, why: `\`${clip(step.body?.command ?? '', 80)}\`: ${v.note ?? 'its output doesn’t show the result'}${unsure ? `, and ${unsure}` : ''}` });
     if (n === 1) {
-      sendLoop(session, label, 'retry', 'Couldn’t tell if the tests passed. Asked Claude to run them again.');
+      sendLoop(session, label, 'retry', `Couldn’t tell if the tests passed. Asked ${loopWho(session)} to run them again.`);
       return loopNote(event, `dotpals: can’t tell whether this test run passed: ${v.note ?? 'its output doesn’t show the result'}.${unsure ? ` ${unsure}.` : ''} Run the tests again without cutting their output (no | tail, head or grep), so the counts and the exit code show.`);
     }
     if (n > 2) return null;
@@ -547,11 +555,15 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   async function loopTestRun(event, session, label) {
     if (event.is_interrupt) return null; // you stopped it
     const tool = event.tool_name;
-    const ok = event.hook_event_name === 'PostToolUse';
+    // Codex has no PostToolUseFailure: a command that failed ends in PostToolUse, with its exit code.
+    const exit = event.tool_response?.exit_code;
+    const ok = event.hook_event_name === 'PostToolUse' && !(typeof exit === 'number' && exit !== 0);
     // The step bridge/adapters/claude.js (applyHook) records, with the same id, so the checker asks once.
     const d = describeTool(tool, event.tool_input ?? {}, event.cwd);
-    // A failed command's output comes with its error: the counts and the reason are in it.
-    const output = resultText(tool, event.tool_response) ?? (!ok ? failureText(event.error) : undefined);
+    // A failed command's output comes with its error: the counts and the reason are in it. Codex's
+    // may come as `output` rather than stdout and stderr.
+    const r = event.tool_response;
+    const output = resultText(tool, r) ?? (r && typeof r === 'object' && typeof r.output === 'string' && r.output ? clipEnds(r.output, 3000) : undefined) ?? (!ok ? failureText(event.error) : undefined);
     const step = {
       ...d, id: `${session}:${event.tool_use_id}`, session, tool, status: ok ? 'ok' : 'failed',
       body: { ...d.body, ...(output ? { output } : {}) },
@@ -573,7 +585,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const weak = weakenedTests([...bluffSteps(session).filter((e) => e.id !== step.id), { ...step, at: Date.now(), body: { ...step.body, ...(diff ? { testDiff: diff } : {}) } }]);
       if (weak && !loopBluff.has(session)) {
         loopBluff.set(session, { text: weak.text, sentBack: false });
-        sendLoop(session, label, 'bluff', `Claude changed the tests to make them pass: ${weak.text}.`);
+        sendLoop(session, label, 'bluff', `${loopWho(session)} changed the tests to make them pass: ${weak.text}.`);
         return loopNote(event, `dotpals: the tests pass now, but only after you changed them: ${weak.text}. Don’t weaken a test to make it pass: put it back and fix the code, or tell the user why the test itself was wrong.`);
       }
       // The test is back as it was, and it passes: the real fix.
@@ -587,7 +599,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const old = !checked && onlyOldFailures(step, [...sessionSteps(session).filter((e) => e.id !== step.id), { ...step, at: Date.now() }]);
     const mine = !old && changedCode(turnSteps(session));
     const why = failedWhy(step);
-    sendLoop(session, label, 'told', `${checked ? `${checked.who} thinks the tests failed` : `Tests failed (${failedWords(v)})`}${why ? `: ${why}` : ''}.${old ? ' They were failing before Claude changed anything.' : mine ? ' Told Claude to fix them.' : ''}`);
+    sendLoop(session, label, 'told', `${checked ? `${checked.who} thinks the tests failed` : `Tests failed (${failedWords(v)})`}${why ? `: ${why}` : ''}.${old ? ` They were failing before ${loopWho(session)} changed anything.` : mine ? ` Told ${loopWho(session)} to fix them.` : ''}`);
     const what = checked ? `${checkerName(checked.who)} thinks this test run failed (${checked.sure}% sure)` : `this test run failed (${failedWords(v)})`;
     const next = old ? 'These tests were failing before this session changed anything, so they aren’t yours to fix unless the user asks: mention them to the user.'
       : mine ? 'Fix it before you finish; dotpals checks again when you stop.' : 'If fixing it is part of this request, fix it and run the tests again.';
@@ -615,14 +627,14 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const weak = stopping && weakenedTests(bluffSteps(session));
     if (weak && !loopBluff.get(session)?.sentBack) {
       loopBluff.set(session, { text: weak.text, sentBack: true });
-      sendLoop(session, label, 'sent-back', 'Claude changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.');
+      sendLoop(session, label, 'sent-back', `${loopWho(session)} changed the tests to make them pass. Sent it back to fix the code, or say why the test was wrong.`);
       return { decision: 'block', reason: `dotpals: you made the tests pass by changing them (${weak.text}). Put the test back and fix the code, or tell the user why the test was wrong, before you finish.` };
     }
     const trouble = testTrouble(session, stopping);
     if (!trouble) return null;
     const times = loopBlocks.get(session) ?? 0;
     if (times >= LOOP_MAX) {
-      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? `Claude stopped, but the tests still fail (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}.` : `Claude stopped, but the tests weren’t run after ${trouble.untested ? 'its changes' : 'its last change'}.`);
+      if (stopping) sendLoop(session, label, 'gave-up', trouble.failing ? `${loopWho(session)} stopped, but the tests still fail (${trouble.words})${trouble.why ? `: ${trouble.why}` : ''}.` : `${loopWho(session)} stopped, but the tests weren’t run after ${trouble.untested ? 'its changes' : 'its last change'}.`);
       return null;
     }
     loopBlocks.set(session, times + 1);
@@ -630,23 +642,29 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       : trouble.untested ? `you changed ${trouble.words} but didn’t run the tests` : `you changed ${trouble.words} after the last test run`;
     const fix = trouble.failing ? 'Fix them and run the tests again' : trouble.untested ? `Run \`${trouble.command}\`` : 'Run the tests again';
     if (stopping) {
-      sendLoop(session, label, 'sent-back', trouble.failing ? 'Claude tried to finish with failing tests. Sent it back to fix them.'
-        : trouble.untested ? `Claude changed ${trouble.words} without running the tests. Sent it back to run \`${trouble.command}\`.` : `Claude changed ${trouble.words} after the last test run. Sent it back to run them.`);
+      sendLoop(session, label, 'sent-back', trouble.failing ? `${loopWho(session)} tried to finish with failing tests. Sent it back to fix them.`
+        : trouble.untested ? `${loopWho(session)} changed ${trouble.words} without running the tests. Sent it back to run \`${trouble.command}\`.` : `${loopWho(session)} changed ${trouble.words} after the last test run. Sent it back to run them.`);
       return { decision: 'block', reason: `dotpals: ${problem}. ${fix} before you finish.` };
     }
     // The commit never runs: it failed, as far as the story goes (not "committed without testing").
     const now = Date.now();
     const id = event.tool_use_id ? `${session}:${event.tool_use_id}` : `${session}:t:${now}`;
-    publish([activity.upsert({ ...(activity.get(id) ? {} : { session, label, harness: 'claude', at: now, tool: event.tool_name, ...d, startedAt: now }), id, status: 'failed', error: `dotpals stopped this: ${problem}` })]);
-    sendLoop(session, label, 'blocked-ship', trouble.failing ? 'Stopped Claude from shipping: the tests are failing.' : `Stopped Claude from shipping: ${trouble.words} changed after the last test run.`);
+    publish([activity.upsert({ ...(activity.get(id) ? {} : { session, label, harness: loopAgent.get(session) ?? 'claude', at: now, tool: event.tool_name, ...d, startedAt: now }), id, status: 'failed', error: `dotpals stopped this: ${problem}` })]);
+    sendLoop(session, label, 'blocked-ship', trouble.failing ? `Stopped ${loopWho(session)} from shipping: the tests are failing.` : `Stopped ${loopWho(session)} from shipping: ${trouble.words} changed after the last test run.`);
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `dotpals: ${problem}. ${fix} before you commit or push.` } };
   }
 
-  function fixLoop(event) {
+  async function fixLoop(event, agent = 'claude') {
     if (!config.fixLoop) return null;
-    const session = String(event.session_id);
+    // Codex's logs name a session `codex:<id>`; Claude's hooks and transcript use the bare id.
+    const session = agent === 'claude' ? String(event.session_id) : `${agent}:${event.session_id}`;
+    loopAgent.set(session, agent);
     const label = folderName(event.cwd);
     const name = event.hook_event_name;
+    // Claude's new requests come through its activity hook; Codex's only here.
+    if (name === 'UserPromptSubmit') { loopRequest(session); return null; }
+    // Codex's steps come from its logs: read them up to now before judging.
+    await watchers.get(agent)?.poll?.();
     if ((name === 'PostToolUse' || name === 'PostToolUseFailure') && event.tool_use_id) return loopTestRun(event, session, label);
     if (name === 'Stop' || name === 'PreToolUse') return loopGate(event, session, label);
     return null;
@@ -758,7 +776,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     const label = folderName(event.cwd);
     hooked.add(session);
     noteSession(session, event.cwd);
-    if (event.hook_event_name === 'UserPromptSubmit') { loopBlocks.delete(session); loopUnclear.delete(session); loopAsked.delete(session); loopBluff.delete(session); } // a new request: the fix loop counts again
+    if (event.hook_event_name === 'UserPromptSubmit') loopRequest(session);
     // First time we hear from a session: load its history from the transcript.
     if (event.transcript_path && !backfilled.has(session)) {
       backfilled.add(session);
@@ -941,7 +959,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       let where = null;
       try { ({ found, where } = a.detect()); } catch {}
       let connected = null;
-      if (a.setup === 'connect') { try { connected = !!a.connected(); } catch { connected = false; } }
+      // Connected: an agent dotpals connects (Cursor…), or an optional hook (Codex's for the fix loop).
+      if (a.connected) { try { connected = !!a.connected(); } catch { connected = false; } }
       return {
         id: a.id, name: a.name, via: a.via, how: a.how, docs: a.docs, setup: a.setup,
         install: a.install, file: a.file?.() ?? null,
@@ -1106,7 +1125,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const a = adapter(action[1]);
       if (!a) return json(res, 404, { error: 'no such agent' });
       if (action[2] === 'test') return json(res, 200, await testAgent(a));
-      if (a.setup !== 'connect') return json(res, 400, { error: `${a.name} doesn’t need connecting` });
+      if (!a.connect) return json(res, 400, { error: `${a.name} doesn’t need connecting` });
       try {
         const result = a[action[2]]();
         send('agents', agents());
@@ -1299,8 +1318,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
           // bridge/guard-hook.js: only the conflict check (bridge/hook.js reports the activity).
           if (event.hook_event_name === 'PreToolUse' && event.session_id && enabled('claude')) reply = guardEdit(event);
         } else if (url.pathname === '/hook' && url.searchParams.get('loop') === '1') {
-          // bridge/loop-hook.js: only the fix loop (bridge/hook.js reports the activity).
-          if (typeof event.hook_event_name === 'string' && event.session_id && enabled('claude')) reply = await fixLoop(event);
+          // bridge/loop-hook.js: only the fix loop (bridge/hook.js reports the activity, or
+          // Codex's logs). Claude Code's, or Codex's with ?agent=codex.
+          const agent = url.searchParams.get('agent') === 'codex' ? 'codex' : 'claude';
+          if (typeof event.hook_event_name === 'string' && event.session_id && enabled(agent)) reply = await fixLoop(event, agent);
         } else {
           const update = await handleEvent(event, url.searchParams.get('agent'));
           if (update) print(`${new Date().toLocaleTimeString()}  ${update.label ?? update.session.slice(0, 8)}  ${update.state}${update.text ? `  "${update.text}"` : ''}`);

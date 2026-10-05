@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createActivityLog } from '../bridge/activity.js';
-import { describeCall, watchCodex } from '../bridge/adapters/codex.js';
+import { codexHooks, describeCall, watchCodex } from '../bridge/adapters/codex.js';
 import { buildTurns } from '../bridge/ui/recap.js';
 import { readiness, stepType, testVerdict, weakenedTests, whyStopped } from '../bridge/ui/story.js';
 
@@ -278,4 +278,39 @@ test('Codex: a test changed to pass between a failing and a passing run is caugh
   assert.ok(weak, 'caught');
   assert.match(weak.text, /removed 1 assertion in math\.test\.js/);
   assert.equal(readiness(turn).ready, false);
+});
+
+test('Codex: the fix loop’s hook goes into ~/.codex/hooks.json beside yours, and comes out alone', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-codexhooks-'));
+  const was = process.env.DOTPALS_CODEX_HOME;
+  process.env.DOTPALS_CODEX_HOME = dir;
+  t.after(async () => {
+    if (was === undefined) delete process.env.DOTPALS_CODEX_HOME; else process.env.DOTPALS_CODEX_HOME = was;
+    await rm(dir, { recursive: true, force: true });
+  });
+  const file = join(dir, 'hooks.json');
+  const theirs = { description: 'mine', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'python notify.py' }] }], PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: 'policy.sh' }] }] } };
+  await writeFile(file, JSON.stringify(theirs));
+  assert.equal(codexHooks.installed(), null);
+
+  const added = codexHooks.connect();
+  codexHooks.connect(); // twice: still once
+  assert.equal(added.file, file);
+  assert.deepEqual(JSON.parse(await readFile(added.backup, 'utf8')), theirs);
+  assert.match(added.note, /\/hooks/);
+  const config = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(config.description, 'mine');
+  const ours = (event) => config.hooks[event].filter((g) => g.hooks.some((h) => /loop-hook\.js" codex$/.test(h.command)));
+  for (const event of ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) assert.equal(ours(event).length, 1, event);
+  assert.deepEqual(config.hooks.Stop[0], theirs.hooks.Stop[0]);
+  assert.equal(ours('PostToolUse')[0].matcher, '^Bash$');
+  assert.match(codexHooks.installed(), /loop-hook\.js" codex$/);
+
+  codexHooks.disconnect();
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), theirs);
+  assert.equal(codexHooks.installed(), null);
+  // A hooks.json it can't read is left alone.
+  await writeFile(file, '{ not json');
+  assert.throws(() => codexHooks.connect(), /wasn’t changed/);
+  assert.equal(await readFile(file, 'utf8'), '{ not json');
 });

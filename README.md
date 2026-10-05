@@ -53,7 +53,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
-- **Make agents fix failing tests** (Claude Code, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure, and a test that was already failing before Claude changed anything is reported, not forced on it. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Turn it off in Settings, or from the gear in the notch.
+- **Make agents fix failing tests** (Claude Code and Codex, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure, and a test that was already failing before Claude changed anything is reported, not forced on it. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Codex gets the same through its hooks: setup adds dotpals' hook to `~/.codex/hooks.json`, and Codex runs it once you trust it (`/hooks` in Codex). Turn it off in Settings, or from the gear in the notch.
 - **Ask dotpals from any agent**: `dotpals mcp` lets Claude Code, Codex, Cursor and other assistants ask what your agents really did, with the evidence: `check_my_work` before an agent says "done", `ready_to_merge`, `today`, `recap`, `risky_steps` and more. See [below](#ask-dotpals-from-any-agent-mcp).
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
 - **Two agents, one file**: when an agent is about to change a file another agent changed in the last few minutes, Claude Code asks you first ("Codex (api) changed billing.ts 2 minutes ago. Edit anyway?"), or tells Claude to re-read it. Other agents can't be stopped beforehand: the notch and the pal tell you as it happens.
@@ -140,7 +140,7 @@ That's all. It:
 3. picks up Codex automatically, if it's installed,
 4. starts the pal, turns on *open when I log in*, and opens the dashboard.
 
-Options: `--no-claude` (skip the plugin), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
+Options: `--no-claude` (skip the plugin), `--no-codex` (skip Codex's fix-loop hook), `--no-login` (don't start at login) and `--no-start`. Run it again any time to update.
 
 ### Only the Claude Code plugin
 
@@ -154,6 +154,8 @@ Restart Claude Code, then run **`/dotpals:pals`**. The first time, it offers to 
 ### Codex
 
 There's nothing to install on the Codex side. dotpals follows Codex's session logs (`~/.codex/sessions`), so the Codex CLI, IDE extension and app all show up while the pal is running. The one-command setup starts it at login.
+
+To make Codex fix the tests it broke too ([Make agents fix failing tests](#features)), setup adds dotpals' hook to `~/.codex/hooks.json`, backing up the original. Codex runs a new hook only once you trust it: in Codex, run `/hooks` and trust it. **Add fix-loop hook** and **Remove fix-loop hook** on its card in Dashboard → Agents do the same; `setup --no-codex` skips it.
 
 ### Cursor, Gemini CLI, OpenCode and GitHub Copilot CLI
 
@@ -232,7 +234,7 @@ Ask things like "What are my agents doing?", "Is this really tested?", "Is feat/
 
 ## Privacy
 
-Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. *Make agents fix failing tests* (on by default) adds short notes about Claude's own test runs to its context, which Claude Code sends to its model like anything else there; turn it off in Settings. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
+Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. *Make agents fix failing tests* (on by default) adds short notes about Claude Code's and Codex's own test runs to their context, which they send to their model like anything else there; turn it off in Settings. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
 
 ## How accurate is it?
 
