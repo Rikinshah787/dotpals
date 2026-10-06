@@ -18,7 +18,7 @@ npx dotpals@latest setup
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20any%20agent-d97757)
 
-<img src="docs/demo.gif" width="760" alt="The dotpals notch: a live diff types in, an agent asks to run git push --force with a warning, Allow is clicked, and the pal celebrates">
+<img src="docs/demo.gif" width="760" alt="The dotpals notch catches a faked pass: Claude Code's change breaks a test, it edits the test to expect the wrong answer, dotpals sees the test was changed and sends it back, and Claude puts the test back and fixes the code">
 
 <sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
