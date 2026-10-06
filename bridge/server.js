@@ -419,18 +419,17 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // bridge/ground.js): the faked-pass check (weakenedTests) compares two runs' views, so it sees
   // how the tests changed in between however it was done (an edit tool, sed, a script). Not for
   // runs read from a transcript later: git has moved on since.
-  const testDiffing = new Set();
+  // A run's view still being taken is kept as its promise: Stop waits for them (loopGate).
+  const testDiffing = new Map();
   function snapTests(entry) {
     if (entry.kind !== 'run' || !['ok', 'failed'].includes(entry.status) || entry.body?.testDiff !== undefined || testDiffing.has(entry.id)) return;
     if (stepType(entry) !== 'test' || Date.now() - ((entry.at ?? 0) + (entry.ms ?? 0)) > 60_000) return;
     const cwd = sessionMeta.get(entry.session)?.cwd;
     if (!cwd) return;
-    testDiffing.add(entry.id);
-    testDiff(cwd, isTestFile).then((diff) => {
-      testDiffing.delete(entry.id);
+    testDiffing.set(entry.id, testDiff(cwd, isTestFile).then((diff) => {
       const now = activity.get(entry.id);
       if (diff && now && now.body?.testDiff === undefined) publish([activity.upsert({ id: entry.id, body: { ...now.body, testDiff: diff } })]);
-    }, () => testDiffing.delete(entry.id));
+    }, () => {}).finally(() => testDiffing.delete(entry.id)));
   }
 
   function maybeCheck(entry) {
@@ -610,7 +609,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     // Finishing: only code this request changed is Claude's to fix. Shipping is held back either way.
     if (stopping && !changedCode(turnSteps(session))) return null;
     // The tests pass only because they were changed, as they stand now (a test put back doesn't
-    // count): back once, to put the test back or say why it was wrong.
+    // count): back once, to put the test back or say why it was wrong. Git's view of the last
+    // runs first: a test changed by a command only shows there.
+    if (stopping) await Promise.all(testDiffing.values());
     const weak = stopping && weakenedTests(bluffSteps(session));
     if (weak && !loopBluff.get(session)?.sentBack) {
       loopBluff.set(session, { text: weak.text, sentBack: true });

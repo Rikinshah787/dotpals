@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-05
+
+### Fixed
+
+- **`npm test || true` could read as passed.** With a test runner whose output has no counts dotpals can read, a failing run followed by `|| true` or `|| echo failed` ends with exit code 0, and it read as passed: in *Ready to merge?*, `test_status` and the fix loop. After `||` the exit code isn't the tests' any more, so without counts the run is now unclear, and Claude is asked to run the tests again. Counts in the output still decide (Jest, Vitest, node:test, pytest, Go, Cargo and the others dotpals reads).
+- **A commit after a piped test run got past the commit check.** `npm test 2>&1 | tail -n 5 && git commit` counted as "commits only if the tests pass", but a pipe's exit code is `tail`'s, so the commit runs when the tests fail. It's now held back like a plain `git commit` while the tests fail or are out of date.
+- **A test faked through `sed` could slip past Stop.** When Claude stopped within a few milliseconds of a passing test run, git's view of the test files at that run wasn't in yet, so a test changed by a command (not an edit tool) went unseen. Stop now waits for it.
+- **Captured accuracy cases kept too little.** `scripts/accuracy-capture.mjs` dropped a whole-file write's patch and a test run's view of the test files in git, so a captured faked pass replayed as none.
+
 ## [0.10.0] - 2026-10-04
 
 ### Added
@@ -355,7 +364,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...v0.9.5

@@ -1,6 +1,6 @@
 {
   "name": "dotpals",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "A floating pal that checks what your coding agent really did: every file change, command and test result, live. Sends Claude back to fix the tests it broke, and catches tests faked to pass. Works with Claude Code and Codex.",
   "author": {
     "name": "dotpals contributors"
