@@ -16,6 +16,10 @@
 //                eyes are and how big, so the pal can swap in expression eyes
 //                (happy arcs, hearts…). Without it the normal eyes just squint.
 //                `own` lists expressions its own eyes already do (e.g. 'wide').
+//   hang       – optional: the pal hangs on a thread (drawn as `.dp-thread`, hidden on
+//                tiny pals) and swings from the top of it while idle
+//   moves      – optional { hello, done, error, waiting }: actions to play instead of the
+//                usual ones when it says hello or enters that state
 //   render(p)  – returns { defs, body, accessories, face } SVG strings
 //
 // `render` receives:
@@ -270,6 +274,53 @@ export const characters = {
           <g class="dp-blink"><rect x="66" y="128" width="18" height="18" rx="3" fill="#0b0b12"/><rect x="69" y="131" width="5" height="5" fill="#fff"/></g>
           <g class="dp-blink"><rect x="116" y="128" width="18" height="18" rx="3" fill="#0b0b12"/><rect x="119" y="131" width="5" height="5" fill="#fff"/></g>
         </g>`,
+    }),
+  },
+
+  // -- hanging pals ------------------------------------------------------------
+
+  webby: {
+    label: 'Webby',
+    color: '#6f5cff',
+    tap: 'drop',
+    look: 7,
+    mouth: [100, 150],
+    cheek: 36,
+    eyes: { at: [[80, 120], [120, 120]], r: 13, own: ['wide'] },
+    hang: true,
+    moves: { hello: 'drop', done: 'drop', waiting: 'drop' },
+    render: ({ id, body }) => ({
+      defs: `
+        <radialGradient id="${id('eyeball')}" cx=".4" cy=".35" r=".7">
+          <stop offset="0" stop-color="#fff"/>
+          <stop offset=".75" stop-color="#f1f1f1"/>
+          <stop offset="1" stop-color="#c9c9c9"/>
+        </radialGradient>
+        <linearGradient id="${id('silk')}" gradientUnits="userSpaceOnUse" x1="0" y1="-600" x2="0" y2="74">
+          <stop offset="0" stop-color="#c3c9d6" stop-opacity="0"/>
+          <stop offset=".6" stop-color="#c3c9d6" stop-opacity=".7"/>
+          <stop offset="1" stop-color="#c3c9d6" stop-opacity=".95"/>
+        </linearGradient>`,
+      body: `
+        <path fill="none" stroke="${body}" stroke-width="9" stroke-linecap="round" d="
+          M62 108 Q36 78 18 100 M58 124 Q24 108 10 132 M60 140 Q26 144 20 170 M68 154 Q44 172 42 194
+          M138 108 Q164 78 182 100 M142 124 Q176 108 190 132 M140 140 Q174 144 180 170 M132 154 Q156 172 158 194"/>
+        <circle cx="100" cy="124" r="56" fill="${body}"/>`,
+      accessories: `
+        <path class="dp-thread" d="M100 74 V-600" stroke="url(#${id('silk')})" stroke-width="2.4" fill="none"/>`,
+      face: `${[80, 120]
+        .map(
+          (cx) => `
+        <g class="dp-blink">
+          <circle cx="${cx}" cy="120" r="17" fill="url(#${id('eyeball')})"/>
+          <g class="dp-look">
+            <circle cx="${cx}" cy="120" r="9.5" fill="#0b0b12"/>
+            ${eyeShine(cx - 3, 116, 3)}
+          </g>
+        </g>`
+        )
+        .join('')}
+        <g class="dp-look" fill="#0b0b12"><circle cx="90" cy="96" r="4"/><circle cx="110" cy="96" r="4"/></g>`,
     }),
   },
 };

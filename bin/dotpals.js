@@ -387,7 +387,7 @@ async function preferences(flags) {
     if (how === 'default') { skip('Using the defaults (change any of them later: Dashboard → Settings)'); return answers; }
     console.log(`\n  ${bold('A few choices')} ${dim('(Enter keeps the one in brackets; change any later: Dashboard → Settings)')}\n`);
     const patch = {};
-    patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte']], loadConfig().character ?? 'blu');
+    patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte'], ['webby', 'Webby (a spider on a thread)']], loadConfig().character ?? 'blu');
     patch.sounds = await yn('Sounds (a ping when an agent needs you, a chime when it’s done)?', true);
     answers.notch = await pick('The notch at the top of the screen:', [['always', 'Always (recommended)'], ['auto', 'Only when the pal is hidden'], ['off', 'Never']], 'always');
     patch.storyView = await pick('How should each request read?', [['simple', 'Simple: one plain sentence (“Changed 2 files, the tests passed, and pushed.”)'], ['detailed', 'Detailed: every chapter (files, commands, tests)']], 'simple');

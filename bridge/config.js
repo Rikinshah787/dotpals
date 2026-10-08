@@ -52,7 +52,7 @@ export const DEFAULTS = {
 /** Integrations that can be switched off in `agents` (ids from bridge/adapters/index.js). */
 export const AGENT_IDS = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'copilot', 'generic'];
 
-const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte', 'custom'];
+const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte', 'webby', 'custom'];
 
 /** Keep only known settings with sensible values. */
 function clean(input = {}) {

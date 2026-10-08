@@ -298,6 +298,9 @@ const styles = `
   :host([idle="wobble"]) .dp-idle { animation: dp-wobble 2.6s ease-in-out infinite var(--dp-delay, 0s); }
   :host([idle="sway"])   .dp-idle { animation: dp-sway 2.2s ease-in-out infinite var(--dp-delay, 0s); }
   :host([idle="none"])   .dp-idle { animation: none; }
+  /* Pals that hang on a thread swing from the top of it (tiny ones hide the thread). */
+  :host(:not([mood]):not([idle]):not([tiny])) .dp-hang .dp-idle { transform-origin: 50% -300%; animation: dp-swing 3.2s ease-in-out infinite var(--dp-delay, 0s); }
+  :host([tiny]) .dp-thread { display: none; }
   /* Tiny pals (notch avatars) breathe deeper so they still read as alive. */
   :host([tiny]) { --dp-breath: 2.6; }
   :host([tiny]) [filter*="-fur)"] { filter: none; }
@@ -370,6 +373,10 @@ const styles = `
   @keyframes dp-sway {
     0%, 100% { transform: skewX(-4deg); }
     50%      { transform: skewX(4deg); }
+  }
+  @keyframes dp-swing {
+    0%, 100% { transform: rotate(-1.6deg); }
+    50%      { transform: rotate(1.6deg); }
   }
   @keyframes dp-lean {
     0%, 100% { transform: rotate(3deg) scale(1.01); }
@@ -822,7 +829,7 @@ export class DotPal extends Base {
 
   /**
    * Play a one-shot action ('jump', 'squish', 'wiggle', 'shake', 'nod', 'spin', 'love', 'hop',
-   * 'jitter', 'hello', 'dizzy', …). Resolves when the animation finishes or is interrupted.
+   * 'jitter', 'hello', 'drop', 'dizzy', …). Resolves when the animation finishes or is interrupted.
    * Interrupting an action blends from wherever the pal is, so it never snaps.
    */
   play(name) {
@@ -933,7 +940,7 @@ export class DotPal extends Base {
     const calm = reducedMotion();
     const owner = {};
     return this.#run('hello', [
-      { at: 0, do: () => { if (!calm) this.play('hello'); } },
+      { at: 0, do: () => { if (!calm) this.play(this.#def?.moves?.hello ?? 'hello'); } },
       {
         from: calm ? 0 : 430,
         to: calm ? 900 : 1020,
@@ -1132,11 +1139,12 @@ export class DotPal extends Base {
     if (prev !== undefined && prev !== state && this.mood === moodBefore && !this.#refreshFace(true)) this.blink();
     const calm = reducedMotion();
     if (prev !== state && !calm) {
+      const move = (name) => this.#def?.moves?.[state] ?? name;
       if (state === 'done') {
-        this.#entry('jump');
+        this.#entry(move('jump'));
         this.#run('fx', [{ at: 260, do: () => this.#burst('sparkle', 7) }]);
-      } else if (state === 'error') this.#entry('jitter');
-      else if (state === 'waiting') this.#entry('hop');
+      } else if (state === 'error') this.#entry(move('jitter'));
+      else if (state === 'waiting') this.#entry(move('hop'));
     }
     if (state === 'done') {
       // Celebrate briefly, then settle back to idle.
@@ -1152,7 +1160,7 @@ export class DotPal extends Base {
   /** Play a state's entry move, after the hello if one is still rising. */
   #entry(name) {
     const anim = this.#anim;
-    if (anim && this.#animName === 'hello') {
+    if (anim && this.#animName === (this.#def?.moves?.hello ?? 'hello')) {
       const state = this.state;
       anim.finished.then(() => { if (this.state === state && this.isConnected) this.play(name); }, () => {});
     } else this.play(name);
@@ -1525,6 +1533,7 @@ export class DotPal extends Base {
       def = characters.blu;
     }
     this.#def = def;
+    this.#root.classList.toggle('dp-hang', !!def.hang);
 
     const id = (name) => `${this.#uid}-${name}`;
     const seed = (this.#n * 7) % 97;

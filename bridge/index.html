@@ -321,7 +321,7 @@
     body.compact .card { background: transparent; border-color: transparent; }
     /* Small mode: a round pill above the pal with each session's icon, expand and close.
        Always visible (no hover tricks), and you can drag the window by it. */
-    body.compact .bar { position: absolute; top: var(--pill-top, 8px); left: 50%; transform: translateX(-50%); z-index: 2; padding: 3px; min-height: 0; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgb(18 18 23 / .92); box-shadow: 0 4px 14px rgb(0 0 0 / .35); transition: top .25s ease; -webkit-app-region: no-drag; }
+    body.compact .bar { position: absolute; top: var(--pill-top, 8px); left: 50%; transform: translateX(-50%); max-width: calc(100% - 8px); z-index: 2; padding: 3px; min-height: 0; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgb(18 18 23 / .92); box-shadow: 0 4px 14px rgb(0 0 0 / .35); transition: top .25s ease; -webkit-app-region: no-drag; }
     /* Small mode moves by dragging the pal, and clicks on the empty space around it go
        through to whatever is underneath (see "click-through" in the script). */
     body.compact #stage { -webkit-app-region: no-drag; }
@@ -330,9 +330,16 @@
     body.compact .icon:hover { background: #26262e; }
     body.compact .icon svg { width: 12px; height: 12px; }
     .mini { display: none; }
-    body.compact .mini { display: flex; gap: 3px; }
+    /* Too many or too long for the window: the chips shrink (names end in "…"), never the buttons. */
+    body.compact .mini { display: flex; gap: 3px; min-width: 0; }
     body.compact .mini:empty { display: none; }
-    .mini button { height: 26px; padding: 0 9px 0 8px; border-radius: 999px; display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--text); background: color-mix(in srgb, var(--h) 16%, transparent); border: 1px solid transparent; -webkit-app-region: no-drag; }
+    .mini .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    /* Two or more chips: an equal share each (no more than it needs), no dot, and just the
+       ring (its tooltip has the number), so the names fit. */
+    .mini:has(> button + button) button { flex: 1 1 0; max-width: max-content; }
+    .mini:has(> button + button) button i { display: none; }
+    .mini:has(> button + button) .ctx:has(svg) { font-size: 0; gap: 0; }
+    .mini button { min-width: 0; height: 26px; padding: 0 9px 0 8px; border-radius: 999px; display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--text); background: color-mix(in srgb, var(--h) 16%, transparent); border: 1px solid transparent; -webkit-app-region: no-drag; }
     .mini button:hover { border-color: color-mix(in srgb, var(--h) 60%, transparent); }
     .mini button i { width: 7px; height: 7px; border-radius: 50%; background: var(--h); flex: none; }
     .mini button.busy i { animation: pulse 1.6s ease-in-out infinite; }
@@ -473,8 +480,8 @@
         <svg class="shrink" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 10h4v4M13 6H9V2M9 7l5-5M7 9l-5 5"/></svg>
         <svg class="grow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 2h4v4M6 14H2v-4M14 2L9 7M2 14l5-5"/></svg>
       </button>
-      <button id="close" class="icon float-only" type="button" title="Hide the pal (the notch at the top keeps watching; Ctrl+Alt+P brings it back)" aria-label="Hide">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      <button id="close" class="icon float-only" type="button" title="Minimize: hide the pal (the notch at the top keeps watching; Ctrl+Alt+P brings it back)" aria-label="Minimize">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 8h9"/></svg>
       </button>
     </header>
 
@@ -756,7 +763,7 @@
         const n = (used.get(name) ?? 0) + 1;
         used.set(name, n);
         if (n > 1) name = `${name.slice(0, 8)} ${n}`;
-        b.append(el('i'), name.length > 10 ? `${name.slice(0, 9)}…` : name);
+        b.append(el('i'), el('span', 'nm', name.length > 10 ? `${name.slice(0, 9)}…` : name));
         const ring = contextBadge(s.id);
         if (ring) b.append(ring);
         b.type = 'button';

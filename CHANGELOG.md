@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Webby, a pal that hangs on a thread.** A fuzzy spider that dangles on its silk and swings while it waits. When an agent finishes or needs you, or you click it, it zips up the thread and bungee-drops back down. Pick it in setup, Dashboard → Settings, or `<dot-pal character="webby">`. In the notch it hangs from the bottom of the island: it drops out when the notch shows, acts out the agent in front (the one you opened, or else the most urgent), and drops again when one finishes or needs you; clicks go through it. In the notch's small avatars the thread is hidden. For your own characters: `hang: true` (with a `.dp-thread`) swings from the top of the thread, and `moves: { hello, done, error, waiting }` swaps the action played for each; the new `drop` action works on any pal.
+
+### Fixed
+
+- **The small pal's pill ran off both sides of the window** with two sessions with long names ("spider-pal", "plane"): the first name lost its start and the hide button was cut off. The pill now stays inside the window: with two or more chips each gets an equal share (names end in "…", the ring keeps the number in its tooltip), and the buttons never shrink.
+
+### Changed
+
+- **The pal's hide button is a "–" (Minimize)**, since it hides the pal rather than quitting: the notch keeps watching, and Ctrl+Alt+P brings it back.
+
 ## [0.10.0] - 2026-10-04
 
 ### Added
