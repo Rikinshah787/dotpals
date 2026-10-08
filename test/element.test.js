@@ -87,6 +87,18 @@ test('every built-in character says where its eyes are', () => {
   }
 });
 
+test('hanging pals draw a thread, and every move a character asks for exists', () => {
+  for (const [name, def] of Object.entries(characters)) {
+    for (const move of Object.values(def.moves ?? {})) assert.ok(actions[move], `${name}: ${move}`);
+    if (!def.hang) continue;
+    const parts = def.render({ id: (n) => n, body: 'url(#body)', fur: 'url(#fur)' });
+    assert.match(parts.accessories, /class="dp-thread"/, name);
+    clean(Object.values(parts).join(''), name);
+  }
+  assert.ok(characters.webby.hang);
+  assert.equal(characters.webby.tap, 'drop');
+});
+
 test('custom pals get eye anchors from their shape', () => {
   for (const shape of Object.keys(CUSTOM_OPTIONS.shape)) {
     for (const eyes of Object.keys(CUSTOM_OPTIONS.eyes)) {
@@ -101,13 +113,14 @@ test('custom pals get eye anchors from their shape', () => {
 });
 
 test('new actions exist and settle back where they started', () => {
-  for (const name of ['hop', 'jitter', 'hello', 'dizzy']) {
+  for (const name of ['hop', 'jitter', 'hello', 'drop', 'dizzy']) {
     const a = actions[name];
     assert.ok(a && a.keyframes.length > 2 && a.duration > 0, name);
     const offsets = a.keyframes.map((k) => k.offset).filter((o) => o != null);
     for (let i = 1; i < offsets.length; i++) assert.ok(offsets[i] > offsets[i - 1], name);
   }
   assert.match(actions.hop.keyframes.at(-1).transform, /translateY\(0%\) scale\(1, 1\)/);
+  assert.match(actions.drop.keyframes.at(-1).transform, /translateY\(0%\) scale\(1, 1\)/);
   assert.equal(actions.jitter.keyframes.at(-1).transform, 'translateX(0)');
   assert.match(actions.hello.keyframes[0].transform, /translateY\(80%\)/); // starts below the ledge
   assert.match(actions.hello.keyframes.at(-1).transform, /translateY\(0\) scale\(1, 1\)/);

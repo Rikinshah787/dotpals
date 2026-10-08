@@ -120,6 +120,20 @@ export const actions = {
       { transform: 'translateY(0) scale(1, 1)' },
     ],
   },
+  // Zip up the thread, then drop and bounce on it like a bungee (for pals that hang).
+  drop: {
+    duration: 1300,
+    easing: 'linear',
+    keyframes: [
+      { transform: squashStretch(0, 1, 1), easing: 'cubic-bezier(.2,.8,.3,1)' },
+      { transform: squashStretch(-70, 0.94, 1.08), offset: 0.16 },
+      { transform: squashStretch(-70, 1, 1), offset: 0.3, easing: 'cubic-bezier(.55,0,.9,.5)' },
+      { transform: squashStretch(4, 1.06, 0.92), offset: 0.55, easing: 'cubic-bezier(.2,.7,.4,1)' },
+      { transform: squashStretch(-12, 0.97, 1.04), offset: 0.7, easing: 'cubic-bezier(.5,0,.6,1)' },
+      { transform: squashStretch(2, 1.02, 0.98), offset: 0.84, easing: 'ease-in-out' },
+      { transform: squashStretch(0, 1, 1) },
+    ],
+  },
   // Two fast turns that run out of steam.
   dizzy: {
     duration: 1150,

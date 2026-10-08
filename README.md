@@ -77,7 +77,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 - **Notifications and sounds**: a ping when the agent needs your OK, a chime when it's done, and a desktop notification if you've looked away.
 - **Every session, every agent**: all your Claude Code sessions show up, even ones started before dotpals was installed, next to Codex and anything else you plug in. In small mode each agent gets its own pal, with a round bar above them naming each one.
 - **Make your own pal**: pick a body, eyes, something on top, a color and a name. See [below](#make-your-own-pal).
-- **A pal with personality**: eight ready-made characters that think, work, talk, wait, celebrate and sulk. Drag it anywhere; it stays on top, and clicks on the empty space around it go through to your editor.
+- **A pal with personality**: nine ready-made characters that think, work, talk, wait, celebrate and sulk, including Webby, a spider that hangs on its thread and bungee-drops down when your agent finishes. Drag it anywhere; it stays on top, and clicks on the empty space around it go through to your editor.
 
 <p align="center">
   <img src="docs/tools.png" width="300" alt="The Tools tab with an Edit opened, showing its diff">
@@ -100,6 +100,10 @@ A small island that hangs from the top of your screen. It has four sizes:
 - **Open** (640 px): the agent in focus as a big pal on the left, one card on the right, a column of mini pals for the other agents, and two tabs:
   - **Now**: a live diff of the file it's editing (or a checklist of its steps), its plan, context window, helpers and your usage limits. When it needs your OK, an approval card with **Deny** and **Allow**, or **Ctrl+Alt+N** and **Ctrl+Alt+Y** (**⌘⌥N** and **⌘⌥Y** on macOS), which work only while the card is showing. When it's done or fails, a short card says what happened.
   - **Story**: today's totals with **Copy today**, whether the code was tested since its last change, the plan, helpers, the context window with **Copy /compact**, what it's been using, a note when two agents changed the same file, and the last few requests as chapters you can expand.
+
+<p align="center"><img src="docs/webby.png" width="560" alt="Webby, a fuzzy violet spider, hanging on its silk thread four times: calm, happy with blushing cheeks, surprised with wide eyes, and sad"></p>
+
+**Webby in the notch**: if your pal is Webby, it hangs on its thread from the bottom of the island whenever the notch shows. It drops out when the notch appears and drops again when an agent finishes or needs you. Clicks go straight through it.
 
 Alerts open it by themselves, one at a time. One that needs you shows even if you've been away, and stays until you answer. Done and error cards close after about 5 and 8 seconds. When you open it yourself, it closes 8 seconds after the pointer leaves (a shrinking line shows the last seconds), or after a quiet minute with the pointer resting on it. **Esc** closes it while the pointer is over it. Its window lets clicks through everywhere except the island, and the peek never takes a click, so it doesn't get in the way of your browser tabs.
 
@@ -185,7 +189,7 @@ Send JSON to the local bridge from your agent loop, a hook script or a wrapper. 
 | Drag the pal | Move the window; it remembers where you put it |
 | **▦** | Open the dashboard: sessions, logs, stats and settings |
 | **⤡** | Switch between just the pal and the full view |
-| **×** | Hide to the tray. The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
+| **–** | Minimize: hide the pal to the tray (the notch keeps watching, and **Ctrl+Alt+P** brings it back). The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
 | 🔊 | Sounds on or off |
 
 From a terminal, after setup (or with `npx dotpals <command>`):
@@ -344,6 +348,7 @@ The pal is a dependency-free Web Component, `<dot-pal>`, for chat UIs, IDE panel
 | `grok`  | Grok, a slate bot with a glowing visor | nod |
 | `nova`  | Nova, an orange bot with a light-bulb antenna | jump |
 | `byte`  | Byte, a teal cat with pixel eyes    | wiggle |
+| `webby` | Webby, a violet spider that hangs on its thread and bungee-drops when your agent finishes or needs you | drop |
 
 ### Quick start
 
@@ -491,7 +496,7 @@ pal.say('Hi! Ask me anything.');
 // Show a mood for a moment
 pal.flash('surprised', 1500);
 
-// One-shot actions: jump · squish · wiggle · shake · nod · spin · love · hop · jitter · hello · dizzy
+// One-shot actions: jump · squish · wiggle · shake · nod · spin · love · hop · jitter · hello · drop · dizzy
 await pal.play('love');
 
 // Say hello: rise up from below, squint happily, hop and blink twice
@@ -593,6 +598,8 @@ registerCharacter('ghost', {
 - Put `class="dp-blink"` on each eye so it blinks and reacts to moods.
 - Put `class="dp-look"` on anything that should follow the cursor.
 - `eyes` (optional) says where the eyes are, so the pal can swap in expression eyes: `at` (the two centres), `r` (their size), and optionally `ink` (their color), `glow` (`true` or a color) and `own` (expressions your eyes already do well, e.g. `['wide']`). While they show, the parts marked `class="dp-eyes"` hide (or the `.dp-blink` parts). Without `eyes`, the eyes just squint for moods.
+- `hang: true` (optional) makes a pal that hangs instead of peeking: draw its whole body above the bottom edge and its thread as `class="dp-thread"` (hidden on tiny pals), and it swings from the top of the thread while idle.
+- `moves` (optional) swaps the action a pal plays when it says hello (`greet()`) or enters a state, e.g. `moves: { hello: 'drop', done: 'drop', waiting: 'drop' }` (Webby's).
 - Let bodies run below `y=200`, so jumping reveals more body instead of a flat edge.
 
 You can add actions too, with `registerAction('pop', { keyframes, duration, particles })`. `particles` is a shape (`heart`, `sparkle`, `star`, `sweat` or `z`, drawn as SVG) or any text or emoji.

@@ -46,6 +46,9 @@
       transition: width var(--t) var(--e), height var(--t) var(--e), border-radius var(--t) var(--e), opacity .22s, box-shadow .3s;
     }
     .island[data-mode="hidden"] { opacity: 0; box-shadow: none; }
+    /* Your pal, when it hangs on a thread (Webby): it dangles under the island, its thread
+       going up behind it. Clicks go through it, like everywhere but the island. */
+    .hanger { position: absolute; top: 0; left: 50%; margin-left: -32px; pointer-events: none; --dp-glow: transparent; transition: top var(--t) var(--e); }
     .island[data-mode="peek"] { border-radius: 0 0 15px 15px; }
     .island[data-mode="open"] { border-radius: 0 0 26px 26px; }
     /* A light sweeping along the bottom edge of the bar while an agent works. */
@@ -358,6 +361,7 @@
   <!-- The notch: every active agent, what it's changing right now, its story, and
        everyone's usage limits. Shown by desktop/main.js (see createNotch); what it
        shows when is decided by bridge/ui/notch-state.js. -->
+  <dot-pal class="hanger" id="hanger" size="64" static hidden></dot-pal>
   <div class="island" id="island" data-mode="hidden" role="status" aria-live="polite">
     <div class="stage" id="stage"></div>
     <div class="cast" id="cast"></div>
@@ -365,6 +369,7 @@
   </div>
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
+    import { characters as palDefs } from '../src/characters.js';
     import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from './ui/recap.js';
     import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, gitTruth, gitLine, simple, stepType, story, testLine, toolkit, turnMarkdown, recapMarkdown, whyStopped } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
@@ -374,6 +379,7 @@
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
     const island = $('island');
+    const hanger = $('hanger');
     const stage = $('stage');
     const cast = $('cast');
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -697,7 +703,23 @@
       placeCast(v.mode, agents, w, h, focus);
       countdown(v.countdown, now);
       syncKeys(v, kind, tab);
-      fitWindow(v.mode, w, h);
+      fitWindow(v.mode, w, h, hang(v.mode, h, focus ?? agents[0]));
+    }
+
+    /**
+     * Your pal, if it hangs on a thread (Webby): it drops out of the island when the island
+     * shows, dangles under it, and acts out the agent in front (the open one, or else the
+     * most urgent), so it drops again when one finishes or needs you. Returns the room it
+     * needs under the island.
+     */
+    function hang(mode, h, agent) {
+      const on = !!palDefs[first]?.hang && (mode === 'bar' || mode === 'open');
+      if (hanger.character !== first) hanger.character = first;
+      if (!on) { hanger.hidden = true; return ROOM.below; }
+      hanger.style.top = `${h - 10}px`;
+      if (hanger.hidden) { hanger.hidden = false; hanger.greet(); }
+      palState(hanger, agent?.state ?? 'idle');
+      return 66;
     }
 
     /** Put a new view on the stage; the old one fades out on top of it. */
@@ -727,8 +749,10 @@
       island.dataset.mode = mode;
       if (w === size.w && h === size.h) return;
       const grow = w * Math.max(h, 1) >= size.w * Math.max(size.h, 1);
-      island.style.setProperty('--t', grow ? '500ms' : '340ms');
-      island.style.setProperty('--e', grow ? 'var(--grow)' : 'var(--shrink)');
+      for (const n of [island, hanger]) {
+        n.style.setProperty('--t', grow ? '500ms' : '340ms');
+        n.style.setProperty('--e', grow ? 'var(--grow)' : 'var(--shrink)');
+      }
       island.style.width = `${w}px`;
       island.style.height = `${h}px`;
       size = { w, h };
@@ -740,8 +764,8 @@
      * browser tabs are, and a peek must never eat a click meant for one.
      */
     let sizeKey = '';
-    function fitWindow(mode, w, h) {
-      const want = mode === 'hidden' ? [STRIP.w + 20, STRIP.h + 1, null] : [Math.ceil(w + 2 * ROOM.side), Math.ceil(h + ROOM.below), mode === 'peek' ? null : { w, h }];
+    function fitWindow(mode, w, h, below = ROOM.below) {
+      const want = mode === 'hidden' ? [STRIP.w + 20, STRIP.h + 1, null] : [Math.ceil(w + 2 * ROOM.side), Math.ceil(h + below), mode === 'peek' ? null : { w, h }];
       const k = JSON.stringify(want);
       if (k === sizeKey) return;
       sizeKey = k;
