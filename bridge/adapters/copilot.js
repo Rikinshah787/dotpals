@@ -57,10 +57,41 @@ const VSCODE_TOOLS = {
 const responseText = (r) => (Array.isArray(r) ? r.map((p) => (typeof p === 'string' ? p : p?.value ?? p?.text ?? '')).filter(Boolean).join('\n') || undefined
   : typeof r === 'string' ? r : r == null ? undefined : JSON.stringify(r));
 
+// run_in_terminal reports a non-zero exit in its text ("Command exited with code 1"),
+// or the CLI's "<exited with exit code 1>" marker; anything else counts as success.
+const exitCode = (text) => {
+  const m = /Command exited with code (-?\d+)|<exited with exit code (-?\d+)>|completed with exit code (-?\d+)>/.exec(text ?? '');
+  return m ? Number(m[1] ?? m[2] ?? m[3]) : undefined;
+};
+
+// The files an edit touched, and what it took out and put in, for the tools whose
+// input isn't one flat { filePath, oldString, newString }:
+//   multi_replace_string_in_file  { replacements: [{ filePath, oldString, newString }] }
+//   apply_patch                   { input: "*** Begin Patch\n*** Update File: …" }
+function vscodeEdits(name, args) {
+  if (name === 'multi_replace_string_in_file' && Array.isArray(args.replacements)) {
+    const reps = args.replacements.filter((r) => r && typeof r.filePath === 'string');
+    const files = [...new Set(reps.map((r) => r.filePath))].map((path) => ({ path, change: 'edit' }));
+    const patch = reps.filter((r) => typeof r.oldString === 'string' && typeof r.newString === 'string').map((r) => toPatch(r.oldString, r.newString)).filter(Boolean).join('\n');
+    return files.length ? { files, patch: patch || undefined } : null;
+  }
+  if (name === 'apply_patch' && typeof args.input === 'string') {
+    const files = [];
+    for (const [, op, path] of args.input.matchAll(/^\*\*\* (Add|Update|Delete) File: (.+?)\s*$/gm)) {
+      files.push({ path, change: op === 'Add' ? 'write' : op === 'Delete' ? 'delete' : 'edit' });
+    }
+    return files.length ? { files, patch: clipText(args.input, 8000) } : null;
+  }
+  return null;
+}
+
 /** A VS Code Copilot Chat hook event in the Copilot CLI's shape; CLI events pass through. */
 export function fromVSCode(e) {
   if (e.sessionId || typeof e.session_id !== 'string') return e;
   const args = e.tool_input && typeof e.tool_input === 'object' ? e.tool_input : {};
+  const edits = vscodeEdits(e.tool_name, args);
+  const output = responseText(e.tool_response);
+  const code = e.tool_name === 'run_in_terminal' ? exitCode(output) : undefined;
   const toolArgs = {
     ...args,
     path: args.filePath ?? args.path,
@@ -69,6 +100,8 @@ export function fromVSCode(e) {
     old_str: args.oldString ?? args.old_str,
     new_str: args.newString ?? args.new_str,
     file_text: args.content ?? args.file_text,
+    // The first file names the step; all of them are kept in vscodeEdits below.
+    ...(edits && !args.filePath ? { path: edits.files[0].path } : {}),
   };
   return {
     ...e,
@@ -76,7 +109,8 @@ export function fromVSCode(e) {
     sessionId: e.session_id,
     toolName: VSCODE_TOOLS[e.tool_name] ?? e.tool_name,
     toolArgs,
-    toolResult: e.tool_response === undefined ? undefined : { resultType: 'success', textResultForLlm: responseText(e.tool_response) },
+    vscodeEdits: edits ?? undefined,
+    toolResult: e.tool_response === undefined ? undefined : { resultType: code ? 'failure' : 'success', textResultForLlm: output },
   };
 }
 
@@ -109,6 +143,11 @@ export function applyCopilot(raw, log) {
     case 'postToolUseFailure': {
       const failed = e.hook_event_name === 'postToolUseFailure' || (e.toolResult?.resultType && e.toolResult.resultType !== 'success');
       const described = describeTool(e.toolName, e.toolArgs, e.cwd);
+      if (e.vscodeEdits) {
+        described.files = e.vscodeEdits.files;
+        if (e.vscodeEdits.patch) described.body = { ...described.body, patch: e.vscodeEdits.patch };
+        if (e.vscodeEdits.files.length > 1) described.title = `${described.title} +${e.vscodeEdits.files.length - 1} more`;
+      }
       const output = e.toolResult?.textResultForLlm;
       // Still running after its wait ("<command with shellId: 3 is still running after 30 seconds. …>"):
       // not a result yet. If nothing says how it ended, the turn's end marks it stopped.

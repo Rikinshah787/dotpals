@@ -95,6 +95,31 @@ test('applyCopilot: VS Code Copilot Chat events (PascalCase, snake_case fields)'
   const read = applyCopilot(vs('PostToolUse', 3, { tool_name: 'read_file', tool_input: { filePath: '/work/proj/README.md' } }), log).entries[0];
   assert.equal(read.kind, 'read');
 
+  // multi_replace_string_in_file: every file and replacement is kept.
+  const multi = applyCopilot(vs('PostToolUse', 3.5, { tool_name: 'multi_replace_string_in_file', tool_input: { explanation: 'Rename', replacements: [
+    { filePath: '/work/proj/src/a.cs', oldString: 'Foo()', newString: 'Bar()' },
+    { filePath: '/work/proj/test/a.test.cs', oldString: 'Assert.Equal(1, Foo());', newString: '' },
+  ] }, tool_response: 'ok' }), log).entries[0];
+  assert.equal(multi.kind, 'edit');
+  assert.deepEqual(multi.files.map((f) => f.path), ['/work/proj/src/a.cs', '/work/proj/test/a.test.cs']);
+  assert.match(multi.title, /src\/a\.cs \+1 more/);
+  assert.match(multi.body.patch, /^-Assert\.Equal\(1, Foo\(\)\);$/m);
+
+  // apply_patch: the files come from the patch, which is kept whole.
+  const patch = '*** Begin Patch\n*** Update File: /work/proj/src/a.cs\n@@\n-class A\n+class C\n*** Add File: /work/proj/src/b.cs\n+class B\n*** End Patch';
+  const applied = applyCopilot(vs('PostToolUse', 3.7, { tool_name: 'apply_patch', tool_input: { input: patch, explanation: 'Patch' } }), log).entries[0];
+  assert.deepEqual(applied.files, [{ path: '/work/proj/src/a.cs', change: 'edit' }, { path: '/work/proj/src/b.cs', change: 'write' }]);
+  assert.equal(applied.body.patch, patch);
+
+  // A terminal command that exited non-zero is a failure, with its output kept.
+  const bad = applyCopilot(vs('PostToolUse', 4, { tool_name: 'run_in_terminal', tool_input: { command: 'dotnet test' }, tool_response: 'Failed: 1\nCommand exited with code 1' }), log).entries[0];
+  assert.equal(bad.status, 'failed');
+  assert.match(bad.body.output, /Failed: 1/);
+  const marker = applyCopilot(vs('PostToolUse', 4.5, { tool_name: 'run_in_terminal', tool_input: { command: 'npm test' }, tool_response: 'boom\n<exited with exit code 2>' }), log).entries[0];
+  assert.equal(marker.status, 'failed');
+  const zero = applyCopilot(vs('PostToolUse', 4.6, { tool_name: 'run_in_terminal', tool_input: { command: 'true' }, tool_response: 'done\n<exited with exit code 0>' }), log).entries[0];
+  assert.equal(zero.status, 'ok');
+
   const stop = applyCopilot(vs('Stop', 5, {}), log);
   assert.equal(stop.entries.find((e) => e.kind === 'done').ms, 5000);
   assert.equal(stop.state.state, 'done');
