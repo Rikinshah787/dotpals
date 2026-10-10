@@ -43,11 +43,49 @@ export function describeTool(name = '', raw = {}, cwd) {
   return { kind, title: clip(what || name.replace(/_/g, ' '), 80), body };
 }
 
+// VS Code's Copilot Chat (agent mode) runs the same hook files (its
+// chat.hookFilesLocations includes ~/.copilot/hooks), but sends Claude Code-style
+// payloads: PascalCase hook_event_name, session_id, tool_name, tool_input and
+// tool_response. Those are mapped onto the Copilot CLI shape read below.
+const VSCODE_EVENTS = { SessionStart: 'sessionStart', SessionEnd: 'sessionEnd', UserPromptSubmit: 'userPromptSubmitted', PostToolUse: 'postToolUse', Stop: 'agentStop', ErrorOccurred: 'errorOccurred' };
+const VSCODE_TOOLS = {
+  run_in_terminal: 'bash', read_file: 'view', create_file: 'create',
+  replace_string_in_file: 'edit', multi_replace_string_in_file: 'edit', insert_edit_into_file: 'edit', apply_patch: 'edit',
+  grep_search: 'grep', semantic_search: 'grep', file_search: 'glob', list_dir: 'glob',
+  fetch_webpage: 'web_fetch', runSubagent: 'task', manage_todo_list: 'update_todo',
+};
+const responseText = (r) => (Array.isArray(r) ? r.map((p) => (typeof p === 'string' ? p : p?.value ?? p?.text ?? '')).filter(Boolean).join('\n') || undefined
+  : typeof r === 'string' ? r : r == null ? undefined : JSON.stringify(r));
+
+/** A VS Code Copilot Chat hook event in the Copilot CLI's shape; CLI events pass through. */
+export function fromVSCode(e) {
+  if (e.sessionId || typeof e.session_id !== 'string') return e;
+  const args = e.tool_input && typeof e.tool_input === 'object' ? e.tool_input : {};
+  const toolArgs = {
+    ...args,
+    path: args.filePath ?? args.path,
+    description: args.explanation ?? args.description,
+    pattern: args.query ?? args.pattern,
+    old_str: args.oldString ?? args.old_str,
+    new_str: args.newString ?? args.new_str,
+    file_text: args.content ?? args.file_text,
+  };
+  return {
+    ...e,
+    hook_event_name: VSCODE_EVENTS[e.hook_event_name] ?? e.hook_event_name,
+    sessionId: e.session_id,
+    toolName: VSCODE_TOOLS[e.tool_name] ?? e.tool_name,
+    toolArgs,
+    toolResult: e.tool_response === undefined ? undefined : { resultType: 'success', textResultForLlm: responseText(e.tool_response) },
+  };
+}
+
 /**
- * Fold one Copilot CLI hook event into the log.
+ * Fold one Copilot CLI (or VS Code Copilot Chat) hook event into the log.
  * Returns { entries, session, label, state? }.
  */
-export function applyCopilot(e, log) {
+export function applyCopilot(raw, log) {
+  const e = fromVSCode(raw);
   if (!e.sessionId) return { entries: [] };
   const session = `copilot:${e.sessionId}`;
   const label = folderName(e.cwd);
@@ -120,7 +158,7 @@ export default {
   id: ID,
   name: 'GitHub Copilot CLI',
   via: 'Hooks (~/.copilot/hooks)',
-  how: 'Connect adds a hooks file of its own to Copilot CLI. It runs after each prompt and tool call and when the agent stops.',
+  how: 'Connect adds a hooks file of its own to Copilot CLI. It runs after each prompt and tool call and when the agent stops. VS Code’s Copilot Chat (agent mode) runs the same file.',
   docs: 'https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference',
   setup: 'connect',
   file,
