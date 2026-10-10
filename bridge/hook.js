@@ -59,7 +59,8 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => (body += chunk));
 process.stdin.on('end', async () => {
   if (eventArg) {
-    try { body = JSON.stringify({ hook_event_name: eventArg, ...JSON.parse(body) }); } catch {}
+    // VS Code's Copilot Chat sends no cwd but runs the hook in the workspace folder.
+    try { body = JSON.stringify({ hook_event_name: eventArg, cwd: process.cwd(), ...JSON.parse(body) }); } catch {}
   }
   try { asking = !agent && JSON.parse(body).hook_event_name === 'PermissionRequest'; } catch {}
   try {

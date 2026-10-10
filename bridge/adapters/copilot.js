@@ -43,11 +43,83 @@ export function describeTool(name = '', raw = {}, cwd) {
   return { kind, title: clip(what || name.replace(/_/g, ' '), 80), body };
 }
 
+// VS Code's Copilot Chat (agent mode) runs the same hook files (its
+// chat.hookFilesLocations includes ~/.copilot/hooks), but sends Claude Code-style
+// payloads: PascalCase hook_event_name, session_id, tool_name, tool_input and
+// tool_response. Those are mapped onto the Copilot CLI shape read below.
+const VSCODE_EVENTS = { SessionStart: 'sessionStart', SessionEnd: 'sessionEnd', UserPromptSubmit: 'userPromptSubmitted', PostToolUse: 'postToolUse', Stop: 'agentStop', ErrorOccurred: 'errorOccurred' };
+const VSCODE_TOOLS = {
+  run_in_terminal: 'bash', read_file: 'view', create_file: 'create',
+  replace_string_in_file: 'edit', multi_replace_string_in_file: 'edit', insert_edit_into_file: 'edit', apply_patch: 'edit',
+  grep_search: 'grep', semantic_search: 'grep', file_search: 'glob', list_dir: 'glob',
+  fetch_webpage: 'web_fetch', runSubagent: 'task', manage_todo_list: 'update_todo',
+};
+const responseText = (r) => (Array.isArray(r) ? r.map((p) => (typeof p === 'string' ? p : p?.value ?? p?.text ?? '')).filter(Boolean).join('\n') || undefined
+  : typeof r === 'string' ? r : r == null ? undefined : JSON.stringify(r));
+
+// run_in_terminal reports a non-zero exit in its text ("Command exited with code 1"),
+// or the CLI's "<exited with exit code 1>" marker; anything else counts as success.
+const exitCode = (text) => {
+  const m = /Command exited with code (-?\d+)|<exited with exit code (-?\d+)>|completed with exit code (-?\d+)>/.exec(text ?? '');
+  return m ? Number(m[1] ?? m[2] ?? m[3]) : undefined;
+};
+
+// The files an edit touched, and what it took out and put in, for the tools whose
+// input isn't one flat { filePath, oldString, newString }:
+//   multi_replace_string_in_file  { replacements: [{ filePath, oldString, newString }] }
+//   apply_patch                   { input: "*** Begin Patch\n*** Update File: …" }
+function vscodeEdits(name, args) {
+  if (name === 'multi_replace_string_in_file' && Array.isArray(args.replacements)) {
+    const reps = args.replacements.filter((r) => r && typeof r.filePath === 'string');
+    const files = [...new Set(reps.map((r) => r.filePath))].map((path) => ({ path, change: 'edit' }));
+    const patch = reps.filter((r) => typeof r.oldString === 'string' && typeof r.newString === 'string').map((r) => toPatch(r.oldString, r.newString)).filter(Boolean).join('\n');
+    return files.length ? { files, patch: patch || undefined } : null;
+  }
+  if (name === 'apply_patch' && typeof args.input === 'string') {
+    const files = [];
+    for (const [, op, path] of args.input.matchAll(/^\*\*\* (Add|Update|Delete) File: (.+?)\s*$/gm)) {
+      files.push({ path, change: op === 'Add' ? 'write' : op === 'Delete' ? 'delete' : 'edit' });
+    }
+    return files.length ? { files, patch: clipText(args.input, 8000) } : null;
+  }
+  return null;
+}
+
+/** A VS Code Copilot Chat hook event in the Copilot CLI's shape; CLI events pass through. */
+export function fromVSCode(e) {
+  if (e.sessionId || typeof e.session_id !== 'string') return e;
+  const args = e.tool_input && typeof e.tool_input === 'object' ? e.tool_input : {};
+  const edits = vscodeEdits(e.tool_name, args);
+  const output = responseText(e.tool_response);
+  const code = e.tool_name === 'run_in_terminal' ? exitCode(output) : undefined;
+  const toolArgs = {
+    ...args,
+    path: args.filePath ?? args.path,
+    description: args.explanation ?? args.description,
+    pattern: args.query ?? args.pattern,
+    old_str: args.oldString ?? args.old_str,
+    new_str: args.newString ?? args.new_str,
+    file_text: args.content ?? args.file_text,
+    // The first file names the step; all of them are kept in vscodeEdits below.
+    ...(edits && !args.filePath ? { path: edits.files[0].path } : {}),
+  };
+  return {
+    ...e,
+    hook_event_name: VSCODE_EVENTS[e.hook_event_name] ?? e.hook_event_name,
+    sessionId: e.session_id,
+    toolName: VSCODE_TOOLS[e.tool_name] ?? e.tool_name,
+    toolArgs,
+    vscodeEdits: edits ?? undefined,
+    toolResult: e.tool_response === undefined ? undefined : { resultType: code ? 'failure' : 'success', textResultForLlm: output },
+  };
+}
+
 /**
- * Fold one Copilot CLI hook event into the log.
+ * Fold one Copilot CLI (or VS Code Copilot Chat) hook event into the log.
  * Returns { entries, session, label, state? }.
  */
-export function applyCopilot(e, log) {
+export function applyCopilot(raw, log) {
+  const e = fromVSCode(raw);
   if (!e.sessionId) return { entries: [] };
   const session = `copilot:${e.sessionId}`;
   const label = folderName(e.cwd);
@@ -71,6 +143,11 @@ export function applyCopilot(e, log) {
     case 'postToolUseFailure': {
       const failed = e.hook_event_name === 'postToolUseFailure' || (e.toolResult?.resultType && e.toolResult.resultType !== 'success');
       const described = describeTool(e.toolName, e.toolArgs, e.cwd);
+      if (e.vscodeEdits) {
+        described.files = e.vscodeEdits.files;
+        if (e.vscodeEdits.patch) described.body = { ...described.body, patch: e.vscodeEdits.patch };
+        if (e.vscodeEdits.files.length > 1) described.title = `${described.title} +${e.vscodeEdits.files.length - 1} more`;
+      }
       const output = e.toolResult?.textResultForLlm;
       // Still running after its wait ("<command with shellId: 3 is still running after 30 seconds. …>"):
       // not a result yet. If nothing says how it ended, the turn's end marks it stopped.
@@ -120,7 +197,7 @@ export default {
   id: ID,
   name: 'GitHub Copilot CLI',
   via: 'Hooks (~/.copilot/hooks)',
-  how: 'Connect adds a hooks file of its own to Copilot CLI. It runs after each prompt and tool call and when the agent stops.',
+  how: 'Connect adds a hooks file of its own to Copilot CLI. It runs after each prompt and tool call and when the agent stops. VS Code’s Copilot Chat (agent mode) runs the same file.',
   docs: 'https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference',
   setup: 'connect',
   file,
