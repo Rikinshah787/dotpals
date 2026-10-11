@@ -78,7 +78,7 @@
       <div class="wrap hero-copy">
         <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New in 0.10: agents fix the tests they broke →</a></p>
         <h1 id="hero-title">See what your coding agent <em>actually</em> did.</h1>
-        <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and checks its work: what it changed, what it ran, and whether the tests really passed. When Claude breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.</p>
+        <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and checks its work: what it changed, what it ran, and whether the tests really passed. When Claude Code or Codex breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.</p>
 
         <div class="cta">
           <div class="install" data-copy="npx dotpals@latest setup">
@@ -122,7 +122,7 @@
             <li><b>Sent back, not stuck.</b> Finishing, committing or pushing while its tests fail, or after a change it didn’t test: back to work, at most twice per request. Then the pal tells you.</li>
             <li><b>Catches the faked pass.</b> Green only because a test lost an assertion, got a skip or now expects the wrong thing? dotpals sees it, even through <code>sed</code> or a script, sends Claude back once and tells you.</li>
             <li><b>Fair.</b> Tests that were failing before Claude changed anything are reported, not forced on it. “Run the tests and tell me” just reports. Projects without tests are never held up.</li>
-            <li><b>Your switch.</b> On by default for Claude Code. Turn it off from the gear in the notch, or in Settings. Unclear results can still get a second opinion from Laya (on your computer) or Jev (cloud), off by default.</li>
+            <li><b>Your switch.</b> On by default for Claude Code and Codex. Turn it off from the gear in the notch, or in Settings. Unclear results can still get a second opinion from Laya (on your computer) or Jev (cloud), off by default.</li>
           </ul>
           <p class="credit">The test-output rules build on <a href="https://github.com/ismaildasci/claude-referee">claude-referee</a> by Ismail Daşcı (MIT). <a href="https://huggingface.co/convaiinnovations/laya">Laya</a> is by Convai Innovations; <a href="https://typesafe.ai">Jev</a> is by TypeSafe.</p>
         </div>
@@ -311,7 +311,7 @@
           </article>
           <article class="acard">
             <h3>Codex</h3>
-            <p>Follows Codex's session logs, so the CLI, the IDE extension and the app all show up. Nothing to install on the Codex side.</p>
+            <p>Follows Codex's session logs, so the CLI, the IDE extension and the app all show up. Its hook makes it fix failing tests too, like Claude Code.</p>
             <p class="acard-foot">Picked up automatically</p>
           </article>
           <article class="acard acard-try">

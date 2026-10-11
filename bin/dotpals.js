@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compareVersions, findElectron, installElectron } from '../desktop/launch.js';
 import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
+import { codexHooks } from '../bridge/adapters/codex.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
@@ -270,9 +271,19 @@ async function setup(flags) {
     else warn(`Claude Code: couldn’t install the plugin (${out2.trim().split('\n').pop()})`);
   }
 
-  // 6. Codex: nothing to install, just check it's there.
-  if (existsSync(join(homedir(), '.codex'))) ok('Codex: found. Its sessions show up automatically');
-  else skip('Codex: not found (it will be picked up if you install it later)');
+  // 6. Codex: its sessions show up by themselves (its logs). The fix loop (Make agents fix failing
+  // tests) needs its hook, which Codex asks you to trust once.
+  if (!existsSync(join(homedir(), '.codex'))) skip('Codex: not found (it will be picked up if you install it later)');
+  else {
+    ok('Codex: found. Its sessions show up automatically');
+    if (flags.has('--no-codex') || loadConfig().agents?.codex === false) skip('Codex: no fix-loop hook (skipped)');
+    else {
+      try {
+        codexHooks.connect();
+        ok('Codex: added the fix loop’s hook to ~/.codex/hooks.json. In Codex, run /hooks and trust it once');
+      } catch (err) { warn(`Codex: couldn’t add the fix loop’s hook (${err.message})`); }
+    }
+  }
 
   // Asked for above: Claude's usage limits in the notch, and Laya for local test checks.
   if (prefs.statusline) statusline(new Set());
@@ -469,7 +480,8 @@ async function status() {
     for (const a of s.agents ?? []) {
       const state = !a.enabled ? 'off'
         : a.setup === 'connect' ? (a.connected ? `connected, last event ${ago(a.lastEventAt)}` : a.found ? 'found, not connected (dashboard → Agents)' : 'not found')
-        : a.found === false ? 'not found' : `last event ${ago(a.lastEventAt)}`;
+        : a.found === false ? 'not found'
+        : `last event ${ago(a.lastEventAt)}${a.connected === null || a.connected === undefined ? '' : a.connected ? ', fix-loop hook added' : ', no fix-loop hook (dashboard → Agents)'}`;
       console.log(`  ${a.name.padEnd(19)}${state}`);
     }
     console.log(`  History      ${s.historyFile} (${s.entries} entries)`);
@@ -577,7 +589,7 @@ switch (command) {
 
   setup       install, connect Claude Code and Codex, ask a few choices
               (your pal, the notch, test checks…) and start the pal
-              (--yes: keep the defaults; --no-claude, --no-login, --no-start, --no-path)
+              (--yes: keep the defaults; --no-claude, --no-codex, --no-login, --no-start, --no-path)
   start       open the floating pal
   dashboard   open the dashboard
   status      what's running and connected

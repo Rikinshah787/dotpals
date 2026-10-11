@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Codex fixes its failing tests too.** *Make agents fix failing tests* now works for Codex as it does for Claude Code: when a test run fails, Codex is told at once, with why; it's sent back if it tries to finish, commit or push while its tests fail or weren't run after its last change; tests changed to pass are caught; and the pal and the notch say "Codex". It goes through Codex's hooks, which answer the same way Claude Code's do: `dotpals setup` adds `node ".../bridge/loop-hook.js" codex` to `~/.codex/hooks.json` (backing up the original), and Codex runs it once you trust it (`/hooks` in Codex). **Add fix-loop hook** and **Remove fix-loop hook** on Codex's card in Dashboard → Agents do the same; `setup --no-codex` skips it. Codex's sessions still show up from its logs either way.
+
 ## [0.10.1] - 2026-10-05
 
 ### Fixed

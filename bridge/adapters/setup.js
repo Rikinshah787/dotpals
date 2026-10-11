@@ -29,6 +29,12 @@ export const hookCommand = (agent) => `node "${slash(join(appRoot(), 'bridge', '
 /** Is this one of our commands (from any install location)? */
 export const isOurs = (command, agent) => new RegExp(`[\\\\/]bridge[\\\\/]hook\\.js"?\\s+${agent}\\b`).test(String(command ?? ''));
 
+/** The fix loop's command for another agent: `node ".../bridge/loop-hook.js" codex`. */
+export const loopCommand = (agent) => `node "${slash(join(appRoot(), 'bridge', 'loop-hook.js'))}" ${agent}`;
+
+/** Is this the fix loop's command for that agent (from any install location)? */
+export const isOurLoop = (command, agent) => new RegExp(`[\\\\/]bridge[\\\\/]loop-hook\\.js"?\\s+${agent}\\b`).test(String(command ?? ''));
+
 export const backupPath = (file) => `${file}.dotpals-backup`;
 
 /**

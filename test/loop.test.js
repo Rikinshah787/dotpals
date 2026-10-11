@@ -531,10 +531,10 @@ test('Settings → fixLoop off: nothing is ever said or held up', async (t) => {
 });
 
 const loopHook = fileURLToPath(new URL('../bridge/loop-hook.js', import.meta.url));
-function runLoopHook(bridge, event, env = {}) {
+function runLoopHook(bridge, event, env = {}, args = []) {
   return new Promise((ok) => {
     const started = Date.now();
-    const child = spawn(process.execPath, [loopHook], { env: { ...process.env, DOTPALS_BRIDGE: bridge, ...env }, stdio: ['pipe', 'pipe', 'ignore'] });
+    const child = spawn(process.execPath, [loopHook, ...args], { env: { ...process.env, DOTPALS_BRIDGE: bridge, ...env }, stdio: ['pipe', 'pipe', 'ignore'] });
     let out = '';
     child.stdout.on('data', (c) => (out += c));
     child.on('exit', (code) => ok({ code, out, ms: Date.now() - started }));
@@ -569,4 +569,8 @@ test('loop-hook.js: fails open, skips commands that don’t matter, and prints t
   assert.equal((await runLoopHook(url, { ...testRun, tool_input: { command: 'ls' } })).out, '');
   assert.equal((await runLoopHook(url, { ...testRun, hook_event_name: 'PreToolUse', tool_input: { command: 'npm test' } })).out, '');
   assert.deepEqual(asked, ['/hook?loop=1', '/hook?loop=1']);
+  // Codex's (loop-hook.js codex): the bridge hears whose it is, and a new prompt counts too.
+  await runLoopHook(url, { hook_event_name: 'UserPromptSubmit', session_id: 's', prompt: 'fix it' }, {}, ['codex']);
+  await runLoopHook(url, testRun, {}, ['codex']);
+  assert.deepEqual(asked.slice(2), ['/hook?loop=1&agent=codex', '/hook?loop=1&agent=codex']);
 });

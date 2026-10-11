@@ -543,7 +543,7 @@
 
           <div class="card">
             <h2>Fix failing tests</h2>
-            <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code only. dotpals tells Claude when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
+            <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code, and Codex with its hook (Agents). dotpals tells the agent when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
           </div>
 
           <div class="card">
@@ -2031,7 +2031,9 @@ npm test && s=done || s=error; curl -s ${url} -d "{\\"session\\":\\"sh\\",\\"har
         } else {
           const file = r.file ? ` ${action === 'connect' ? 'Added to' : 'Removed from'} ${r.file}.` : '';
           const kept = r.backup && action === 'connect' ? ` The original is saved as ${baseName(r.backup)}.` : '';
-          notes.set(a.id, { cls: 'ok', text: `${action === 'connect' ? 'Connected.' : 'Disconnected.'}${file}${kept}${r.note ? ` ${r.note}` : ''}` });
+          // Codex keeps following its logs either way: only its fix-loop hook comes and goes.
+          const done = a.setup === 'connect' ? (action === 'connect' ? 'Connected.' : 'Disconnected.') : (action === 'connect' ? 'Hook added.' : 'Hook removed.');
+          notes.set(a.id, { cls: 'ok', text: `${done}${file}${kept}${r.note ? ` ${r.note}` : ''}` });
           if (r.agent && status) status.agents = status.agents.map((x) => (x.id === a.id ? r.agent : x));
         }
       } catch (err) {
@@ -2065,6 +2067,7 @@ npm test && s=done || s=error; curl -s ${url} -d "{\\"session\\":\\"sh\\",\\"har
       if (a.setup === 'connect') pills.append(pill(a.connected, a.connected ? 'Connected' : 'Not connected'));
       if (a.setup === 'plugin') pills.append(pill(!!a.lastEventAt, a.lastEventAt ? 'Plugin reporting' : 'Plugin not seen yet'));
       if (a.setup === 'auto') pills.append(pill(a.enabled && a.found, a.enabled ? (a.found ? 'Following its logs' : 'Nothing to follow yet') : 'Not following'));
+      if (a.setup === 'auto' && a.connected !== null) pills.append(pill(a.connected, a.connected ? 'Fixes failing tests' : 'No fix-loop hook'));
       pills.append(pill(!!a.lastEventAt, a.lastEventAt ? `Last event ${ago(a.lastEventAt)}` : 'No events yet'));
 
       const via = el('div', 'via'); via.append('Connects through ', el('b', '', a.via));
@@ -2091,6 +2094,14 @@ npm test && s=done || s=error; curl -s ${url} -d "{\\"session\\":\\"sh\\",\\"har
         const b = el('button', a.connected ? '' : 'primary', a.connected ? 'Disconnect' : 'Connect'); b.type = 'button';
         b.disabled = busy.has(a.id) || (!a.connected && !a.found);
         if (!a.connected && !a.found) b.title = `Install ${a.name} first`;
+        b.onclick = () => agentAction(a, a.connected ? 'disconnect' : 'connect');
+        actions.append(b);
+      } else if (a.connected !== null) {
+        // Codex: the fix loop's hook (Settings → Make agents fix failing tests), in ~/.codex/hooks.json.
+        const b = el('button', a.connected ? '' : 'primary', a.connected ? 'Remove fix-loop hook' : 'Add fix-loop hook'); b.type = 'button';
+        b.disabled = busy.has(a.id) || (!a.connected && !a.found);
+        if (!a.connected && !a.found) b.title = `Install ${a.name} first`;
+        b.title ||= a.connected ? 'Codex keeps showing up; it just won’t be sent back to fix failing tests' : 'So Codex is told when its tests fail, and sent back to fix them';
         b.onclick = () => agentAction(a, a.connected ? 'disconnect' : 'connect');
         actions.append(b);
       }

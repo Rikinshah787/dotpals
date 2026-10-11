@@ -10,9 +10,14 @@
 // bridge. It never starts anything and always exits 0: with no bridge, a slow one or
 // nothing to say, it prints nothing and Claude carries on as usual.
 // (The activity itself is reported by bridge/hook.js, which runs alongside, async.)
+//
+// Codex runs it too, as `loop-hook.js codex` (~/.codex/hooks.json): its hooks answer the same
+// way. Codex's activity comes from its logs, so it also sends UserPromptSubmit here: a new
+// request, and the loop counts again.
 import { ships, stepType } from './ui/story.js';
 
 const bridge = process.env.DOTPALS_BRIDGE || `http://127.0.0.1:${Number(process.env.DOTPALS_PORT) || 5175}`;
+const agent = /^[a-z][a-z0-9-]*$/.test(process.argv[2] ?? '') ? process.argv[2] : null;
 // A test run's result may go to the checker first, which takes up to 5 s; at Stop the bridge
 // waits up to 1 s for the last steps to be reported.
 const WAIT = { PostToolUse: 6500, PostToolUseFailure: 6500, Stop: 3000 };
@@ -26,9 +31,9 @@ process.stdin.on('end', async () => {
     const name = event.hook_event_name;
     const command = String(event.tool_input?.command ?? '');
     // Before: a commit, a push, a PR, a publish (story.js ships). After: a test run.
-    const worth = name === 'Stop' || (name === 'PreToolUse' ? ships(command) : stepType({ kind: 'run', body: { command } }) === 'test');
+    const worth = name === 'Stop' || name === 'UserPromptSubmit' || (name === 'PreToolUse' ? ships(command) : stepType({ kind: 'run', body: { command } }) === 'test');
     if (event.session_id && worth) {
-      const res = await fetch(`${bridge}/hook?loop=1`, {
+      const res = await fetch(`${bridge}/hook?loop=1${agent ? `&agent=${agent}` : ''}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body,

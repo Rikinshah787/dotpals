@@ -105,7 +105,7 @@ node ~/.dotpals/app/bin/dotpals.js &lt;command&gt;</code></pre>
 </table></div>
 
 <h2 id="setup">setup</h2>
-<pre><code>dotpals setup [--no-claude] [--no-login] [--no-start]</code></pre>
+<pre><code>dotpals setup [--no-claude] [--no-codex] [--no-login] [--no-start]</code></pre>
 <p>Installs or updates dotpals and starts it. Run it again any time to update. In order, it:</p>
 <ol>
   <li>checks that Node is version 20 or newer, and stops if it isn't,</li>
@@ -120,6 +120,7 @@ node ~/.dotpals/app/bin/dotpals.js &lt;command&gt;</code></pre>
   <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
   <tbody>
     <tr><td><code>--no-claude</code></td><td>Skip the Claude Code plugin.</td></tr>
+    <tr><td><code>--no-codex</code></td><td>Skip Codex's fix-loop hook.</td></tr>
     <tr><td><code>--no-login</code></td><td>Don't turn on <em>Open when I log in</em>.</td></tr>
     <tr><td><code>--no-start</code></td><td>Don't start the pal or open the dashboard.</td></tr>
   </tbody>

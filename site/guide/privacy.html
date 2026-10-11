@@ -122,8 +122,8 @@
 </ul>
 
 <h2 id="what-it-tells-agents">What dotpals tells your agents</h2>
-<p>Two things, both only to Claude Code, on your computer.</p>
-<p><strong><a href="features.html#fix-loop">Make agents fix failing tests</a></strong> (on by default): when a test run fails, or Claude tries to finish or commit while its tests fail, it gets a short note about its own session, as extra context: the test counts and why they failed, read from the output, and what to do next. Like anything in Claude Code's context, it goes to the model Claude Code uses. Turn it off under the notch's gear or in Settings.</p>
+<p>Two things, on your computer: the first to Claude Code and Codex, the second to Claude Code only.</p>
+<p><strong><a href="features.html#fix-loop">Make agents fix failing tests</a></strong> (on by default): when a test run fails, or the agent tries to finish or commit while its tests fail, it gets a short note about its own session, as extra context: the test counts and why they failed, read from the output, and what to do next. Codex gets it once you trust its hook. Like anything in the agent's context, it goes to the model the agent uses. Turn it off under the notch's gear or in Settings.</p>
 <p><strong><a href="features.html#share">Share with your agents</a></strong> (off by default): each Claude Code session gets a short note, as extra context you don't see in the chat, about what your other agents did in the same project in the last two hours: the files they changed, their test results, what they were asked, and whether they're still working. dotpals hands the note only to Claude Code, on your computer. From there it's part of the conversation, so Claude Code sends it to the model it uses, like everything else in its context. Leave the setting off if what one session was asked shouldn't reach another.</p>
 
 <h2 id="test-checker">Double-checking test results</h2>
@@ -140,7 +140,7 @@
 <ul>
   <li><strong>Connect</strong> on the Agents page adds one command, or a plugin file, to that agent's config. It backs up the original first (as <code>&lt;file&gt;.dotpals-backup</code>), merges instead of overwriting, writes the file in one go so it's never half-written, and refuses to touch a file it can't read. <strong>Disconnect</strong> takes out only what dotpals added.</li>
   <li><strong><code>dotpals statusline</code></strong> sets your Claude Code status line, backs up <code>~/.claude/settings.json</code>, keeps your previous status line working, and <code>--off</code> puts it back.</li>
-  <li><strong>Setup</strong> adds the Claude Code plugin through Claude Code's own <code>claude plugin</code> commands, and turns on <em>Open when I log in</em> (skip them with <code>--no-claude</code> and <code>--no-login</code>).</li>
+  <li><strong>Setup</strong> adds the Claude Code plugin through Claude Code's own <code>claude plugin</code> commands, adds Codex's fix-loop hook to <code>~/.codex/hooks.json</code> (backing up the original), and turns on <em>Open when I log in</em> (skip them with <code>--no-claude</code>, <code>--no-codex</code> and <code>--no-login</code>).</li>
 </ul>
 <p>dotpals never changes what an agent is allowed to do. With Cursor and GitHub Copilot CLI it uses only hooks that watch, never the ones that can approve or block. The OpenCode plugin is written so it can't throw an error into OpenCode. The hook command always finishes quickly and successfully, whether or not dotpals is running.</p>
 
