@@ -552,6 +552,12 @@ test('claimCheck: what the summary says it did that the request didn’t', async
   const r = readiness({ steps: [edit('src/cart.js'), ok()], end: { kind: 'done', summary: 'Added tests for the empty cart and committed it.' } });
   assert.equal(r.ready, false);
   assert.deepEqual(r.problems, ['Said it added tests, but no test file changed', 'Said it committed, but no commit ran']);
+  // A whole session's steps (the MCP tools): an earlier request's commit isn't this request's.
+  const end = { kind: 'done', summary: 'Committed the fix.' };
+  const earlier = [edit('src/a.js'), ok(), run('git commit -m a')];
+  const last = [edit('src/b.js'), ok()];
+  assert.deepEqual(readiness({ steps: [...earlier, ...last], end }).problems, []);
+  assert.deepEqual(readiness({ steps: [...earlier, ...last], end }, { claims: { steps: last, end } }).problems, ['Said it committed, but no commit ran']);
   const failing = readiness({ steps: [edit('src/cart.js'), bad()], end: { kind: 'done', summary: 'All tests pass.' } });
   assert.equal(failing.problems.filter((p) => /^Said it/.test(p)).length, 0);
 });

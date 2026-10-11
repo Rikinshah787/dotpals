@@ -1606,8 +1606,10 @@ export const claimLine = (c) => `Said it ${c.claim}, but ${c.found}`;
  * Is a finished request that changed code ready to merge? The checks a reviewer would make:
  *   { ready, checks: [{ ok, text }], problems: [text] }, or null (still working, or no code changed).
  * Only tests the agent ran count: dotpals can't see the ones you run yourself, or CI.
+ * `claims`: the request whose summary is checked against what it did (claimCheck), when
+ * `turn` holds more steps than that request's own (a whole session's, for the MCP tools).
  */
-export function readiness(turn) {
+export function readiness(turn, { claims = turn } = {}) {
   // Code changed: through a file tool, or (git says) through a command.
   const truth = gitTruth(turn);
   const byGit = truth?.files.some((f) => !NOT_CODE.test(f.path));
@@ -1647,7 +1649,7 @@ export function readiness(turn) {
   checks.push({ ok: !risky.length, text: risky.length ? risky[0].text : 'Nothing risky' });
   if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
   // What it said it did and didn't. "The tests pass" isn't repeated: the test checks above already say why not.
-  for (const c of claimCheck(turn)) if (c.rule !== 'tests-pass') checks.push({ ok: false, text: claimLine(c) });
+  for (const c of claimCheck(claims)) if (c.rule !== 'tests-pass') checks.push({ ok: false, text: claimLine(c) });
   const problems = checks.filter((c) => !c.ok).map((c) => c.text);
   return { ready: !problems.length, checks, problems };
 }
