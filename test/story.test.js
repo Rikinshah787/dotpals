@@ -503,6 +503,59 @@ test('whyStopped: why a request ended, in plain words', async () => {
   assert.equal(whyStopped({ steps: [edit('src/a.js')], end: { kind: 'done', summary: 'Done.' } }).kind, 'done');
 });
 
+test('claimCheck: what the summary says it did that the request didn’t', async () => {
+  const { claimCheck, claimLine, readiness } = await import('../bridge/ui/story.js');
+  const ok = (cmd = 'npm test') => ({ ...run(cmd), body: { command: cmd, output: 'Tests: 48 passed' } });
+  const bad = (cmd = 'npm test') => ({ ...run(cmd, 'failed'), body: { command: cmd, output: 'Tests: 1 failed, 47 passed' } });
+  const said = (summary, steps) => claimCheck({ steps, end: { kind: 'done', summary } });
+  const rules = (summary, steps) => said(summary, steps).map((c) => c.rule);
+
+  // Tests it says it added.
+  assert.deepEqual(rules('Fixed the rounding and added tests for the empty cart.', [edit('src/cart.js'), ok()]), ['tests-added']);
+  assert.deepEqual(rules('Added a regression test for the empty cart.', [edit('src/cart.js'), edit('test/cart.test.js'), ok()]), []);
+  assert.deepEqual(rules('Wrote two unit tests.', [edit('src/__tests__/cart.js'), ok()]), []);
+  // A file it says it fixed.
+  const file = said('Fixed the null check in `src/auth.ts`.', [edit('src/session.ts'), ok()]);
+  assert.equal(file.length, 1);
+  assert.equal(claimLine(file[0]), 'Said it changed `auth.ts`, but no change to it was seen');
+  assert.equal(file[0].quote, 'Fixed the null check in `src/auth.ts`.');
+  assert.deepEqual(rules('Updated auth.ts and session.ts.', [edit('src/auth.ts'), edit('src/session.ts'), ok()]), []);
+  assert.deepEqual(rules('Updated cart.js to match pricing.js.', [edit('src/cart.js'), ok()]), []); // pricing.js is what it matched, not what it changed
+  assert.deepEqual(rules('Refactored the Node.js entry in app.js.', [edit('app.js'), ok()]), []);
+  // Changed by a command: git saw it.
+  assert.deepEqual(claimCheck({ steps: [run('npm run gen')], end: { kind: 'done', summary: 'Updated schema.json.', git: { files: [{ path: 'schema.json', change: 'edit' }] } } }), []);
+  // Tests it says pass.
+  assert.deepEqual(rules('All tests pass.', [edit('src/a.js'), bad()]), ['tests-pass']);
+  assert.deepEqual(rules('All tests pass.', [edit('src/a.js')]), ['tests-pass']);
+  assert.equal(said('The tests are passing.', [ok(), edit('src/a.js')])[0].found, '`a.js` changed after the last test run');
+  assert.deepEqual(rules('All tests pass.', [edit('src/a.js'), ok()]), []);
+  // Commit and push.
+  assert.deepEqual(rules('Committed and pushed the fix.', [edit('src/a.js'), ok()]), ['commit', 'push']);
+  assert.deepEqual(rules('Committed and pushed the fix.', [edit('src/a.js'), ok(), run('git commit -m fix && git push')]), []);
+  assert.deepEqual(rules('Committed the fix.', [edit('src/a.js'), ok(), run('git commit -m fix', 'failed')]), ['commit']);
+
+  // Quiet when it isn't a claim of work done: negated, planned, offered, asked.
+  for (const s of ['I didn’t add tests, since there is no test setup.', 'No tests were added.', 'I’ll add tests for this next.',
+    'You may want to add tests for the empty cart.', 'Should I commit and push this?', 'I haven’t committed anything.',
+    'Let me know if you want me to update auth.ts too.', 'Want me to commit this?']) {
+    assert.deepEqual(said(s, [edit('src/cart.js'), ok()]), [], s);
+  }
+  // An honest summary, Markdown and all.
+  assert.deepEqual(said('**Fixed** the VAT rounding in `billing.ts`.\n\n- Added a test in `billing.test.ts`\n- All 48 tests pass\n- Committed as `fix: VAT`',
+    [edit('src/billing.ts'), edit('src/billing.test.ts'), ok(), run('git commit -m "fix: VAT"')]), []);
+  // Nothing to compare with, or not finished: nothing to say.
+  assert.deepEqual(said('Added tests and committed.', []), []);
+  assert.deepEqual(claimCheck({ steps: [edit('src/a.js')], end: null }), []);
+  assert.deepEqual(claimCheck({ steps: [edit('src/a.js')], end: { kind: 'error', summary: 'Committed.' } }), []);
+
+  // Ready to merge says so, without repeating the tests' own check.
+  const r = readiness({ steps: [edit('src/cart.js'), ok()], end: { kind: 'done', summary: 'Added tests for the empty cart and committed it.' } });
+  assert.equal(r.ready, false);
+  assert.deepEqual(r.problems, ['Said it added tests, but no test file changed', 'Said it committed, but no commit ran']);
+  const failing = readiness({ steps: [edit('src/cart.js'), bad()], end: { kind: 'done', summary: 'All tests pass.' } });
+  assert.equal(failing.problems.filter((p) => /^Said it/.test(p)).length, 0);
+});
+
 test('readiness: ready to merge only when tests ran after the last change, passed, and nothing is risky', async () => {
   const { readiness } = await import('../bridge/ui/story.js');
   const ok = (cmd = 'npm test') => ({ ...run(cmd), body: { command: cmd, output: 'Tests: 48 passed' } });
