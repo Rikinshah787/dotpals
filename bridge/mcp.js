@@ -122,7 +122,11 @@ const titleOf = (list, args) => (args.session ? named(list[0]) : list[0].label ?
  * the whole session counts (tests run in a later request cover an earlier change), and a
  * request still going is judged as if it stopped now (check_my_work asks in the middle).
  */
-const review = (s) => readiness({ ...s.turn, steps: s.turns.flatMap((t) => t.steps), end: { ...s.turn.end, kind: 'done' } });
+// What the last request said it did is checked against that request alone: a commit an earlier one made isn't this one's.
+const review = (s) => {
+  const end = { ...s.turn.end, kind: 'done' };
+  return readiness({ ...s.turn, steps: s.turns.flatMap((t) => t.steps), end }, { claims: { ...s.turn, end } });
+};
 
 /** The last test run in these steps, with testState's verdict on it; null while it runs, or when none ran. */
 const lastRun = (steps) => { const t = testState(steps); return t?.last && t.state !== 'running' ? t : null; };

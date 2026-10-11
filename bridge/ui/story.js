@@ -1518,12 +1518,101 @@ export function weakenedTests(steps) {
   return what.length ? { files, text: `${what.join(', ')} in ${list(files)}` } : null;
 }
 
+// -- What the agent said it did, against what it did ------------------------------------
+
+// A sentence that isn't a claim of work done: a negation before the claim ("didn't add
+// tests", "no files changed"), or a plan, an offer or a suggestion ("I'll add tests next").
+const NEGATED = /\b(?:not|no|never|none|nothing|without|didn['’]t|did\s+not|haven['’]t|have\s+not|hasn['’]t|has\s+not|wasn['’]t|weren['’]t|couldn['’]t|can['’]t|cannot|won['’]t|unable)\b/i;
+const NOT_DONE = /\b(?:I['’]ll|I\s+will|we['’]ll|we\s+will|will\s+(?:now|then|need)|next,?\s+I|going\s+to|plan\s+to|want\s+me\s+to|would\s+you\s+like|shall\s+I|you\s+(?:can|could|may|might|should|need\s+to)|consider|if\s+you|let\s+me\s+know|to-?do|still\s+(?:need|have)\s+to|left\s+to\s+do)\b/i;
+// "Added tests for…", "wrote a regression test", "updated the unit tests", "tests were added".
+const SAID_TESTS = /\b(?:added|wrote|written|created|updated|extended)\s+(?:(?:a|an|the|two|three|four|\d+|new|some|more|few|unit|regression|integration|e2e|end-to-end|missing|matching|edge-case|\w+ing)\s+){0,3}tests?\b|\btests?\s+(?:were|was|have\s+been|has\s+been)\s+(?:added|written|updated|extended)\b/i;
+// "All tests pass", "the tests are passing", "48 tests passed", "all green".
+const SAID_PASS = /\b(?:all\s+(?:\d+\s+)?(?:the\s+)?tests\s+(?:now\s+|still\s+)?pass(?:es|ed|ing)?|tests?\s+(?:(?:are|all|now|still)\s+)*(?:pass(?:es|ed|ing)?|green)|all\s+green|test\s+suite\s+(?:passes|passed|is\s+green))\b/i;
+// "Fixed the null check in auth.ts", "updated `src/app.tsx` and `README.md`".
+const SAID_CHANGE = /\b(?:changed|fixed|updated|edited|modified|refactored|rewrote|rewritten|patched|tweaked|adjusted)\b/i;
+// Where the files it names stop being the ones it changed: "…by reading config.json", "…to match b.ts".
+const CHANGE_ENDS = /\b(?:by|using|via|from|because|since|based|according|like|reading|following|than|instead\s+of|same\s+as|to\s+(?:use|call|import|match|mirror|read)|and\s+(?:ran|read|checked|looked))\b/i;
+const FILE_NAMED = /`?((?:[\w.-]+[\\/])*[\w-][\w.-]*\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|kt|swift|cs|c|cc|cpp|h|hpp|css|scss|html?|vue|svelte|sh|ps1|ya?ml|toml|json|sql|md|txt))`?(?![\w/\\-]|\.\w)/gi;
+// Library names that look like files.
+const NOT_A_FILE = /^(?:node|next|nuxt|vue|react|express|three|chart|d3|deno|bun|nest|ember|backbone|angular|socket\.io|moment|day|p5|anime|alpine|solid|svelte)\.js$/i;
+const SAID_COMMIT = /\b(?:committed|created\s+a\s+commit|made\s+a\s+commit)\b/i;
+const SAID_PUSH = /\bpushed\b(?=\s*(?:$|[.,;:!)]|\s+(?:it|them|this|that|everything|upstream|to\b|the\s+(?:branch|changes?|commits?|fix|work))))/i;
+
+/** The summary's sentences, Markdown emphasis and list markers taken off. */
+const sentencesOf = (text) => String(text ?? '').replace(/\*\*|__/g, '').split(/\n+/)
+  .flatMap((line) => line.replace(/^\s*(?:[-*+>]|\d+[.)])\s+/, '').split(/(?<=[.!?])\s+(?=[A-Z`])/))
+  .map((s) => s.trim()).filter(Boolean);
+
+/** A claim of work done, at `m` in `sentence`: not negated before it, not a plan or a question. */
+const claims = (sentence, m) => !!m && !/\?\s*$/.test(sentence) && !NOT_DONE.test(sentence)
+  && !NEGATED.test(sentence.slice(0, m.index + m[0].length)) && !CONDITION.test(sentence.slice(0, m.index));
+// A claim under a condition isn't one: "…keeps blocking until the tests pass", "once it's committed".
+const CONDITION = /\b(?:until|unless|once|when|whenever|if|before|after|so\s+that|make\s+sure|ensure|keeps?|blocks?|blocking|waits?|waiting)\b/i;
+
+/**
+ * What the agent's closing summary says it did that the request didn't: tests it says it
+ * added when no test file changed, a file it says it fixed that nothing changed, tests it
+ * says pass when the last run failed or none ran after the last change, a commit or push
+ * that never ran. [{ rule, claim, found, quote }], empty when there's nothing to catch.
+ * Rules only, in English, and quiet when unsure: a sentence that negates the claim, plans
+ * it or asks about it isn't a claim.
+ */
+export function claimCheck(turn) {
+  if (!turn.end || turn.end.kind !== 'done' || !turn.end.summary) return [];
+  const truth = gitTruth(turn);
+  // Nothing to compare with: an agent that reports no steps, and no git snapshot.
+  if (!turn.steps.length && !truth) return [];
+  const norm = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+  const changed = [...new Set([
+    ...turn.steps.filter((e) => e.status !== 'failed').flatMap((e) => (e.files ?? []).filter((f) => f.change !== 'read').map((f) => f.path)),
+    ...turn.steps.flatMap(commandEdits),
+    ...(truth?.files ?? []).map((f) => f.path),
+  ].map(norm))];
+  // The file it names, or a longer path to it ("auth.ts" is src/auth.ts); not a shorter one
+  // ("lib/components/auth.ts" isn't components/auth.ts).
+  const touched = (name) => changed.some((p) => p === name || p.endsWith(`/${name}`));
+  // A command that ran it, not one that mentions it (`grep "git commit" log.txt`).
+  const ran = (re) => turn.steps.some((e) => e.kind === 'run' && e.status !== 'failed' && !running(e) && runs(commandOf(e), re));
+  const out = [];
+  const add = (rule, claim, found, sentence) => {
+    if (!out.some((c) => c.claim === claim && c.found === found)) out.push({ rule, claim, found, quote: sentence.length > 120 ? `${sentence.slice(0, 119)}…` : sentence });
+  };
+  for (const s of sentencesOf(turn.end.summary)) {
+    if (claims(s, SAID_TESTS.exec(s)) && !changed.some((p) => isTestFile(p))) add('tests-added', 'added tests', 'no test file changed', s);
+    const pass = SAID_PASS.exec(s);
+    if (claims(s, pass)) {
+      const t = testState(turn.steps);
+      const last = lastTestVerdict(turn.steps);
+      const found = !last ? 'no test ran' : last.state === 'failed' ? 'the last test run failed'
+        : t?.state === 'stale' ? `${fileList(t.since)} changed after the last test run` : null;
+      if (found) add('tests-pass', 'the tests pass', found, s);
+    }
+    const change = SAID_CHANGE.exec(s);
+    if (claims(s, change) && !truth?.tooMany) {
+      const after = s.slice(change.index + change[0].length);
+      const cut = CHANGE_ENDS.exec(after);
+      for (const [, name] of (cut ? after.slice(0, cut.index) : after).matchAll(FILE_NAMED)) {
+        if (NOT_A_FILE.test(name) || touched(norm(name))) continue;
+        add('file', `changed ${code(baseName(name))}`, 'no change to it was seen', s);
+      }
+    }
+    if (claims(s, SAID_COMMIT.exec(s)) && !ran(COMMIT) && !truth?.committed) add('commit', 'committed', 'no commit ran', s);
+    if (claims(s, SAID_PUSH.exec(s)) && !ran(/\bgit\s+push\b/)) add('push', 'pushed', 'no push ran', s);
+  }
+  return out;
+}
+
+/** "Said it added tests, but no test file changed", for a card. */
+export const claimLine = (c) => `Said it ${c.claim}, but ${c.found}`;
+
 /**
  * Is a finished request that changed code ready to merge? The checks a reviewer would make:
  *   { ready, checks: [{ ok, text }], problems: [text] }, or null (still working, or no code changed).
  * Only tests the agent ran count: dotpals can't see the ones you run yourself, or CI.
+ * `claims`: the request whose summary is checked against what it did (claimCheck), when
+ * `turn` holds more steps than that request's own (a whole session's, for the MCP tools).
  */
-export function readiness(turn) {
+export function readiness(turn, { claims = turn } = {}) {
   // Code changed: through a file tool, or (git says) through a command.
   const truth = gitTruth(turn);
   const byGit = truth?.files.some((f) => !NOT_CODE.test(f.path));
@@ -1562,6 +1651,8 @@ export function readiness(turn) {
   const risky = flags(turn.steps).filter((f) => f.level === 'warn');
   checks.push({ ok: !risky.length, text: risky.length ? risky[0].text : 'Nothing risky' });
   if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
+  // What it said it did and didn't. "The tests pass" isn't repeated: the test checks above already say why not.
+  for (const c of claimCheck(claims)) if (c.rule !== 'tests-pass') checks.push({ ok: false, text: claimLine(c) });
   const problems = checks.filter((c) => !c.ok).map((c) => c.text);
   return { ready: !problems.length, checks, problems };
 }
