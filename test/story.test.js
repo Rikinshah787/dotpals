@@ -533,6 +533,11 @@ test('claimCheck: what the summary says it did that the request didn’t', async
   assert.deepEqual(rules('Committed and pushed the fix.', [edit('src/a.js'), ok()]), ['commit', 'push']);
   assert.deepEqual(rules('Committed and pushed the fix.', [edit('src/a.js'), ok(), run('git commit -m fix && git push')]), []);
   assert.deepEqual(rules('Committed the fix.', [edit('src/a.js'), ok(), run('git commit -m fix', 'failed')]), ['commit']);
+  // A command that only mentions it didn't run it.
+  assert.deepEqual(rules('Committed and pushed the fix.', [edit('src/a.js'), ok(), run('grep -n "git commit" notes.txt; echo git push')]), ['commit', 'push']);
+  assert.deepEqual(rules('Committed the fix.', [edit('src/a.js'), ok(), run('cd app && git commit -m fix')]), []);
+  // A longer path than the one changed is another file.
+  assert.deepEqual(rules('Fixed `lib/components/auth.ts`.', [edit('components/auth.ts'), ok()]), ['file']);
 
   // Quiet when it isn't a claim of work done: negated, planned, offered, asked.
   for (const s of ['I didn’t add tests, since there is no test setup.', 'No tests were added.', 'I’ll add tests for this next.',

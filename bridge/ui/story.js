@@ -1568,8 +1568,11 @@ export function claimCheck(turn) {
     ...turn.steps.flatMap(commandEdits),
     ...(truth?.files ?? []).map((f) => f.path),
   ].map(norm))];
-  const touched = (name) => changed.some((p) => p === name || p.endsWith(`/${name}`) || name.endsWith(`/${p}`));
-  const ran = (re) => turn.steps.some((e) => e.kind === 'run' && e.status !== 'failed' && !running(e) && re.test(commandOf(e)));
+  // The file it names, or a longer path to it ("auth.ts" is src/auth.ts); not a shorter one
+  // ("lib/components/auth.ts" isn't components/auth.ts).
+  const touched = (name) => changed.some((p) => p === name || p.endsWith(`/${name}`));
+  // A command that ran it, not one that mentions it (`grep "git commit" log.txt`).
+  const ran = (re) => turn.steps.some((e) => e.kind === 'run' && e.status !== 'failed' && !running(e) && runs(commandOf(e), re));
   const out = [];
   const add = (rule, claim, found, sentence) => {
     if (!out.some((c) => c.claim === claim && c.found === found)) out.push({ rule, claim, found, quote: sentence.length > 120 ? `${sentence.slice(0, 119)}…` : sentence });
