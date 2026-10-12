@@ -5,7 +5,8 @@
 //
 // Closing hides it to the tray; Ctrl+Alt+P (Cmd+Option+P on macOS) shows or
 // hides it from anywhere. Quit from the tray menu.
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, systemPreferences, Tray } from 'electron';
+import { execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,9 @@ const SHORTCUT = 'CommandOrControl+Alt+P';
 // Talk (in the notch): your own (talkShortcut in the settings), else the first of these that's free.
 // Not Ctrl+Alt+Space: the Claude app uses it.
 const TALK_SHORTCUTS = ['CommandOrControl+Shift+Space', 'CommandOrControl+Alt+T', 'CommandOrControl+Alt+Shift+T'];
+// Dictate: your own (dictateShortcut in the settings), else the first of these that's free.
+// Control, not Command, on macOS too: ⌘⌥D hides the Dock.
+const DICTATE_SHORTCUTS = ['Control+Alt+D', 'Control+Alt+Shift+D'];
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
 app.setName('dotpals');
@@ -90,6 +94,7 @@ if (!app.requestSingleInstanceLock()) {
     handleArgs(process.argv);
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
     registerTalkShortcut();
+    registerDictateShortcut();
     watchCursor();
   });
 
@@ -150,6 +155,125 @@ if (!app.requestSingleInstanceLock()) {
     }
   }
 
+  // -- Dictate: say it, and it's typed where your cursor is ------------------------------------
+  // The shortcut shows a pill at the bottom of the screen (bridge/dictate.html). It listens with
+  // Whisper on this computer, cleans up what you said (bridge/ui/dictation.js), and the words are
+  // pasted into the app you're in; your clipboard comes back after. The pill never takes focus or
+  // clicks. The shortcut again finishes at once; Esc throws it away.
+  let dictate = null;
+  let dictateShortcut = null; // the one that's registered
+  let dictateEsc = false;     // Esc is ours while it listens
+  const DICTATE_SIZE = { width: 520, height: 96 };
+  function placeDictate() {
+    const a = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea; // the screen you're working on
+    dictate?.setBounds({ x: Math.round(a.x + (a.width - DICTATE_SIZE.width) / 2), y: a.y + a.height - DICTATE_SIZE.height - 12, ...DICTATE_SIZE });
+  }
+  function createDictate() {
+    dictate = new BrowserWindow({
+      ...DICTATE_SIZE, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+      alwaysOnTop: true, resizable: false, movable: false, maximizable: false, fullscreenable: false,
+      focusable: false, skipTaskbar: true, show: false, title: 'dotpals dictate',
+      type: process.platform === 'darwin' ? 'panel' : undefined,
+      webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), sandbox: true, contextIsolation: true, autoplayPolicy: 'no-user-gesture-required' },
+    });
+    dictate.setAlwaysOnTop(true, 'screen-saver');
+    dictate.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    dictate.setIgnoreMouseEvents(true);
+    dictate.on('closed', () => { dictate = null; releaseDictateEsc(); });
+    const key = encodeURIComponent((dictateShortcut ?? '').replace('Control', 'Ctrl'));
+    dictate.loadURL(`${bridge}/bridge/dictate.html?key=${key}`).catch(() => dictate?.loadFile(fileURLToPath(new URL('../bridge/dictate.html', import.meta.url)), { query: { key } }));
+  }
+  function dictateKey() {
+    if (!dictate || dictate.isDestroyed()) createDictate();
+    pasteKeys.warm();
+    placeDictate();
+    dictate.showInactive();
+    const go = () => dictate?.webContents.send('dictate:key', 'toggle');
+    if (dictate.webContents.isLoading()) dictate.webContents.once('did-finish-load', go); else go();
+  }
+  function registerDictateShortcut() {
+    const own = loadConfig().dictateShortcut;
+    for (const key of [...(own ? [own] : []), ...DICTATE_SHORTCUTS]) {
+      try { if (globalShortcut.register(key, dictateKey)) { dictateShortcut = key; return; } } catch {}
+      console.warn(`[dotpals] ${key} is taken by another app`);
+    }
+  }
+  function releaseDictateEsc() {
+    if (!dictateEsc) return;
+    globalShortcut.unregister('Escape');
+    dictateEsc = false;
+  }
+  ipcMain.on('dictate:state', (event, state) => {
+    if (!dictate || event.sender !== dictate.webContents) return;
+    // Esc cancels while it listens and writes (unless the notch has it right now).
+    if (state === 'listening' && !dictateEsc && !globalShortcut.isRegistered('Escape')) {
+      try { dictateEsc = globalShortcut.register('Escape', () => dictate?.webContents.send('dictate:key', 'cancel')); } catch {}
+    }
+    if (state === 'hide') { releaseDictateEsc(); dictate.hide(); }
+  });
+  ipcMain.handle('dictate:type', async (event, text) => {
+    if (!dictate || event.sender !== dictate.webContents || typeof text !== 'string' || !text.trim()) return { ok: false };
+    return typeOut(text.slice(0, 20_000));
+  });
+
+  /**
+   * Type `text` into the app you're in: onto the clipboard, the system's paste keys, then
+   * your clipboard back (its text, formatting and picture; files copied in Explorer or
+   * Finder aren't put back). If the keys can't be sent, the words stay on the clipboard.
+   */
+  async function typeOut(text) {
+    const saved = { text: clipboard.readText(), html: clipboard.readHTML(), rtf: clipboard.readRTF(), image: clipboard.readImage() };
+    clipboard.writeText(text);
+    try { await pasteKeys.send(); }
+    catch (err) { return { ok: false, copied: true, error: err.message }; }
+    // Some apps read the clipboard a moment after the keys; and don't undo a copy you made since.
+    setTimeout(() => {
+      if (clipboard.readText() !== text) return;
+      const back = {};
+      if (saved.text) back.text = saved.text;
+      if (saved.html) back.html = saved.html;
+      if (saved.rtf) back.rtf = saved.rtf;
+      if (!saved.image.isEmpty()) back.image = saved.image;
+      if (Object.keys(back).length) clipboard.write(back); else clipboard.clear();
+    }, 450);
+    return { ok: true };
+  }
+  // The paste keys. Windows: a PowerShell kept running (about 0.4 s to start, then instant),
+  // which says when the keys went out. macOS: osascript, once dotpals is allowed under
+  // Privacy & Security → Accessibility. Linux: xdotool.
+  const pasteKeys = {
+    proc: null,
+    waiting: [],
+    warm() { if (process.platform === 'win32') this.windows(); },
+    windows() {
+      if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
+      const p = this.proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+      p.on('error', () => {});
+      p.on('exit', () => { if (this.proc === p) this.proc = null; for (const w of this.waiting.splice(0)) w.fail(new Error('the paste helper stopped')); });
+      p.stdin.on('error', () => {});
+      p.stdout.on('data', (d) => { for (const _ of String(d).match(/pasted/g) ?? []) this.waiting.shift()?.ok(); });
+      p.stdin.write('Add-Type -AssemblyName System.Windows.Forms\n');
+      return p;
+    },
+    send() {
+      if (process.platform === 'darwin') {
+        if (!systemPreferences.isTrustedAccessibilityClient(false)) {
+          systemPreferences.isTrustedAccessibilityClient(true); // asks you
+          return Promise.reject(new Error('allow dotpals under Privacy & Security → Accessibility'));
+        }
+        return run('osascript', ['-e', 'tell application "System Events" to keystroke "v" using command down']);
+      }
+      if (process.platform !== 'win32') return run('xdotool', ['key', '--clearmodifiers', 'ctrl+v']).catch(() => { throw new Error('install xdotool to type'); });
+      return new Promise((ok, fail) => {
+        const timer = setTimeout(() => fail(new Error('the paste took too long')), 4000);
+        this.waiting.push({ ok: () => { clearTimeout(timer); ok(); }, fail: (e) => { clearTimeout(timer); fail(e); } });
+        this.windows().stdin.write("[System.Windows.Forms.SendKeys]::SendWait('^v'); [Console]::Out.WriteLine('pasted')\n");
+      });
+    },
+  };
+  const run = (file, args) => new Promise((ok, fail) => execFile(file, args, { timeout: 4000 }, (err) => (err ? fail(err) : ok())));
+  app.on('will-quit', () => { try { pasteKeys.proc?.kill(); } catch {} });
+
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
     tray.setToolTip(`dotpals: ${process.platform === 'darwin' ? 'Cmd+Option+P' : 'Ctrl+Alt+P'} to show or hide`);
@@ -168,6 +292,7 @@ if (!app.requestSingleInstanceLock()) {
       ] },
       { label: 'Dashboard', click: openDashboard },
       { label: 'Talk to Blu', ...(talkShortcut ? { accelerator: talkShortcut } : {}), click: talkInNotch },
+      { label: 'Dictate (type with your voice)', ...(dictateShortcut ? { accelerator: dictateShortcut } : {}), click: dictateKey },
       // Chat is optional (Dashboard → Settings → Chat with your agents).
       ...(loadConfig().chat ? [{ label: 'Start working…', click: sayHello }] : []),
       { type: 'separator' },

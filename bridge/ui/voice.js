@@ -6,6 +6,10 @@
 //   const voice = createVoice({ status, live, pal, heard });
 //   voice.listen()   listen until you pause (or call it again to stop); heard(text) gets what you said
 //   voice.say(text)  speak; resolves when done
+//
+// Options for listening only (Dictate, bridge/dictate.html): `pause` (ms of quiet that ends
+// it), `longest` (ms), `speaks: false` (don't get the speaking voice ready), `level(rms)`
+// (how loud the microphone is, as it comes in).
 
 const WHISPER = 'onnx-community/whisper-base.en';
 const KOKORO = 'onnx-community/Kokoro-82M-v1.0-ONNX';
@@ -23,7 +27,7 @@ const sentences = (t) => t.split(/(?<=[.!?])\s+/).filter(Boolean);
 const joined = (chunks) => { const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { out.set(c, at); at += c.length; } return out; };
 const heardText = (r) => String(r?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 
-export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, voiceId = 'af_heart' } = {}) {
+export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, voiceId = 'af_heart', pause = 1000, longest = 60_000, speaks = true, level = () => {} } = {}) {
   // -- speaking ----------------------------------------------------------------------------
   let kokoro = null, kokoroLoading = null, kokoroBroken = false;
   function loadVoice() {
@@ -130,8 +134,9 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       if (samples <= 6400) floor = Math.max(floor, rms); // the room's own noise, in the first 0.4 s (capped below)
       const now = performance.now();
       if (rms > Math.max(0.015, Math.min(floor, 0.02) * 2.5)) { said = true; lastLoud = now; }
+      level(rms);
       // Stop after a pause once you've spoken, after 7 s of nothing, or after a minute.
-      if ((said && now - lastLoud > 1000) || (!said && now - started > 7000) || now - started > 60_000) stop();
+      if ((said && now - lastLoud > pause) || (!said && now - started > 7000) || now - started > longest) stop();
     };
     source.connect(node); node.connect(ctx.destination);
     // Your words as you speak, about once a second.
@@ -144,7 +149,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     pal('listening');
     status('Listening… pause when you’re done.');
     recognizer().catch(() => {}); // warm up while you talk
-    loadVoice();
+    if (speaks) loadVoice();
   }
   /** Stop listening and act on what was said; `discard`: throw it away (the notch closed). */
   async function stop({ discard = false } = {}) {
@@ -171,5 +176,5 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     }
   }
 
-  return { listen, stop, listening: () => !!rec, say, stopSpeaking };
+  return { listen, stop, listening: () => !!rec, say, stopSpeaking, warm: () => recognizer().catch(() => {}) };
 }

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dotpals dictate</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #0a0a0c;
+      --text: #f2f2f5;
+      --muted: #9a9aa6;
+      --ok: #46a758;
+      --bad: #f2555a;
+      --sky: #5ab8ff;
+      --level: 0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font: 13px/1.35 ui-rounded, "SF Pro Rounded", "Segoe UI Variable Text", system-ui, sans-serif; color: var(--text); user-select: none; }
+
+    /* The pill sits at the bottom middle of the screen and grows with your words. While it
+       listens it glows sky blue, brighter as you speak. */
+    .pill {
+      position: absolute; left: 50%; bottom: 16px; display: flex; align-items: center; gap: 10px;
+      height: 52px; min-width: 210px; max-width: 470px; padding: 0 18px 0 6px; border-radius: 26px;
+      background: var(--ink); box-shadow: 0 10px 30px rgb(0 0 0 / .45), inset 0 0 0 1px rgb(255 255 255 / .08);
+      opacity: 0; transform: translate(-50%, 24px) scale(.9);
+      transition: transform .38s cubic-bezier(.3, 1.3, .4, 1), opacity .2s, box-shadow .25s;
+    }
+    .pill.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    .pill.listening { box-shadow: 0 10px 30px rgb(0 0 0 / .45), 0 0 calc(12px + var(--level) * 34px) rgb(90 184 255 / calc(.28 + var(--level) * .5)), inset 0 0 0 1.5px rgb(90 184 255 / .6); }
+    .pill.writing { box-shadow: 0 10px 30px rgb(0 0 0 / .45), inset 0 0 0 1.5px rgb(90 184 255 / .35); }
+    .pill.done { box-shadow: 0 10px 30px rgb(0 0 0 / .45), 0 0 18px rgb(70 167 88 / .45), inset 0 0 0 1.5px var(--ok); }
+    .pill.error { box-shadow: 0 10px 30px rgb(0 0 0 / .45), inset 0 0 0 1.5px var(--bad); }
+
+    /* Your pal, listening. */
+    .face { flex: none; width: 40px; height: 40px; border-radius: 50%; overflow: hidden; display: flex; align-items: flex-end; justify-content: center; background: radial-gradient(circle at 50% 30%, #1c3a58, #0f0f13 75%); }
+    .face dot-pal { margin-bottom: -6px; }
+    .face dot-pal::part(bubble) { display: none; }
+
+    /* When the words don't fit, the newest stay in view and older ones slide off the left. */
+    .words { flex: 1; min-width: 0; display: flex; overflow: hidden; white-space: nowrap; }
+    .words.long { justify-content: flex-end; -webkit-mask-image: linear-gradient(to right, transparent, #000 22px); mask-image: linear-gradient(to right, transparent, #000 22px); }
+    .words span { flex: none; }
+    .hint { color: var(--muted); }
+    .ok { color: #8fe29c; font-weight: 600; }
+    .bad { color: #ff9ea1; }
+    .words .dots::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+    /* How loud you are. */
+    .bars { flex: none; display: none; align-items: center; gap: 3px; height: 24px; }
+    .pill.listening .bars { display: flex; }
+    .bars i { width: 3px; height: calc(4px + var(--h, 0) * 20px); border-radius: 2px; background: var(--sky); transition: height .09s ease-out; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pill, .bars i { transition: none; }
+      .words .dots::after { animation: none; content: "…"; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Dictate: say it, and it's typed where your cursor is. Shown by desktop/main.js (see
+       createDictate); listens with Whisper on this computer (bridge/ui/voice.js) and cleans
+       up what you said (bridge/ui/dictation.js) before the app pastes it. -->
+  <div class="pill" id="pill" role="status" aria-live="polite">
+    <div class="face"><dot-pal id="pal" size="44" static></dot-pal></div>
+    <div class="words" id="words"></div>
+    <div class="bars" id="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+  <script type="module">
+    import { DotPal, registerCustom } from '../src/index.js';
+    import { createVoice } from './ui/voice.js';
+    import { cleanDictation } from './ui/dictation.js';
+
+    const $ = (id) => document.getElementById(id);
+    const desktop = window.dotpalsDesktop;
+    const pill = $('pill');
+    const words = $('words');
+    const pal = $('pal');
+    const bars = [...$('bars').children];
+    const key = new URLSearchParams(location.search).get('key') || 'the shortcut';
+
+    // Your pal (Settings → character, or the one you made).
+    pal.character = 'blu';
+    fetch('/api/config', { headers: { 'x-dotpals': '1' } }).then((r) => r.json()).then((c) => {
+      if (c.custom) { registerCustom(c.custom); DotPal.refresh?.('custom'); }
+      if (DotPal.characters?.includes(c.character)) pal.character = c.character;
+    }).catch(() => {});
+    const STATES = new Set(['idle', 'listening', 'thinking', 'working', 'waiting', 'done', 'error']);
+    const palState = (s) => { const v = STATES.has(s) ? s : 'idle'; if (pal.dataset.state !== v) { pal.dataset.state = v; pal.setState?.(v); } };
+
+    // -- what the pill says ----------------------------------------------------------------
+    let phase = 'idle'; // idle → listening → writing → done | error
+    let hideTimer = 0;
+    function show(state, text, cls = '') {
+      clearTimeout(hideTimer);
+      phase = state;
+      pill.className = `pill on ${state}`;
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (cls) span.className = cls;
+      words.replaceChildren(span);
+      words.classList.toggle('long', span.offsetWidth > words.clientWidth);
+    }
+    function hide(after) {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        pill.classList.remove('on');
+        phase = 'idle';
+        palState('idle');
+        setTimeout(() => { if (phase === 'idle') desktop?.dictateState?.('hide'); }, 260);
+      }, after);
+    }
+
+    // How loud you are, drawn once a frame (the microphone reports far more often).
+    let loud = 0, drawing = 0;
+    const SHAPE = [0.55, 0.85, 1, 0.8, 0.5];
+    function draw() {
+      drawing = 0;
+      pill.style.setProperty('--level', loud.toFixed(2));
+      bars.forEach((b, i) => b.style.setProperty('--h', Math.min(1, loud * SHAPE[i] * (0.7 + Math.random() * 0.6)).toFixed(2)));
+    }
+
+    // -- listening -------------------------------------------------------------------------
+    // A longer pause than Talk's before it's done: when you dictate you stop to think.
+    const voice = createVoice({
+      speaks: false,
+      pause: 1800,
+      longest: 120_000,
+      pal: palState,
+      level: (rms) => { loud = Math.min(1, rms * 10); if (!drawing) drawing = requestAnimationFrame(draw); },
+      live: (text) => { if (text && phase === 'listening') show('listening', text); },
+      status: (text, bad) => {
+        if (bad) { show('error', text, 'bad'); hide(4500); return; }
+        if (/%$/.test(text)) show(phase === 'writing' ? 'writing' : 'listening', text, 'hint'); // getting the speech model ready (once)
+        else if (/catch that/.test(text)) { show('error', 'Didn’t catch that. Try again a little closer.', 'hint'); hide(2200); }
+        else if (/^Got it/.test(text)) show('writing', 'Writing', 'hint dots');
+      },
+      heard: async (said) => {
+        if (!wanted) return; // Esc while it was still writing
+        wanted = false;
+        const text = cleanDictation(said);
+        if (!text) { show('error', 'Nothing to type.', 'hint'); hide(1500); return; }
+        show('writing', 'Typing', 'hint dots');
+        const r = await desktop?.dictateType?.(text);
+        if (r?.ok) {
+          const n = text.split(/\s+/).filter(Boolean).length;
+          show('done', `✓ Typed ${n} word${n === 1 ? '' : 's'}`, 'ok');
+          palState('done');
+          hide(1300);
+        } else {
+          show('error', r?.copied ? `Copied. Paste it with ${desktop?.platform === 'darwin' ? '⌘V' : 'Ctrl+V'}${r.error ? ` (${r.error})` : ''}` : `Couldn’t type it${r?.error ? `: ${r.error}` : ''}`, 'bad');
+          hide(5000);
+        }
+      },
+    });
+
+    let wanted = false; // what's heard gets typed (Esc says no)
+    function start() {
+      wanted = true;
+      show('listening', `Listening… ${key} to finish, Esc to cancel`, 'hint');
+      desktop?.dictateState?.('listening');
+      voice.listen();
+    }
+
+    // The shortcut: start, or finish now if it's listening. Esc: throw it away.
+    desktop?.onDictate?.((what) => {
+      if (what === 'cancel') {
+        wanted = false;
+        if (voice.listening()) voice.stop({ discard: true });
+        show('idle', 'Cancelled', 'hint');
+        hide(500);
+        return;
+      }
+      if (voice.listening()) { voice.stop(); return; }
+      if (phase === 'writing') return; // already on its way
+      start();
+    });
+
+    // Get the speech model ready now, so the first words come out fast.
+    voice.warm();
+  </script>
+</body>
+</html>

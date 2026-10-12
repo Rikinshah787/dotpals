@@ -86,6 +86,15 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
     ipcRenderer.removeAllListeners('notch:key');
     ipcRenderer.on('notch:key', (_, key) => callback(key));
   },
+  /** Dictate (bridge/dictate.html): onDictate('toggle' | 'cancel'): its shortcut (start, or finish now), or Esc. */
+  onDictate(callback) {
+    ipcRenderer.removeAllListeners('dictate:key');
+    ipcRenderer.on('dictate:key', (_, what) => callback(what));
+  },
+  /** Type this where the cursor is (the app pastes it, then puts your clipboard back) → { ok, copied?, error? }. */
+  dictateType: (text) => ipcRenderer.invoke('dictate:type', text),
+  /** Dictate is 'listening' (Esc cancels it), or 'hide' (it's done: hide the pill). */
+  dictateState: (state) => ipcRenderer.send('dictate:state', state),
   /** onIdle(seconds): how long since the last keyboard or mouse input (every 2 s). */
   onIdle(callback) {
     ipcRenderer.removeAllListeners('notch:idle');
