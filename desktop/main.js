@@ -7,7 +7,7 @@
 // hides it from anywhere. Quit from the tray menu.
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, systemPreferences, Tray } from 'electron';
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startBridge } from '../bridge/server.js';
@@ -159,11 +159,22 @@ if (!app.requestSingleInstanceLock()) {
   // The shortcut shows a pill at the bottom of the screen (bridge/dictate.html). It listens with
   // Whisper on this computer, cleans up what you said (bridge/ui/dictation.js), and the words are
   // pasted into the app you're in; your clipboard comes back after. The pill never takes focus or
-  // clicks. The shortcut again finishes at once; Esc throws it away.
+  // clicks. Hold the shortcut while you talk and it finishes the moment you let go (Windows); tap
+  // it and it finishes when you pause, or when you tap again. Esc throws it away. What happens is
+  // written to dictate.log in the app's data folder, for when something goes wrong.
   let dictate = null;
   let dictateShortcut = null; // the one that's registered
   let dictateEsc = false;     // Esc is ours while it listens
+  let dictateDown = 0;        // when the shortcut went down, until you let go of it
+  const HOLD = 300;           // down longer than this (ms) is a hold, not a tap
   const DICTATE_SIZE = { width: 520, height: 96 };
+  const dictateLog = join(app.getPath('userData'), 'dictate.log');
+  function logDictate(line) {
+    try {
+      if ((statSync(dictateLog, { throwIfNoEntry: false })?.size ?? 0) > 200_000) writeFileSync(dictateLog, '');
+      appendFileSync(dictateLog, `${new Date().toISOString()} ${line}\n`);
+    } catch {}
+  }
   function placeDictate() {
     const a = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea; // the screen you're working on
     dictate?.setBounds({ x: Math.round(a.x + (a.width - DICTATE_SIZE.width) / 2), y: a.y + a.height - DICTATE_SIZE.height - 12, ...DICTATE_SIZE });
@@ -180,21 +191,36 @@ if (!app.requestSingleInstanceLock()) {
     dictate.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     dictate.setIgnoreMouseEvents(true);
     dictate.on('closed', () => { dictate = null; releaseDictateEsc(); });
+    dictate.webContents.on('console-message', (e, ...old) => logDictate(`page: ${e.message ?? old[1]}`));
+    dictate.webContents.on('render-process-gone', (_, d) => logDictate(`page stopped: ${d?.reason}`));
     const key = encodeURIComponent((dictateShortcut ?? '').replace('Control', 'Ctrl'));
     dictate.loadURL(`${bridge}/bridge/dictate.html?key=${key}`).catch(() => dictate?.loadFile(fileURLToPath(new URL('../bridge/dictate.html', import.meta.url)), { query: { key } }));
   }
   function dictateKey() {
+    if (dictateDown) return; // the shortcut repeating while you hold it
+    dictateDown = Date.now();
     if (!dictate || dictate.isDestroyed()) createDictate();
-    pasteKeys.warm();
     placeDictate();
     dictate.showInactive();
     const go = () => dictate?.webContents.send('dictate:key', 'toggle');
     if (dictate.webContents.isLoading()) dictate.webContents.once('did-finish-load', go); else go();
+    // Held while you talked: done the moment you let go.
+    keys.released(dictateShortcut).then((ms) => {
+      dictateDown = 0;
+      logDictate(`shortcut ${ms > HOLD ? `held ${ms} ms` : 'tapped'}`);
+      if (ms > HOLD) dictate?.webContents.send('dictate:key', 'release');
+    });
   }
   function registerDictateShortcut() {
     const own = loadConfig().dictateShortcut;
     for (const key of [...(own ? [own] : []), ...DICTATE_SHORTCUTS]) {
-      try { if (globalShortcut.register(key, dictateKey)) { dictateShortcut = key; return; } } catch {}
+      try {
+        if (globalShortcut.register(key, dictateKey)) {
+          dictateShortcut = key;
+          if (process.platform === 'win32') setTimeout(() => keys.windows(), 5000); // ready before the first time
+          return;
+        }
+      } catch {}
       console.warn(`[dotpals] ${key} is taken by another app`);
     }
   }
@@ -224,8 +250,10 @@ if (!app.requestSingleInstanceLock()) {
   async function typeOut(text) {
     const saved = { text: clipboard.readText(), html: clipboard.readHTML(), rtf: clipboard.readRTF(), image: clipboard.readImage() };
     clipboard.writeText(text);
-    try { await pasteKeys.send(); }
-    catch (err) { return { ok: false, copied: true, error: err.message }; }
+    const started = Date.now();
+    try { await keys.paste(); }
+    catch (err) { logDictate(`paste failed: ${err.message}`); return { ok: false, copied: true, error: err.message }; }
+    logDictate(`pasted ${text.length} characters in ${Date.now() - started} ms`);
     // Some apps read the clipboard a moment after the keys; and don't undo a copy you made since.
     setTimeout(() => {
       if (clipboard.readText() !== text) return;
@@ -238,24 +266,59 @@ if (!app.requestSingleInstanceLock()) {
     }, 450);
     return { ok: true };
   }
-  // The paste keys. Windows: a PowerShell kept running (about 0.4 s to start, then instant),
-  // which says when the keys went out. macOS: osascript, once dotpals is allowed under
-  // Privacy & Security → Accessibility. Linux: xdotool.
-  const pasteKeys = {
+  // Keys. Windows: a PowerShell kept running (it takes a second or two to start, then it's
+  // instant). Paste waits until you've let go of Ctrl, Alt, Shift and Windows (still held from
+  // the shortcut, they'd turn Ctrl+V into something else), then presses Ctrl+V. Held says how
+  // long a key stayed down. macOS: osascript, once dotpals is allowed under Privacy & Security
+  // → Accessibility; Linux: xdotool. Neither can tell when you let go, so they know taps only.
+  const KEYS_PS = [
+    `Add-Type -Namespace DotPals -Name Keys -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk); [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);'`,
+    'function Down($vk) { ([DotPals.Keys]::GetAsyncKeyState($vk) -band 0x8000) -ne 0 }',
+    'function Key($vk, $up) { [DotPals.Keys]::keybd_event($vk, 0, $(if ($up) { 2 } else { 0 }), [UIntPtr]::Zero) }',
+    "function Paste { $n = 0; while (((Down 0x11) -or (Down 0x12) -or (Down 0x10) -or (Down 0x5B) -or (Down 0x5C)) -and $n -lt 70) { Start-Sleep -Milliseconds 15; $n++ }; Key 0x11 $false; Key 0x56 $false; Key 0x56 $true; Key 0x11 $true; [Console]::Out.WriteLine('pasted') }",
+    "function Held($vk) { $w = [Diagnostics.Stopwatch]::StartNew(); $down = 0; while ((Down $vk) -and $w.ElapsedMilliseconds -lt 130000) { $down = $w.ElapsedMilliseconds; Start-Sleep -Milliseconds 15 }; [Console]::Out.WriteLine(\"released $down\") }",
+  ].join('\n') + '\n';
+  // The virtual-key code of a shortcut's last key: "Control+Alt+D" → 0x44.
+  const vkOf = (accel) => {
+    const k = String(accel ?? '').split('+').pop();
+    return /^[A-Z0-9]$/i.test(k) ? k.toUpperCase().charCodeAt(0) : k === 'Space' ? 0x20 : /^F\d+$/.test(k) ? 0x6f + Number(k.slice(1)) : 0;
+  };
+  const keys = {
     proc: null,
-    waiting: [],
-    warm() { if (process.platform === 'win32') this.windows(); },
+    out: '',
+    pasting: [],   // waiting for "pasted"
+    releasing: [], // waiting for "released <ms>"
     windows() {
       if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc;
-      const p = this.proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
-      p.on('error', () => {});
-      p.on('exit', () => { if (this.proc === p) this.proc = null; for (const w of this.waiting.splice(0)) w.fail(new Error('the paste helper stopped')); });
+      const p = this.proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      this.out = '';
+      p.on('error', (err) => logDictate(`key helper: ${err.message}`));
+      p.on('exit', (code) => {
+        logDictate(`key helper stopped (${code})`);
+        if (this.proc === p) this.proc = null;
+        for (const w of this.pasting.splice(0)) w.fail(new Error('the key helper stopped'));
+        for (const w of this.releasing.splice(0)) w(0);
+      });
       p.stdin.on('error', () => {});
-      p.stdout.on('data', (d) => { for (const _ of String(d).match(/pasted/g) ?? []) this.waiting.shift()?.ok(); });
-      p.stdin.write('Add-Type -AssemblyName System.Windows.Forms\n');
+      p.stderr.on('data', (d) => logDictate(`key helper error: ${String(d).trim().slice(0, 300)}`));
+      p.stdout.on('data', (d) => {
+        const lines = (this.out + d).split(/\r?\n/);
+        this.out = lines.pop();
+        for (const line of lines) {
+          if (line === 'pasted') this.pasting.shift()?.ok();
+          else if (line.startsWith('released')) this.releasing.shift()?.(Number(line.split(' ')[1]) || 0);
+        }
+      });
+      p.stdin.write(KEYS_PS);
       return p;
     },
-    send() {
+    /** How long (ms) the shortcut's key stayed down, once you let go of it; 0 for a tap. */
+    released(accel) {
+      const vk = vkOf(accel);
+      if (process.platform !== 'win32' || !vk) return new Promise((ok) => setTimeout(() => ok(0), 350));
+      return new Promise((ok) => { this.releasing.push(ok); this.windows().stdin.write(`Held ${vk}\n`); });
+    },
+    paste() {
       if (process.platform === 'darwin') {
         if (!systemPreferences.isTrustedAccessibilityClient(false)) {
           systemPreferences.isTrustedAccessibilityClient(true); // asks you
@@ -265,14 +328,14 @@ if (!app.requestSingleInstanceLock()) {
       }
       if (process.platform !== 'win32') return run('xdotool', ['key', '--clearmodifiers', 'ctrl+v']).catch(() => { throw new Error('install xdotool to type'); });
       return new Promise((ok, fail) => {
-        const timer = setTimeout(() => fail(new Error('the paste took too long')), 4000);
-        this.waiting.push({ ok: () => { clearTimeout(timer); ok(); }, fail: (e) => { clearTimeout(timer); fail(e); } });
-        this.windows().stdin.write("[System.Windows.Forms.SendKeys]::SendWait('^v'); [Console]::Out.WriteLine('pasted')\n");
+        const timer = setTimeout(() => fail(new Error('the paste took too long')), 6000);
+        this.pasting.push({ ok: () => { clearTimeout(timer); ok(); }, fail: (e) => { clearTimeout(timer); fail(e); } });
+        this.windows().stdin.write('Paste\n');
       });
     },
   };
   const run = (file, args) => new Promise((ok, fail) => execFile(file, args, { timeout: 4000 }, (err) => (err ? fail(err) : ok())));
-  app.on('will-quit', () => { try { pasteKeys.proc?.kill(); } catch {} });
+  app.on('will-quit', () => { try { keys.proc?.kill(); } catch {} });
 
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));

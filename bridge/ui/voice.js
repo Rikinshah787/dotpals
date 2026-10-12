@@ -9,7 +9,8 @@
 //
 // Options for listening only (Dictate, bridge/dictate.html): `pause` (ms of quiet that ends
 // it), `longest` (ms), `speaks: false` (don't get the speaking voice ready), `level(rms)`
-// (how loud the microphone is, as it comes in).
+// (how loud the microphone is, as it comes in), `liveSeconds` (the live words come from only
+// the last this many seconds: quicker, so the final words don't wait long behind them).
 
 const WHISPER = 'onnx-community/whisper-base.en';
 const KOKORO = 'onnx-community/Kokoro-82M-v1.0-ONNX';
@@ -27,7 +28,7 @@ const sentences = (t) => t.split(/(?<=[.!?])\s+/).filter(Boolean);
 const joined = (chunks) => { const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { out.set(c, at); at += c.length; } return out; };
 const heardText = (r) => String(r?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 
-export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, voiceId = 'af_heart', pause = 1000, longest = 60_000, speaks = true, level = () => {} } = {}) {
+export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, voiceId = 'af_heart', pause = 1000, longest = 60_000, speaks = true, level = () => {}, liveSeconds = 0 } = {}) {
   // -- speaking ----------------------------------------------------------------------------
   let kokoro = null, kokoroLoading = null, kokoroBroken = false;
   function loadVoice() {
@@ -99,12 +100,22 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       env.allowLocalModels = false;
       const progress_callback = (p) => { if (p.status === 'progress' && p.total) status(`Getting the speech model ready (once, about 80 MB)… ${Math.round((p.loaded / p.total) * 100)}%`); };
       if (navigator.gpu) {
-        try { asr = await pipeline('automatic-speech-recognition', WHISPER, { device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, progress_callback }); return asr; } catch {}
+        try { asr = await pipeline('automatic-speech-recognition', WHISPER, { device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, progress_callback }); console.log('[voice] speech model on the graphics card'); return asr; }
+        catch (err) { console.log(`[voice] graphics card didn’t work (${err.message}); using the processor`); }
       }
       asr = await pipeline('automatic-speech-recognition', WHISPER, { device: 'wasm', dtype: 'q8', progress_callback });
+      console.log('[voice] speech model on the processor');
       return asr;
     })().finally(() => { asrLoading = null; });
     return asrLoading;
+  }
+  // One run at a time: a second run started while another is still going can hang on the
+  // graphics card. `running`: one is going now (the live words skip a turn then).
+  let queue = Promise.resolve(), running = 0;
+  function transcribe(audio) {
+    const run = queue.then(() => recognizer()).then((a) => { running++; return a(audio).finally(() => running--); });
+    queue = run.catch(() => {});
+    return run;
   }
 
   let rec = null; // the recording in progress
@@ -123,7 +134,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     const chunks = [];
     const started = performance.now();
     let floor = 0, samples = 0, said = false, lastLoud = started;
-    const r = rec = { stream, ctx, node, chunks, peak: 0, busy: false, device: stream.getAudioTracks()[0]?.label ?? '' };
+    const r = rec = { stream, ctx, node, chunks, peak: 0, device: stream.getAudioTracks()[0]?.label ?? '' };
     node.port.onmessage = ({ data: d }) => {
       if (rec !== r) return;
       chunks.push(d);
@@ -141,10 +152,9 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     source.connect(node); node.connect(ctx.destination);
     // Your words as you speak, about once a second.
     r.live = setInterval(async () => {
-      if (rec !== r || r.busy || !asr || samples < 16000) return; // at least a second of you
-      r.busy = true;
-      try { const t = heardText(await asr(joined(chunks))); if (rec === r && t) live(t); } catch {}
-      r.busy = false;
+      if (rec !== r || running || !asr || samples < 16000) return; // at least a second of you
+      const all = joined(chunks);
+      try { const t = heardText(await transcribe(liveSeconds ? all.subarray(Math.max(0, all.length - liveSeconds * 16000)) : all)); if (rec === r && t) live(t); } catch {}
     }, 1000);
     pal('listening');
     status('Listening… pause when you’re done.');
@@ -166,7 +176,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     try {
       pal('thinking');
       status('Got it, one moment…');
-      const text = heardText(await (await recognizer())(audio));
+      const text = heardText(await transcribe(audio));
       if (!text || /^(you|thank you\.?|thanks for watching!?)$/i.test(text)) { live(null); status(`Blu didn’t catch that${mic}. Try again a little closer.`); pal('idle'); return; }
       live(text);
       heard(text);
@@ -176,5 +186,8 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     }
   }
 
-  return { listen, stop, listening: () => !!rec, say, stopSpeaking, warm: () => recognizer().catch(() => {}) };
+  // Ready ahead of time: loaded, and run once on a moment of silence (the first run on the
+  // graphics card is about three times slower than the ones after it).
+  const warm = () => transcribe(new Float32Array(16000)).catch(() => {});
+  return { listen, stop, listening: () => !!rec, say, stopSpeaking, warm };
 }

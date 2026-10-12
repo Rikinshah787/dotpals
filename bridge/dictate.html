@@ -93,8 +93,13 @@
     // -- what the pill says ----------------------------------------------------------------
     let phase = 'idle'; // idle → listening → writing → done | error
     let hideTimer = 0;
+    let stuckTimer = 0;
     function show(state, text, cls = '') {
       clearTimeout(hideTimer);
+      if (state !== phase) console.log(`[dictate] ${state}: ${text.slice(0, 80)}`); // → dictate.log
+      // Never stuck on "Writing" or "Typing": after 25 s it says so and goes.
+      clearTimeout(stuckTimer);
+      if (state === 'writing') stuckTimer = setTimeout(() => { wanted = false; show('error', 'That took too long. Try again (the log is in dictate.log).', 'bad'); hide(5000); }, 25_000);
       phase = state;
       pill.className = `pill on ${state}`;
       const span = document.createElement('span');
@@ -123,11 +128,12 @@
     }
 
     // -- listening -------------------------------------------------------------------------
-    // A longer pause than Talk's before it's done: when you dictate you stop to think.
+    // Tapped (not held), a longer pause than Talk's ends it: when you dictate you stop to think.
     const voice = createVoice({
       speaks: false,
-      pause: 1800,
+      pause: 1500,
       longest: 120_000,
+      liveSeconds: 6, // the pill shows the newest words only
       pal: palState,
       level: (rms) => { loud = Math.min(1, rms * 10); if (!drawing) drawing = requestAnimationFrame(draw); },
       live: (text) => { if (text && phase === 'listening') show('listening', text); },
@@ -135,9 +141,10 @@
         if (bad) { show('error', text, 'bad'); hide(4500); return; }
         if (/%$/.test(text)) show(phase === 'writing' ? 'writing' : 'listening', text, 'hint'); // getting the speech model ready (once)
         else if (/catch that/.test(text)) { show('error', 'Didn’t catch that. Try again a little closer.', 'hint'); hide(2200); }
-        else if (/^Got it/.test(text)) show('writing', 'Writing', 'hint dots');
+        else if (/^Got it/.test(text)) { finishedAt = performance.now(); show('writing', 'Writing', 'hint dots'); }
       },
       heard: async (said) => {
+        console.log(`[dictate] words ready ${Math.round(performance.now() - finishedAt)} ms after you finished`);
         if (!wanted) return; // Esc while it was still writing
         wanted = false;
         const text = cleanDictation(said);
@@ -156,16 +163,26 @@
       },
     });
 
+    let finishedAt = 0; // when you finished talking (it started writing)
     let wanted = false; // what's heard gets typed (Esc says no)
-    function start() {
+    let letGo = false;  // you let go of the shortcut you were holding: finish as soon as it listens
+    async function start() {
       wanted = true;
-      show('listening', `Listening… ${key} to finish, Esc to cancel`, 'hint');
+      letGo = false;
+      show('listening', `Listening… let go of ${key}, or pause, when you’re done`, 'hint');
       desktop?.dictateState?.('listening');
-      voice.listen();
+      await voice.listen();
+      if (letGo && voice.listening()) voice.stop();
     }
 
-    // The shortcut: start, or finish now if it's listening. Esc: throw it away.
+    // The shortcut: start, or finish now if it's listening. Let go of it after holding it:
+    // finish now. Esc: throw it away.
     desktop?.onDictate?.((what) => {
+      if (what === 'release') {
+        letGo = true;
+        if (voice.listening()) voice.stop();
+        return;
+      }
       if (what === 'cancel') {
         wanted = false;
         if (voice.listening()) voice.stop({ discard: true });
