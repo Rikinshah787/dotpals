@@ -607,7 +607,7 @@
   <script type="module">
     import { DotPal, registerCustom, CUSTOM_OPTIONS, DEFAULT_CUSTOM, cleanCustom } from '/src/index.js';
     import {
-      buildTurns, facts, sentence, plain, summarizeSessions, turnTime,
+      buildTurns, facts, sentence, plain, summarizeSessions, turnTime, tokenLine, tokens as usageTotal,
       harnessName, harnessClass, plural, baseName, fileUrl, secs, hours, shortTime, startOfDay,
     } from '/bridge/ui/recap.js';
     import { checkOf, minorChapter, overlaps, readiness, readinessLine, gitTruth, gitLine, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown, whyStopped } from '/bridge/ui/story.js';
@@ -1219,6 +1219,8 @@
         if (review) card.append(review);
         const foot = el('footer');
         foot.append(t.end ? el('span', t.end.kind === 'done' ? 'ok' : 'bad', t.end.kind === 'done' ? `✓ Done${turnTime(t) ? ` in ${secs(turnTime(t))}` : ''}` : '✕ Stopped with an error') : el('span', '', 'In progress or interrupted'));
+        const used = tokenLine(usageTotal(t.usage));
+        if (used) foot.append(el('span', 'tokens', used));
         const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t, { live }));
         const steps = el('button', '', openRows.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`); steps.type = 'button';
         steps.onclick = () => { openRows.has(t.id) ? openRows.delete(t.id) : openRows.add(t.id); renderDetail(s); };

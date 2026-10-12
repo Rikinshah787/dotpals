@@ -519,7 +519,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown, recapMarkdown, readiness, readinessLine, gitTruth, gitLine, whyStopped } from '../bridge/ui/story.js';
-    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from '../bridge/ui/recap.js';
+    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, tokenLine, tokens as usageTotal, turnTime } from '../bridge/ui/recap.js';
     import { continueMenu } from '../bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
@@ -1739,6 +1739,8 @@
         const took = t.end.ms ?? (t.prompt ? t.end.at - t.at : null);
         const ok = t.end.kind === 'done';
         footer.append(el('span', ok ? 'ok' : 'bad', ok ? '✓ Done' : '✕ Stopped with an error'), took > 0 ? ` in ${secs(took)}` : '');
+        const used = tokenLine(usageTotal(t.usage));
+        if (used) footer.append(el('span', 'tokens', ` · ${used}`));
       } else if (live) {
         footer.append(`Working · ${plural(t.steps.length, 'step')} so far`);
       } else {

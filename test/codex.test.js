@@ -27,6 +27,24 @@ test('describeCall: exec_command and apply_patch', () => {
   assert.equal(mcp.detail, 'docs');
 });
 
+test('addUsage: a reply logged again after the next prompt stays on its own request', async () => {
+  const { addUsage } = await import('../bridge/activity.js');
+  const { tokens } = await import('../bridge/ui/recap.js');
+  const log = createActivityLog();
+  const s = 'codex:dup';
+  log.upsert({ id: `${s}:u:1`, session: s, kind: 'prompt', title: 'one', status: 'info', at: 1000 });
+  assert.ok(addUsage(log, s, 1500, 't100', [60, 40, 0, 0]));
+  log.upsert({ id: `${s}:u:2`, session: s, kind: 'prompt', title: 'two', status: 'info', at: 2000 });
+  // Codex logs the same token_count again (its rate limits changed): same reply, nothing new.
+  assert.equal(addUsage(log, s, 2500, 't100', [60, 40, 0, 0]), null);
+  const [first, second] = buildTurns(log.all());
+  assert.equal(tokens(first.usage).replies, 1);
+  assert.equal(tokens(second.usage), null);
+  // A reply of the second request goes on it.
+  assert.ok(addUsage(log, s, 2600, 't180', [50, 30, 0, 0]));
+  assert.equal(tokens(buildTurns(log.all())[1].usage).input, 50);
+});
+
 test('watchCodex follows a session log', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'dotpals-codex-'));
   let stop = () => {};
@@ -49,7 +67,11 @@ test('watchCodex follows a session log', async (t) => {
     { timestamp: ts(1), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'fix the bug' }] } },
     { timestamp: ts(2), type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test' }), call_id: 'call_1' } },
     { timestamp: ts(4), type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_1', output: [{ type: 'output_text', text: 'ok' }] } },
+    // A reply's tokens, logged twice (Codex repeats it with its rate limits): counted once.
+    ...[0, 1].map(() => ({ timestamp: ts(4), type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1200, cached_input_tokens: 1000, output_tokens: 50, total_tokens: 1250 }, total_token_usage: { total_tokens: 1250 }, model_context_window: 256000 } } })),
     { timestamp: ts(5), type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', input: patch, call_id: 'call_2' } },
+    // Cache writes are part of the input too: kept apart, like cached tokens.
+    { timestamp: ts(5), type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1300, cached_input_tokens: 1000, cache_write_input_tokens: 100, output_tokens: 20, total_tokens: 1320 }, total_token_usage: { total_tokens: 2570 }, model_context_window: 256000 } } },
     { timestamp: ts(6), type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', last_agent_message: 'Fixed it.' } },
   ];
   await writeFile(join(folder, 'rollout-x.jsonl'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
@@ -70,6 +92,9 @@ test('watchCodex follows a session log', async (t) => {
 
   const session = 'codex:sess-1';
   const entries = log.all().filter((e) => e.session === session);
+
+  const { tokens } = await import('../bridge/ui/recap.js');
+  assert.deepEqual(tokens(buildTurns(entries)[0].usage), { input: 400, output: 70, cacheRead: 2000, cacheWrite: 100, replies: 2 });
 
   const prompt = entries.find((e) => e.kind === 'prompt');
   assert.ok(prompt, 'prompt entry');

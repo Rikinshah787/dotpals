@@ -18,7 +18,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { clip, folderName } from './activity.js';
 import { handoffNote } from './ui/handoff.js';
-import { baseName, facts, harnessName, plural, sentence, shortTime, startOfDay, summarizeSessions } from './ui/recap.js';
+import { baseName, facts, harnessName, plural, sentence, shortTime, startOfDay, summarizeSessions, tokenLine, tokens } from './ui/recap.js';
 import { flags, list as nameList, onlyOldFailures, readiness, simple, stepType, testLine, testState, testVerdict, weakenedTests, whyStopped } from './ui/story.js';
 import { failureReason } from './ui/testout.js';
 
@@ -244,6 +244,7 @@ const TOOLS = {
           `${when(t.at)} · ${named(s)}: ${asked(t)}`,
           ...result(t, s.live && t === s.turn).map((l) => `  ${l}`),
           ...(files.length ? [`  Files: ${files.slice(0, 8).join(', ')}${files.length > 8 ? ` +${files.length - 8} more` : ''}`] : []),
+          ...(tokens(t.usage) ? [`  Tokens: ${tokenLine(tokens(t.usage))}`] : []),
         ].join('\n');
       })].join('\n\n');
     },
@@ -264,8 +265,9 @@ const TOOLS = {
         const steps = turns.flatMap(({ t }) => t.steps);
         const tests = steps.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e)).length;
         const shown = turns.slice(-20);
+        const used = tokenLine(tokens(...turns.map(({ t }) => t.usage)));
         return [
-          `${agentName(harness)}: ${plural(turns.filter(({ t }) => t.prompt).length, 'request')} · ${plural(facts(steps).touched, 'file')} changed · ${plural(tests, 'test run')}${shown.length < turns.length ? ` (the last ${shown.length} below)` : ''}`,
+          `${agentName(harness)}: ${plural(turns.filter(({ t }) => t.prompt).length, 'request')} · ${plural(facts(steps).touched, 'file')} changed · ${plural(tests, 'test run')}${used ? ` · ${used}` : ''}${shown.length < turns.length ? ` (the last ${shown.length} below)` : ''}`,
           ...shown.map(({ s, t }) => [`  ${shortTime(t.at)} ${asked(t)}`, ...result(t, s.live && t === s.turn).map((l) => `    ${l}`)].join('\n')),
         ].join('\n');
       })].join('\n\n');

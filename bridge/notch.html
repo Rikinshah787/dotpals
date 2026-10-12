@@ -370,7 +370,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { characters as palDefs } from '../src/characters.js';
-    import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from './ui/recap.js';
+    import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, tokenLine, tokens as usageTotal, turnTime } from './ui/recap.js';
     import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, gitTruth, gitLine, simple, stepType, story, testLine, toolkit, turnMarkdown, recapMarkdown, whyStopped } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
     import { diffOf, language } from './ui/notch-diff.js';
@@ -1637,6 +1637,8 @@
         const took = turnTime(t);
         const ok = t.end.kind === 'done';
         foot.append(el('span', ok ? 'ok' : 'bad', ok ? '✓ Done' : '✕ Stopped'), took > 0 ? ` in ${secs(took)}` : '');
+        const used = tokenLine(usageTotal(t.usage));
+        if (used) foot.append(el('span', 'tokens', ` · ${used}`));
       } else foot.append(live ? `Working · ${plural(t.steps.length, 'step')} so far` : t.steps.length ? 'Stopped' : '');
       foot.append(el('span', 'grow'));
       if (t.end || t.steps.length) {

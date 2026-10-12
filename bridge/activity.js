@@ -18,6 +18,9 @@
 //              exited (a script ran it), so its status isn't the command's
 //              and a test run counts only by its output
 //     summary?, on `done` entries: the agent's closing message for that turn
+//     usage?,  tokens the model used, per reply: { [replyId]: [input, output, cacheRead, cacheWrite] },
+//              on whichever entry of the request was newest when the reply came (addUsage);
+//              keyed by reply so reading a log twice doesn't count it twice
 //   }
 
 export const clip = (s, n = 120) => {
@@ -61,6 +64,23 @@ export const folderName = (cwd) => (cwd ? String(cwd).split(/[\\/]/).filter(Bool
 export function toPatch(before, after, max = 6000) {
   const lines = (s, sign) => (s ? String(s).replace(/\r\n/g, '\n').split('\n').map((l) => sign + l) : []);
   return clipText([...lines(before, '-'), ...lines(after, '+')].join('\n'), max);
+}
+
+/**
+ * Note the tokens one model reply used, on the session's newest entry from before it (the
+ * reply belongs to that entry's request). `key` names the reply, so the same reply read
+ * again (a restart reads the logs from the start) replaces itself instead of adding up.
+ * Returns the changed entry, or null when there's nothing to put it on.
+ */
+export function addUsage(log, session, at, key, [input = 0, output = 0, cacheRead = 0, cacheWrite = 0]) {
+  if (!key || !(input + output + cacheRead + cacheWrite)) return null;
+  // A reply already noted stays on its own request, even when it's logged again after the
+  // next prompt (Codex repeats token_count when its rate limits change).
+  const entry = log.findLast(session, (x) => x.usage && key in x.usage) ?? log.findLast(session, (x) => x.at <= at);
+  if (!entry) return null;
+  const now = [input, output, cacheRead, cacheWrite];
+  if (String(entry.usage?.[key]) === String(now)) return null;
+  return log.upsert({ id: entry.id, usage: { ...entry.usage, [key]: now } });
 }
 
 const FINAL = new Set(['ok', 'failed']);
