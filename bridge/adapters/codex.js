@@ -4,7 +4,7 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
+import { addUsage, clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 
 const HARNESS = 'codex';
 const RECENT = 12 * 60 * 60 * 1000; // follow logs touched in the last 12 hours
@@ -207,6 +207,15 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
         const last = p.info?.last_token_usage;
         const size = p.info?.model_context_window;
         if (last?.input_tokens && size) context(session, label, { used: last.input_tokens, size, known: true, at });
+        // The tokens of the reply just made. Codex logs this again with the same numbers (with
+        // its rate limits), so the session's running total names the reply. Its input counts
+        // the cached tokens in it; they're kept apart, as Claude's are.
+        const total = p.info?.total_token_usage?.total_tokens;
+        if (last && total) {
+          const cached = last.cached_input_tokens ?? 0;
+          const changed = addUsage(log, session, at, `t${total}`, [Math.max(0, (last.input_tokens ?? 0) - cached), last.output_tokens ?? 0, cached, 0]);
+          if (changed) out.push(changed);
+        }
         break;
       }
       case 'event_msg/task_started':

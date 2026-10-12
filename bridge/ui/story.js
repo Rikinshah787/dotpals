@@ -5,7 +5,7 @@
 //
 // Plain rules, no AI: instant, free and the same every time. Shared by the pal
 // (bridge/index.html) and the dashboard (bridge/dashboard.html); runs in Node too.
-import { baseName, facts, harnessName, plural, secs, turnTime } from './recap.js';
+import { baseName, facts, harnessName, plural, secs, tokenLine, tokens, turnTime } from './recap.js';
 import { failureReason, parseTestOutput } from './testout.js';
 
 // -- what a command is for ---------------------------------------------------------
@@ -1282,7 +1282,8 @@ export function turnMarkdown(t, { live } = {}) {
   if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
   if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
   const took = turnTime(t);
-  lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}_`);
+  const used = tokenLine(tokens(t.usage));
+  lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}${used ? ` · ${used}` : ''}_`);
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 

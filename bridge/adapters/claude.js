@@ -9,7 +9,7 @@
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
+import { addUsage, clip, clipEnds, clipText, folderName, relative, toPatch } from '../activity.js';
 
 const HARNESS = 'claude';
 
@@ -301,6 +301,19 @@ export function contextOf(o, sizeOf = () => null) {
   return { used, size, known: !!told || used > 200_000, at: Date.parse(o.timestamp) || Date.now() };
 }
 
+/**
+ * The tokens one assistant reply used: { key, at, tokens: [input, output, cacheRead, cacheWrite] }.
+ * A reply is logged once per content block, each line with the reply's usage so far, so
+ * the reply's id is the key (the last line read wins). Helpers' replies (sidechains) aren't counted.
+ */
+export function usageOf(o) {
+  const u = o?.type === 'assistant' && !o.isSidechain ? o.message?.usage : null;
+  if (!u) return null;
+  const key = o.message.id ?? o.requestId ?? o.uuid;
+  if (!key) return null;
+  return { key, at: Date.parse(o.timestamp) || Date.now(), tokens: [u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0] };
+}
+
 export function watchClaude(log, { emit, state, context = () => {}, cwd = () => {}, sizeOf, skip = () => false, dir = join(homedir(), '.claude', 'projects'), interval = 1500 } = {}) {
   const files = new Map(); // path → { offset, partial, reader, context }
   let stopped = false;
@@ -352,10 +365,19 @@ export function watchClaude(log, { emit, state, context = () => {}, cwd = () => 
             if (ctx.used !== file.context?.used) context(session, file.reader.label ?? folderName(o.cwd), (file.context = ctx));
             break;
           }
-          if (skip(session)) continue; // the hooks have it
-          if (file.reader.cwd) cwd(session, file.reader.cwd);
-          const out = lines.flatMap((line) => (line.trim() ? file.reader.line(line) : []));
-          if (out.length) emit(out);
+          const hooked = skip(session); // the hooks have its steps; its tokens are only here
+          if (!hooked && file.reader.cwd) cwd(session, file.reader.cwd);
+          const out = hooked ? [] : lines.flatMap((line) => (line.trim() ? file.reader.line(line) : []));
+          // Tokens, after the steps they belong with are in the log.
+          for (const line of lines) {
+            if (!line.includes('"usage"')) continue;
+            let o;
+            try { o = JSON.parse(line); } catch { continue; }
+            const u = usageOf(o);
+            if (u) out.push(addUsage(log, session, u.at, u.key, u.tokens));
+          }
+          if (out.some(Boolean)) emit(out.filter(Boolean));
+          if (hooked) continue;
           // Also by the event's own time: on Windows a transcript that's still open reports a stale mtime.
           if ((live || Date.now() - (file.reader.at ?? 0) < LIVE) && file.reader.state) state(session, file.reader.label, file.reader.state, file.reader.at);
         } catch {} finally {

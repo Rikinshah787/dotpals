@@ -49,7 +49,10 @@ test('watchCodex follows a session log', async (t) => {
     { timestamp: ts(1), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'fix the bug' }] } },
     { timestamp: ts(2), type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test' }), call_id: 'call_1' } },
     { timestamp: ts(4), type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_1', output: [{ type: 'output_text', text: 'ok' }] } },
+    // A reply's tokens, logged twice (Codex repeats it with its rate limits): counted once.
+    ...[0, 1].map(() => ({ timestamp: ts(4), type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1200, cached_input_tokens: 1000, output_tokens: 50, total_tokens: 1250 }, total_token_usage: { total_tokens: 1250 }, model_context_window: 256000 } } })),
     { timestamp: ts(5), type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', input: patch, call_id: 'call_2' } },
+    { timestamp: ts(5), type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1300, cached_input_tokens: 1200, output_tokens: 20, total_tokens: 1320 }, total_token_usage: { total_tokens: 2570 }, model_context_window: 256000 } } },
     { timestamp: ts(6), type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', last_agent_message: 'Fixed it.' } },
   ];
   await writeFile(join(folder, 'rollout-x.jsonl'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
@@ -70,6 +73,9 @@ test('watchCodex follows a session log', async (t) => {
 
   const session = 'codex:sess-1';
   const entries = log.all().filter((e) => e.session === session);
+
+  const { tokens } = await import('../bridge/ui/recap.js');
+  assert.deepEqual(tokens(buildTurns(entries)[0].usage), { input: 300, output: 70, cacheRead: 2200, cacheWrite: 0, replies: 2 });
 
   const prompt = entries.find((e) => e.kind === 'prompt');
   assert.ok(prompt, 'prompt entry');
