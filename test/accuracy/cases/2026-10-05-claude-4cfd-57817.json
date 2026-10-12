@@ -1,0 +1,59 @@
+{
+ "name": "2026-10-05-claude-4cfd-57817",
+ "source": "real",
+ "labeled": true,
+ "note": "The prompt was dotpals’ own note, pasted by hand: it ran the tests (still failing on sum) and changed nothing.",
+ "truth": {
+  "tests": {
+   "e2": "failed"
+  },
+  "risky": [],
+  "retries": {},
+  "ready": null,
+  "stopped": "failing",
+  "weakened": null,
+  "why": {
+   "e2": "expected 3, got -1"
+  },
+  "changed": []
+ },
+ "turn": {
+  "harness": "claude",
+  "prompt": {
+   "id": "e1",
+   "kind": "prompt",
+   "title": "(not kept)",
+   "status": "info",
+   "at": 1791159657817
+  },
+  "steps": [
+   {
+    "id": "e2",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Show current math.js and run full test suite",
+    "status": "ok",
+    "at": 1791159661656,
+    "ms": 1700,
+    "body": {
+     "command": "cat math.js; echo \"-----\"; npm test 2>&1; echo \"EXIT CODE: $?\"",
+     "output": "// sum has a deliberate bug (it subtracts), so its test fails until it's fixed.\nexport function sum(a, b) {\n  return a - b;\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n-----\nnpm notice run dotpals-loop-test@1.0.0 test\nnpm notice run node --test\n✖ sum adds two numbers (1.3707ms)\n✔ multiply multiplies two numbers (0.1542ms)\nℹ tests 2\nℹ suites 0\nℹ pass 1\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 75.1329\n\n✖ failing tests:\n\ntest at test\\math.test.js:5:1\n✖ sum adds two numbers (1.3707ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  -1 !== 3\n  \n      at TestContext.<anonymous> (file:///~/dotpals-loop-test/test/math.test.js:6:10)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1382:25)\n      at Test.start (node:internal/test_runner/test:1242:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: -1,\n    expected: 3,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\nEXIT CODE: 1"
+    }
+   }
+  ],
+  "end": {
+   "id": "e3",
+   "kind": "done",
+   "title": "Finished",
+   "status": "ok",
+   "at": 1791159667275,
+   "summary": "and I haven't put it back in case that was deliberate. I can add it again if you want it.\n\nI didn't change any code in this step. The dotpals hook again said to fix the test only \"if fixing it is part of this request,\" so I left it failing.",
+   "git": {
+    "files": [],
+    "more": 0,
+    "committed": false,
+    "others": []
+   }
+  }
+ }
+}

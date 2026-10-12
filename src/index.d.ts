@@ -1,7 +1,7 @@
-export type BuiltInCharacter = 'blu' | 'hop' | 'sunny' | 'lovi' | 'muse' | 'grok' | 'nova' | 'byte';
+export type BuiltInCharacter = 'blu' | 'hop' | 'sunny' | 'lovi' | 'muse' | 'grok' | 'nova' | 'byte' | 'webby';
 export type BuiltInAction =
   | 'jump' | 'squish' | 'wiggle' | 'shake' | 'nod' | 'spin' | 'love'
-  | 'hop' | 'jitter' | 'hello' | 'dizzy';
+  | 'hop' | 'jitter' | 'hello' | 'drop' | 'dizzy';
 /** Faces for `pal.emote()`. */
 export type Emote = 'happy' | 'love' | 'star' | 'wide' | 'closed' | 'dizzy' | 'oops' | 'hey' | 'sweat';
 /** Built-in particle shapes (inline SVG, the same on every OS). */
@@ -41,6 +41,10 @@ export interface CharacterDefinition {
    * The parts marked `.dp-eyes` (or else `.dp-blink`) hide while they show.
    */
   eyes?: CharacterEyes;
+  /** Hangs on a thread (drawn as `.dp-thread`, hidden on tiny pals) and swings from the top of it while idle. */
+  hang?: boolean;
+  /** Actions to play instead of the usual ones for `greet()` (`hello`) and when entering a state. */
+  moves?: Partial<Record<'hello' | 'done' | 'error' | 'waiting', BuiltInAction | (string & {})>>;
   /**
    * Returns SVG markup for a 200×200 viewBox. `body` is wrapped in the fur
    * filter. Use `.dp-blink` and `.dp-look` classes to opt into blinking and

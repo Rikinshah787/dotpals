@@ -10,6 +10,7 @@
 //   dotpals statusline [--off]                share Claude Code's usage limits (for the notch)
 //   dotpals bridge                            run only the bridge (no window)
 //   dotpals laya [--remove]                   set up Laya, the free local test checker (or delete it)
+//   dotpals mcp                               an MCP server: any assistant can ask dotpals what your agents did
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
@@ -386,7 +387,7 @@ async function preferences(flags) {
     if (how === 'default') { skip('Using the defaults (change any of them later: Dashboard → Settings)'); return answers; }
     console.log(`\n  ${bold('A few choices')} ${dim('(Enter keeps the one in brackets; change any later: Dashboard → Settings)')}\n`);
     const patch = {};
-    patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte']], loadConfig().character ?? 'blu');
+    patch.character = await pick('Your pal:', [['blu', 'Blu (blue, with a beret)'], ['hop', 'Hop (green frog)'], ['sunny', 'Sunny (yellow)'], ['lovi', 'Lovi (pink, with sunglasses)'], ['muse', 'Muse (purple)'], ['grok', 'Grok (robot)'], ['nova', 'Nova'], ['byte', 'Byte'], ['webby', 'Webby (a spider on a thread)']], loadConfig().character ?? 'blu');
     patch.sounds = await yn('Sounds (a ping when an agent needs you, a chime when it’s done)?', true);
     answers.notch = await pick('The notch at the top of the screen:', [['always', 'Always (recommended)'], ['auto', 'Only when the pal is hidden'], ['off', 'Never']], 'always');
     patch.storyView = await pick('How should each request read?', [['simple', 'Simple: one plain sentence (“Changed 2 files, the tests passed, and pushed.”)'], ['detailed', 'Detailed: every chapter (files, commands, tests)']], 'simple');
@@ -569,6 +570,8 @@ switch (command) {
   // Like `node bridge/server.js`: it quits when setup asks, so the pal can take over.
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge({ onQuit: () => process.exit(0) })); break;
   case 'laya': await laya(flags); break;
+  // An MCP server on stdin and stdout (bridge/mcp.js): nothing else may print to stdout here.
+  case 'mcp': (await import('../bridge/mcp.js')).serve(); break;
   default:
     console.log(`dotpals ${version}
 
@@ -585,5 +588,13 @@ switch (command) {
   statusline  let Claude Code share its usage limits with dotpals (--off to undo)
   laya        set up Laya, the free checker for unclear test results that runs
               on this computer (needs Python 3.10+; --remove to delete it)
-  bridge      run only the bridge, no window`);
+  bridge      run only the bridge, no window
+  mcp         let any assistant ask dotpals what your agents really did (an
+              MCP server; it reads the running pal). Add it to:
+                Claude Code     claude mcp add dotpals -- npx dotpals mcp
+                Codex           in ~/.codex/config.toml:
+                                  [mcp_servers.dotpals]
+                                  command = "npx"
+                                  args = ["dotpals", "mcp"]
+                Cursor, others  command: npx, arguments: dotpals mcp`);
 }

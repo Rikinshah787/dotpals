@@ -1,0 +1,57 @@
+{
+ "name": "2026-10-04-claude-c3ae-65750",
+ "source": "real",
+ "labeled": true,
+ "note": "Ran `npm test 2>&1 | tail -n 3` as asked: the 3 lines are the end of a failing assertion’s details (operator, diff), so a person can tell the tests failed; the exit code is tail’s.",
+ "truth": {
+  "tests": {
+   "e2": "failed"
+  },
+  "risky": [],
+  "retries": {},
+  "ready": null,
+  "stopped": "done",
+  "weakened": null,
+  "why": {},
+  "changed": []
+ },
+ "turn": {
+  "harness": "claude",
+  "prompt": {
+   "id": "e1",
+   "kind": "prompt",
+   "title": "(not kept)",
+   "status": "info",
+   "at": 1791151065750
+  },
+  "steps": [
+   {
+    "id": "e2",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Run the test suite and show the last 3 lines",
+    "status": "ok",
+    "at": 1791151070099,
+    "ms": 2617,
+    "body": {
+     "command": "npm test 2>&1 | tail -n 3",
+     "output": "    operator: 'strictEqual',\n    diff: 'simple'\n  }"
+    }
+   }
+  ],
+  "end": {
+   "id": "e3",
+   "kind": "done",
+   "title": "Finished",
+   "status": "ok",
+   "at": 1791151082192,
+   "summary": " session in this project ran `npm test` without the pipe about 17 minutes ago, and its run failed. That fits what's above.\n\nI didn't change any code. If you want the full output and the real exit code, I can run `npm test` without `| tail`.",
+   "git": {
+    "files": [],
+    "more": 0,
+    "committed": false,
+    "others": []
+   }
+  }
+ }
+}

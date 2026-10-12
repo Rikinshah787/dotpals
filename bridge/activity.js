@@ -14,6 +14,9 @@
 //              { command?, patch?, output?, args? }   (all plain text, clipped)
 //     status,  running · waiting · ok · failed · stopped · info
 //     ms?, error?,
+//     exitUnknown?, on `run` entries: true when the agent's log doesn't say how the command
+//              exited (a script ran it), so its status isn't the command's
+//              and a test run counts only by its output
 //     summary?, on `done` entries: the agent's closing message for that turn
 //   }
 

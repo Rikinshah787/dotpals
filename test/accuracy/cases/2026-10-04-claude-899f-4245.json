@@ -1,0 +1,57 @@
+{
+ "name": "2026-10-04-claude-899f-4245",
+ "source": "real",
+ "labeled": true,
+ "note": "Ran `npm test 2>&1 | tail -n 3` as asked: the 3 lines are the end of a failing assertion’s details (operator, diff), so a person can tell the tests failed; the exit code is tail’s.",
+ "truth": {
+  "tests": {
+   "e2": "failed"
+  },
+  "risky": [],
+  "retries": {},
+  "ready": null,
+  "stopped": "done",
+  "weakened": null,
+  "why": {},
+  "changed": []
+ },
+ "turn": {
+  "harness": "claude",
+  "prompt": {
+   "id": "e1",
+   "kind": "prompt",
+   "title": "(not kept)",
+   "status": "info",
+   "at": 1791150704245
+  },
+  "steps": [
+   {
+    "id": "e2",
+    "kind": "run",
+    "tool": "Bash",
+    "title": "Run tests and show last 3 lines of output",
+    "status": "ok",
+    "at": 1791150706416,
+    "ms": 1654,
+    "body": {
+     "command": "npm test 2>&1 | tail -n 3",
+     "output": "    operator: 'strictEqual',\n    diff: 'simple'\n  }"
+    }
+   }
+  ],
+  "end": {
+   "id": "e3",
+   "kind": "done",
+   "title": "Finished",
+   "status": "ok",
+   "at": 1791150712107,
+   "summary": "he pipe, the exit status comes from `tail`, which returns 0. Use `npm test 2>&1 | tail -n 3; echo \"${PIPESTATUS[0]}\"` to see npm's real exit code (1 here), or raise the tail count to include the pass/fail summary.\n\nI didn't change any code.",
+   "git": {
+    "files": [],
+    "more": 0,
+    "committed": false,
+    "others": []
+   }
+  }
+ }
+}

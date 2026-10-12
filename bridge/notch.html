@@ -46,6 +46,9 @@
       transition: width var(--t) var(--e), height var(--t) var(--e), border-radius var(--t) var(--e), opacity .22s, box-shadow .3s;
     }
     .island[data-mode="hidden"] { opacity: 0; box-shadow: none; }
+    /* Your pal, when it hangs on a thread (Webby): it dangles under the island, its thread
+       going up behind it. Clicks go through it, like everywhere but the island. */
+    .hanger { position: absolute; top: 0; left: 50%; margin-left: -32px; pointer-events: none; --dp-glow: transparent; transition: top var(--t) var(--e); }
     .island[data-mode="peek"] { border-radius: 0 0 15px 15px; }
     .island[data-mode="open"] { border-radius: 0 0 26px 26px; }
     /* A light sweeping along the bottom edge of the bar while an agent works. */
@@ -172,6 +175,12 @@
     .card-head .grow { flex: 1; }
     .card-head .mark { font-weight: 800; font-size: 12.5px; }
     .card p { margin: 0; }
+    /* Settings (the gear): the ones you may want to change mid-task. */
+    .prefs label { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; cursor: pointer; font-size: 12.5px; font-weight: 600; }
+    .prefs small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 400; }
+    .prefs input { margin-top: 2px; accent-color: var(--ok); }
+    .prefs .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .prefs .seg .btn[aria-pressed="true"] { background: rgb(255 255 255 / .16); border-color: var(--text); }
     .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
 
     /* The live diff: the file being edited and its newest change, typing in. */
@@ -357,6 +366,7 @@
   <!-- The notch: every active agent, what it's changing right now, its story, and
        everyone's usage limits. Shown by desktop/main.js (see createNotch); what it
        shows when is decided by bridge/ui/notch-state.js. -->
+  <dot-pal class="hanger" id="hanger" size="64" static hidden></dot-pal>
   <div class="island" id="island" data-mode="hidden" role="status" aria-live="polite">
     <div class="stage" id="stage"></div>
     <div class="cast" id="cast"></div>
@@ -364,6 +374,7 @@
   </div>
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
+    import { characters as palDefs } from '../src/characters.js';
     import { baseName, buildTurns, facts, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, turnTime } from './ui/recap.js';
     import { compactNote, headline, minorChapter, overlaps, planOf, readiness, readinessLine, gitTruth, gitLine, simple, stepType, story, testLine, toolkit, turnMarkdown, recapMarkdown, whyStopped } from './ui/story.js';
     import { derive, initialState, nextWake, reduce } from './ui/notch-state.js';
@@ -374,6 +385,7 @@
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
     const island = $('island');
+    const hanger = $('hanger');
     const stage = $('stage');
     const cast = $('cast');
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -513,6 +525,7 @@
         }
         schedule();
       } else if (type === 'config') {
+        settings = data;
         if (data.storyView === 'simple' || data.storyView === 'detailed') defaultView = data.storyView;
         if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); customName = data.custom.name ?? customName; }
         if (DotPal.characters.includes(data.character) && data.character !== first) {
@@ -528,6 +541,8 @@
         onConflict(data);
       } else if (type === 'task') {
         onTask(data);
+      } else if (type === 'loop') {
+        onLoop(data);
       } else if (type === 'reset') {
         steps.clear();
         schedule();
@@ -684,6 +699,16 @@
       });
     }
 
+    // The fix loop (Settings → Make agents fix failing tests): Claude sent back, stopped from
+    // shipping, stopping with failing tests, a test result nobody could read, or fixed. Not
+    // "told a run failed" or "asked to run them again": test-first work fails on purpose, too
+    // often for an alert (the pal says it).
+    function onLoop(l) {
+      if (!l?.id || !l.session || l.kind === 'told' || l.kind === 'retry') return;
+      send({ type: 'alert', id: `loop:${l.kind}:${l.id}`, kind: 'clash', session: l.session, text: l.text });
+      schedule();
+    }
+
     function flash(state) {
       const cls = state === 'done' ? 'done-flash' : state === 'error' ? 'error-flash' : null;
       if (!cls || reduced.matches) return;
@@ -765,6 +790,7 @@
       return tabPrefs[busyish(s, kind) ? 'busy' : 'idle'] ?? (busyish(s, kind) ? 'now' : 'story');
     }
     function chooseTab(tab) {
+      settingsOpen = false;
       const { v, focus, kind } = shown;
       tabPick = { tab, key: tabKey(v, focus) };
       tabPrefs[busyish(focus, kind) ? 'busy' : 'idle'] = tab;
@@ -780,6 +806,8 @@
     let view = { key: '', node: null }; // what's on the stage
     let size = { w: 160, h: 0 };        // the island's size (its target, while it animates)
     let shown = { v: null, focus: null, kind: null, tab: null };
+    let settingsOpen = false; // the gear's view (fillSettings) instead of Now or Story
+    let settings = {};        // the settings, as the bridge last sent them
     let timer = 0;
     let frame = 0;
     const schedule = () => { if (!timer) timer = setTimeout(render, 80); };
@@ -801,12 +829,13 @@
       if (v.mode === 'open') {
         focus = focusOf(v, agents[0] ?? null);
         kind = kindOf(v, focus);
-        tab = tabOf(v, focus, kind);
+        tab = settingsOpen ? 'settings' : tabOf(v, focus, kind);
       } else {
         picked = null;
         tabPick = null;
         // Closed (Esc, or a quiet minute): stop talking, and drop what wasn't finished.
         if (talk.on) { talk.on = false; voice.stop({ discard: true }); voice.stopSpeaking(); }
+        settingsOpen = false;
       }
       shown = { v, focus, kind, tab };
       const key = v.mode === 'open' ? `open|${tab}|${tab === 'now' ? kind : ''}|${focus?.id ?? ''}` : v.mode === 'hidden' ? 'hidden' : 'bar';
@@ -831,7 +860,23 @@
       placeCast(v.mode, agents, w, h, focus);
       countdown(v.countdown, now);
       syncKeys(v, kind, tab);
-      fitWindow(v.mode, w, h);
+      fitWindow(v.mode, w, h, hang(v.mode, h, focus ?? agents[0]));
+    }
+
+    /**
+     * Your pal, if it hangs on a thread (Webby): it drops out of the island when the island
+     * shows, dangles under it, and acts out the agent in front (the open one, or else the
+     * most urgent), so it drops again when one finishes or needs you. Returns the room it
+     * needs under the island.
+     */
+    function hang(mode, h, agent) {
+      const on = !!palDefs[first]?.hang && (mode === 'bar' || mode === 'open');
+      if (hanger.character !== first) hanger.character = first;
+      if (!on) { hanger.hidden = true; return ROOM.below; }
+      hanger.style.top = `${h - 10}px`;
+      if (hanger.hidden) { hanger.hidden = false; hanger.greet(); }
+      palState(hanger, agent?.state ?? 'idle');
+      return 66;
     }
 
     /** Put a new view on the stage; the old one fades out on top of it. */
@@ -861,8 +906,10 @@
       island.dataset.mode = mode;
       if (w === size.w && h === size.h) return;
       const grow = w * Math.max(h, 1) >= size.w * Math.max(size.h, 1);
-      island.style.setProperty('--t', grow ? '500ms' : '340ms');
-      island.style.setProperty('--e', grow ? 'var(--grow)' : 'var(--shrink)');
+      for (const n of [island, hanger]) {
+        n.style.setProperty('--t', grow ? '500ms' : '340ms');
+        n.style.setProperty('--e', grow ? 'var(--grow)' : 'var(--shrink)');
+      }
       island.style.width = `${w}px`;
       island.style.height = `${h}px`;
       size = { w, h };
@@ -874,8 +921,8 @@
      * browser tabs are, and a peek must never eat a click meant for one.
      */
     let sizeKey = '';
-    function fitWindow(mode, w, h) {
-      const want = mode === 'hidden' ? [STRIP.w + 20, STRIP.h + 1, null] : [Math.ceil(w + 2 * ROOM.side), Math.ceil(h + ROOM.below), mode === 'peek' ? null : { w, h }];
+    function fitWindow(mode, w, h, below = ROOM.below) {
+      const want = mode === 'hidden' ? [STRIP.w + 20, STRIP.h + 1, null] : [Math.ceil(w + 2 * ROOM.side), Math.ceil(h + below), mode === 'peek' ? null : { w, h }];
       const k = JSON.stringify(want);
       if (k === sizeKey) return;
       sizeKey = k;
@@ -1065,6 +1112,7 @@
       tuck: '<path d="M4 8h8"/>', // minimize
       mic: '<rect x="6" y="2" width="4" height="7.5" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"/>', // Talk to Blu
       close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+      gear: '<circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
     };
     function icon(label, path, fn) {
       const b = button('icon', null, fn, label);
@@ -1138,6 +1186,7 @@
           box.append(
             icon('Talk: say a task (Ctrl+Shift+Space)', ICONS.mic, startTalk),
             palButton(),
+            icon('Settings', ICONS.gear, () => { settingsOpen = !settingsOpen; render(); }),
             icon('Dashboard', ICONS.dash, () => desktop?.openDashboard?.()),
             tuckButton(),
             icon('Close (Esc)', ICONS.close, () => send({ type: 'close' })),
@@ -1148,8 +1197,45 @@
       const [whoBox, main] = node.lastChild.children;
       if (tab === 'talk') { fillWho(whoBox, null, 'talk'); fillTalk(main); return; }
       fillWho(whoBox, s, kind);
-      if (tab === 'story' && s) fillStory(main, s);
+      if (tab === 'settings') fillSettings(main);
+      else if (tab === 'story' && s) fillStory(main, s);
       else fillNow(main, s, kind, agents);
+    }
+
+    // -- settings (the gear): the ones you may want to change mid-task ---------------------
+    // Saved like any setting; the bridge sends them back as a `config` event, which redraws this.
+    const saveSetting = (patch) => fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
+    function fillSettings(main) {
+      const loop = settings.fixLoop !== false;
+      const c = settings.checker ?? {};
+      const mode = c.mode ?? 'off';
+      const note = mode === 'cloud' && !c.keySet ? 'Add your Jev key in the dashboard (Settings).'
+        : mode !== 'off' && c.health?.state === 'failing' ? `Not working: ${c.health.error}` : '';
+      keyed(main, [{ key: `settings|${loop}|${mode}|${note}`, make: () => {
+        const card = el('div', 'card prefs');
+        const head = el('div', 'card-head');
+        head.append(el('b', '', 'Settings'), el('span', 'grow'));
+        const row = el('label');
+        const text = el('span', '', 'Make agents fix failing tests');
+        text.append(el('small', '', 'Claude Code is told when a test run fails, and sent back if it tries to finish or commit while the tests fail or weren’t run after its last change.'));
+        const box = el('input');
+        box.type = 'checkbox';
+        box.checked = loop;
+        box.onchange = () => saveSetting({ fixLoop: box.checked });
+        row.append(text, box);
+        const seg = el('div', 'seg');
+        seg.setAttribute('role', 'group');
+        seg.setAttribute('aria-label', 'Double-check unclear test results');
+        for (const [value, label] of [['off', 'Off'], ['local', 'Local (Laya)'], ['cloud', 'Cloud (Jev)']]) {
+          const b = button('btn', label, () => saveSetting({ checker: { mode: value } }));
+          b.setAttribute('aria-pressed', String(mode === value));
+          seg.append(b);
+        }
+        const actions = el('div', 'actions');
+        actions.append(button('btn', 'All settings…', () => desktop?.openDashboard?.()), button('btn', 'Done', () => { settingsOpen = false; render(); }));
+        card.append(head, row, el('div', 'card-head', 'Double-check unclear test results'), seg, ...(note ? [el('p', 'warn', note)] : []), actions);
+        return card;
+      } }]);
     }
 
     // The big pal of the agent in focus, with its name and state.
@@ -1463,15 +1549,17 @@
       return card;
     }
 
-    /** Two agents, one file: who's editing what, and who changed it a moment ago. */
+    /** Two agents, one file: who's editing what, and who changed it a moment ago. Also the fix loop's news. */
     function clashCard(s, a) {
+      const loop = a?.id?.startsWith('loop:');
+      const fixed = a?.id?.startsWith('loop:fixed:');
       const card = el('div', 'card tone-need');
       const head = el('div', 'card-head');
-      const mark = el('span', 'mark', '!');
-      mark.style.color = 'var(--warn)';
-      head.append(mark, el('b', '', 'Two agents, one file'), el('span', 'grow'));
+      const mark = el('span', 'mark', fixed ? '✓' : '!');
+      mark.style.color = fixed ? 'var(--ok)' : 'var(--warn)';
+      head.append(mark, el('b', '', loop ? 'Tests' : 'Two agents, one file'), el('span', 'grow'));
       card.append(head, el('p', 'said', a?.text ?? 'Another agent just changed this file.'));
-      card.append(el('p', 'asked', 'Check they don’t undo each other’s work. Claude Code asks first (Settings → Two agents, one file); other agents can only be told after.'));
+      card.append(el('p', 'asked', loop ? 'dotpals sends Claude Code back when it tries to finish or commit while the tests fail, or weren’t run after its last change (Settings → Make agents fix failing tests).' : 'Check they don’t undo each other’s work. Claude Code asks first (Settings → Two agents, one file); other agents can only be told after.'));
       const actions = el('div', 'actions');
       actions.append(button('btn', 'Story', () => chooseTab('story')), button('btn', 'OK', () => send({ type: 'close' })));
       card.append(actions);

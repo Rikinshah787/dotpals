@@ -25,7 +25,10 @@
    "e11": "fixed"
   },
   "ready": false,
-  "stopped": "question"
+  "stopped": "question",
+  "why": {
+   "e11": null
+  }
  },
  "turn": {
   "harness": "claude",

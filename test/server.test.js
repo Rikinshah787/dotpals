@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 // Keep the bridge away from the real home folder: no Codex watcher, no history file.
 process.env.DOTPALS_CODEX = '0';
@@ -581,6 +581,7 @@ test('a live request gets what git saw changed, also by commands, on its done en
   writeFileSync(join(repo, 'a.js'), 'a\n');
   git('add', '.');
   git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start');
+  git('checkout', '-q', '-b', 'feat/rename');
   const { port, server } = await start();
   t.after(async () => {
     server.closeAllConnections?.();
@@ -603,6 +604,11 @@ test('a live request gets what git saw changed, also by commands, on its done en
   assert.deepEqual(entry?.git?.files, [{ path: 'a.js', change: 'edit' }, { path: 'b.js', change: 'write' }]);
   assert.equal(entry.git.committed, false);
   assert.deepEqual(entry.git.others, []);
+  assert.equal(entry.git.branch, 'feat/rename'); // where the request ended, for "is branch X ready?"
+  assert.match(entry.git.head, /^[0-9a-f]{7}$/);
+  // Where each session works, for dotpals mcp. Read-only: a GET, no header needed.
+  const { sessions } = await (await fetch(`http://127.0.0.1:${port}/api/sessions`)).json();
+  assert.deepEqual(sessions, [{ id: 'git-session', cwd: repo, parent: null, label: basename(repo), harness: 'my-agent' }]);
 });
 
 test('generic /event: malformed files are dropped, so a trimmed session never throws (from review)', async (t) => {

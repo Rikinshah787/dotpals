@@ -62,13 +62,15 @@ Everything runs on your computer. Nothing is fetched from, or sent to, the inter
 | Adapters | `bridge/adapters/*.js` | One module per agent. The registry is `bridge/adapters/index.js`; shared config-editing helpers are in `setup.js`. |
 | Hook forwarder | `bridge/hook.js` | The command agents run for each hook event. Forwards stdin JSON to the bridge, always exits 0, and can start the pal. |
 | Context hook | `bridge/context-hook.js` | Claude Code only: on `SessionStart` and `UserPromptSubmit`, fetches `GET /api/recap` and prints it as `additionalContext` (Share with your agents). |
-| Claude Code plugin | `hooks/hooks.json`, `commands/pals.md`, `.claude-plugin/` | Registers `hook.js` (and `context-hook.js`) for Claude Code's hook events, and the `/dotpals:pals` command. |
+| Fix-loop hook | `bridge/loop-hook.js` | Claude Code only, in the foreground: after a test run, before a commit or push, and on `Stop`, asks `POST /hook?loop=1` and prints the answer (a note, `block` or `deny`). See [The fix loop](#the-fix-loop). |
+| Claude Code plugin | `hooks/hooks.json`, `commands/pals.md`, `.claude-plugin/` | Registers `hook.js` (and `context-hook.js` and `loop-hook.js`) for Claude Code's hook events, and the `/dotpals:pals` command. |
 | Usage | `bridge/usage.js`, `bridge/statusline.js` | Plan limits (5-hour and weekly) and Claude context-window sizes, read from local files. |
 | Story engine | `bridge/ui/story.js`, `bridge/ui/recap.js` | Pure functions shared by every view (and Node): requests, chapters, flags, plan, headline, toolkit, overlaps, compact note, Markdown recaps. |
 | Views | `bridge/index.html`, `bridge/notch.html`, `bridge/dashboard.html` | The pal (Summary, Tools, Files), the notch, and the dashboard (Overview, Sessions, Map, Agents, Settings). |
 | Notch logic | `bridge/ui/notch-state.js`, `bridge/ui/notch-diff.js` | Pure modules for the notch (they run in Node too): its state machine (when it hides, peeks, shows its bar or opens, and which alert it shows) and its live diff card (a patch as a few display lines, and a language chip for a file). |
 | Desktop app | `desktop/main.js`, `desktop/preload.cjs`, `desktop/launch.js` | Electron: the pal, notch and dashboard windows, tray, shortcut, click-through and drag. Runs the bridge in-process. |
-| CLI | `bin/dotpals.js` | `setup`, `start`, `dashboard`, `status`, `notch`, `statusline`, `bridge`. |
+| MCP server | `bridge/mcp.js` | `dotpals mcp`: MCP over stdio for any assistant, read-only, from the running bridge. See [The MCP server](#the-mcp-server). |
+| CLI | `bin/dotpals.js` | `setup`, `start`, `dashboard`, `status`, `doctor`, `notch`, `statusline`, `bridge`, `mcp`. |
 | Web component | `src/*.js`, `src/index.d.ts` | `<dot-pal>`, the characters, custom pals, actions and agent-event helpers. Used by every view and published on its own. See [The web component](#the-web-component). |
 
 ## The activity entry model
@@ -243,6 +245,24 @@ Off unless `shareRecap` is on. It tells each Claude Code session what other agen
 - `/api/recap` returns `{}` while the setting is off. Otherwise it builds the note with `crossRecap(entries, { session, label, states })` from `story.js`: up to 4 other sessions with the same label active in the last 2 hours that changed files or ran tests, each with the files changed (up to 5), its last test result, what it was asked, and whether it's working now.
 - `mode=start` returns the whole note. `mode=prompt` returns it only if there's news since the last note that session got (`recapTold`).
 
+## The fix loop
+
+On unless `fixLoop` is off. It makes Claude Code fix the tests it broke, and catches tests changed to make them pass.
+
+- `hooks/hooks.json` runs `bridge/loop-hook.js` in the foreground on `PreToolUse` (Bash and PowerShell, 3 s), `PostToolUse` and `PostToolUseFailure` (Bash and PowerShell, 10 s) and `Stop` (5 s). The hook skips commands that neither run tests (`stepType`) nor ship (`ships`: a commit, push, pull request or publish not guarded by its own passing tests) without asking the bridge. Otherwise it posts the event to `POST /hook?loop=1` on `DOTPALS_BRIDGE` and prints the answer as is. It never starts anything and always exits 0, so with no bridge or no answer in time Claude carries on.
+- After a test run, the bridge reads the verdict from the output (`testVerdict`; an unclear run goes to the checker first, when one is on). A failure the request caused gets a note (`additionalContext`) with why it failed (`failureReason` in `bridge/ui/testout.js`); a failure from before the session changed anything (`onlyOldFailures`) is reported, not forced. An unreadable result asks Claude to run the tests again once.
+- At every test run the bridge takes git's view of the test files (`testDiff` in `bridge/ground.js`), so `weakenedTests` sees a test changed to pass however it was done: an edit, a whole-file write, `sed` or a script.
+- On `Stop`, a request that changed code and whose tests fail, are stale, or were never run (in a session that has run them before) gets `{ decision: "block", reason }`, at most `LOOP_MAX` (2) times per request; a faked pass is sent back once. Before a commit or push with failing or stale tests, `PreToolUse` gets `permissionDecision: "deny"`.
+- Each step is a `loop` event (`told`, `retry`, `sent-back`, `blocked-ship`, `gave-up`, `ask-you`, `bluff`, `fixed`) for the pal and the notch, kept in the history (the last 500, `GET /api/loop`).
+
+## The MCP server
+
+`dotpals mcp` (`bridge/mcp.js`) lets any assistant ask dotpals what the agents on this computer really did.
+
+- MCP over stdio, without an SDK: one JSON-RPC 2.0 message per line on stdin and stdout. Logs go to stderr, so stdout carries nothing else.
+- Read-only. Each tool call fetches `GET /api/activity` and `GET /api/sessions` (and `GET /api/git?session=` for what isn't committed yet) from `DOTPALS_BRIDGE`, and reads them with the same story engine as the pal, so the answers match what it shows. With no bridge running, every tool says how to start it.
+- Tools: `agents_now`, `test_status`, `ready_to_merge`, `recap`, `today`, `risky_steps`, `handoff_note` and `check_my_work`. A project is matched by the folder each session works in (`cwd`), so same-named folders and worktrees stay apart.
+
 ## Approve from the pal
 
 Claude Code's `PermissionRequest` hook can answer a permission prompt. dotpals uses it to show **Allow** and **Deny** on the pal and the notch.
@@ -401,7 +421,7 @@ Also:
 - **Event ingestion is open to local processes.** `POST /hook` and `POST /event` accept any JSON, so any program on your machine can add to the feed. They can't read it back, change settings or answer approvals.
 - **Static files** are served only from `src/`, `bridge/` and `desktop/` inside the package, after path normalisation.
 - **The desktop app** uses sandboxed, context-isolated pages with a narrow preload API, and opens only `http(s)`, `vscode:`, `cursor:` (and, from the pal, `file:`) links outside the app.
-- **Never in the agent's way.** `hook.js` always exits 0 with short timeouts. The Cursor and Copilot CLI integrations use only hooks that observe. The OpenCode plugin never throws. Approvals are off unless you turn them on, and always fall back to the terminal.
+- **Never in the agent's way, unless you ask.** `hook.js` always exits 0 with short timeouts. The fix loop (`loop-hook.js`, on by default) can send Claude back or hold back a commit, but it fails open: no bridge or no answer in time, and Claude carries on. The Cursor and Copilot CLI integrations use only hooks that observe. The OpenCode plugin never throws. Approvals are off unless you turn them on, and always fall back to the terminal.
 - **Careful with other tools' files.** Connect backs up the original, merges instead of overwriting, writes atomically, and refuses to touch a file it can't parse. Disconnect removes only what dotpals added.
 
 See also `SECURITY.md`.

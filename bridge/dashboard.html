@@ -542,6 +542,11 @@
           </div>
 
           <div class="card">
+            <h2>Fix failing tests</h2>
+            <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code only. dotpals tells Claude when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
+          </div>
+
+          <div class="card">
             <h2>Double-check unclear test results</h2>
             <p class="muted" style="margin:4px 0 0">dotpals reads each test run’s output for its summary (“48 passed”, “1 failed”). When it can’t tell, say no tests ran or the exit code disagrees with the output, it says <b>Tests unclear</b>. A checker can look at those runs once and decide. Clear results are never sent.</p>
             <div class="row"><div class="text">Checker<small>Off unless you choose one.</small></div>
@@ -1663,6 +1668,7 @@
     $('s-notifications').onchange = (e) => save({ notifications: e.target.checked });
     $('s-approvals').onchange = (e) => save({ approvals: e.target.checked });
     $('s-share').onchange = (e) => save({ shareRecap: e.target.checked });
+    $('s-fixloop').onchange = (e) => save({ fixLoop: e.target.checked });
     $('s-approval-wait').onchange = (e) => save({ approvalWait: Number(e.target.value) });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
     // Two agents, one file (bridge/guard.js): kept in step with the settings as they arrive.
@@ -1944,6 +1950,7 @@
       $('s-notifications').checked = config.notifications;
       $('s-approvals').checked = !!config.approvals;
       $('s-share').checked = !!config.shareRecap;
+      $('s-fixloop').checked = config.fixLoop !== false;
       if (![...$('s-approval-wait').options].some((o) => o.value === String(config.approvalWait))) $('s-approval-wait').add(new Option(`${config.approvalWait} seconds`, String(config.approvalWait)));
       $('s-approval-wait').value = String(config.approvalWait ?? 30);
       $('s-approval-wait').disabled = !config.approvals;

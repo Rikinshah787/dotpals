@@ -16,7 +16,11 @@
    "e14": "fixed"
   },
   "ready": false,
-  "stopped": "done"
+  "stopped": "done",
+  "weakened": null,
+  "why": {
+   "e14": "AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal: + actual - expected"
+  }
  },
  "turn": {
   "harness": "claude",
@@ -226,7 +230,10 @@
       "path": "C:\\Dot\\test\\server.test.js",
       "change": "edit"
      }
-    ]
+    ],
+    "body": {
+     "patch": "-  const { laya, ...checker } = JSON.parse(saved.text).checker;\n-  assert.deepEqual(checker, { mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', layaManaged: false, keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });\n+  const { laya, health, ...checker } = JSON.parse(saved.text).checker;\n+  assert.deepEqual(checker, { mode: 'cloud', localUrl: 'http://[REDACTED:ip]:8000', layaManaged: false, keySet: true, keyLast4: 'ffff', keyFrom: 'settings' });\n+  assert.ok(!JSON.stringify(health).includes(key)); // its health (working, failing, why) never carries the key"
+    }
    },
    {
     "id": "e18",

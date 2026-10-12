@@ -36,6 +36,10 @@ export const DEFAULTS = {
   // 'tell' (Claude is told to re-read the file) or 'off'. Other agents only get an alert.
   conflictGuard: 'ask',
   conflictMinutes: 10,
+  // Make Claude Code fix failing tests (bridge/server.js, "the fix loop"): tell Claude when a
+  // test run fails, and send it back once or twice if it tries to finish or commit while the
+  // tests fail or weren't run after its last change. On unless you turn it off.
+  fixLoop: true,
   agents: {},           // per integration on/off, e.g. { cursor: false } (see bridge/adapters/index.js)
   custom: null,         // your own pal: { name, shape, eyes, top, color, fur }
   storyView: 'simple',  // how requests read by default: 'simple' (one sentence) or 'detailed' (the chapters)
@@ -48,12 +52,12 @@ export const DEFAULTS = {
 /** Integrations that can be switched off in `agents` (ids from bridge/adapters/index.js). */
 export const AGENT_IDS = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'copilot', 'generic'];
 
-const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte', 'custom'];
+const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte', 'webby', 'custom'];
 
 /** Keep only known settings with sensible values. */
 function clean(input = {}) {
   const out = {};
-  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap', 'chat', 'greetOnStart']) if (typeof input[key] === 'boolean') out[key] = input[key];
+  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap', 'chat', 'greetOnStart', 'fixLoop']) if (typeof input[key] === 'boolean') out[key] = input[key];
   const wait = Number(input.approvalWait);
   if (Number.isInteger(wait) && wait >= 10 && wait <= 120) out.approvalWait = wait;
   const size = Number(input.palSize);

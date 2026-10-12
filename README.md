@@ -6,7 +6,7 @@
 
 **See what your coding agent actually did.**
 
-A small floating pal that watches Claude Code, Codex or any agent and tells you, in plain words, what happened: which files changed, which commands ran, what failed, and what the agent says it did.
+A small floating pal that watches Claude Code, Codex or any agent and checks its work: which files changed, which commands ran, and whether the tests really passed, read from their output, not the agent's word. When Claude breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.
 
 ```bash
 npx dotpals@latest setup
@@ -18,15 +18,25 @@ npx dotpals@latest setup
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20any%20agent-d97757)
 
-<img src="docs/demo.gif" width="760" alt="The dotpals notch: a live diff types in, an agent asks to run git push --force with a warning, Allow is clicked, and the pal celebrates">
+<img src="docs/demo.gif" width="760" alt="The dotpals notch catches a faked pass: Claude Code's change breaks a test, it edits the test to expect the wrong answer, dotpals sees the test was changed and sends it back, and Claude puts the test back and fixes the code">
 
 <sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
-**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](CHANGELOG.md)**
+**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](#new-in-010)**
 
 **[⭐ Star dotpals](https://github.com/Rikinshah787/dotpals/stargazers)** if your agent ever said "Done!" and you weren't sure · **[Tell us what's confusing](https://github.com/Rikinshah787/dotpals/issues/new)**
 
 </div>
+
+## New in 0.10
+
+dotpals used to show you what your agent did. Now it checks the work, and every AI tool can ask it.
+
+- **[Make agents fix failing tests](#features).** When Claude Code's tests fail, it's told at once, with why ("expected 3, got -1 (test/math.test.js:5)"), and sent back if it tries to finish, commit or push anyway. On by default; one switch in Settings, or the gear in the notch, turns it off.
+- **Catches the faked pass.** Green only because a test lost an assertion, got a skip or now expects the wrong thing? Claude is sent back to put the test back and fix the code, and you're told.
+- **[Ask dotpals from any agent (MCP)](#ask-dotpals-from-any-agent-mcp).** Claude Code, Codex, Cursor and other assistants ask `check_my_work`, `ready_to_merge`, `today` and more, and get the evidence instead of the agent's word.
+
+All of it in the [changelog](CHANGELOG.md).
 
 ## Why
 
@@ -34,6 +44,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 - **What did it change?** Every file edited, created or deleted, with the diff one click away.
 - **What did it run, and did it work?** Every command, with its output, duration and ✓ or ✕. A step that failed and was retried says **fixed on try 2** or **still failing after 3 tries**.
+- **Did it fix what it broke?** When Claude Code's tests fail, it's sent back to fix them before it finishes or commits, and a test changed just to make it pass is caught.
 - **Was the code as it is now tested?** "Changed 2 files after the tests passed: not tested since" is impossible to miss, so an old green result doesn't pass for a check of the latest edits.
 - **What is it doing right now?** The pal thinks, works, asks for your OK and celebrates, live.
 - **What did I get done today?** A running tally, and one click copies it as Markdown for a standup or PR.
@@ -42,6 +53,8 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
+- **Make agents fix failing tests** (Claude Code, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure, and a test that was already failing before Claude changed anything is reported, not forced on it. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Turn it off in Settings, or from the gear in the notch.
+- **Ask dotpals from any agent**: `dotpals mcp` lets Claude Code, Codex, Cursor and other assistants ask what your agents really did, with the evidence: `check_my_work` before an agent says "done", `ready_to_merge`, `today`, `recap`, `risky_steps` and more. See [below](#ask-dotpals-from-any-agent-mcp).
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
 - **Two agents, one file**: when an agent is about to change a file another agent changed in the last few minutes, Claude Code asks you first ("Codex (api) changed billing.ts 2 minutes ago. Edit anyway?"), or tells Claude to re-read it. Other agents can't be stopped beforehand: the notch and the pal tell you as it happens.
 - **Hand-off**: **Continue in ▾** hands a session to Codex, Claude Code or Gemini CLI, in a new terminal in the same project, with a note on what was asked, what was done, how the tests stand and what's left. Or copy the note and paste it anywhere.
@@ -64,7 +77,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 - **Notifications and sounds**: a ping when the agent needs your OK, a chime when it's done, and a desktop notification if you've looked away.
 - **Every session, every agent**: all your Claude Code sessions show up, even ones started before dotpals was installed, next to Codex and anything else you plug in. In small mode each agent gets its own pal, with a round bar above them naming each one.
 - **Make your own pal**: pick a body, eyes, something on top, a color and a name. See [below](#make-your-own-pal).
-- **A pal with personality**: eight ready-made characters that think, work, talk, wait, celebrate and sulk. Drag it anywhere; it stays on top, and clicks on the empty space around it go through to your editor.
+- **A pal with personality**: nine ready-made characters that think, work, talk, wait, celebrate and sulk, including Webby, a spider that hangs on its thread and bungee-drops down when your agent finishes. Drag it anywhere; it stays on top, and clicks on the empty space around it go through to your editor.
 
 <p align="center">
   <img src="docs/tools.png" width="300" alt="The Tools tab with an Edit opened, showing its diff">
@@ -87,6 +100,10 @@ A small island that hangs from the top of your screen. It has four sizes:
 - **Open** (640 px): the agent in focus as a big pal on the left, one card on the right, a column of mini pals for the other agents, and two tabs:
   - **Now**: a live diff of the file it's editing (or a checklist of its steps), its plan, context window, helpers and your usage limits. When it needs your OK, an approval card with **Deny** and **Allow**, or **Ctrl+Alt+N** and **Ctrl+Alt+Y** (**⌘⌥N** and **⌘⌥Y** on macOS), which work only while the card is showing. When it's done or fails, a short card says what happened.
   - **Story**: today's totals with **Copy today**, whether the code was tested since its last change, the plan, helpers, the context window with **Copy /compact**, what it's been using, a note when two agents changed the same file, and the last few requests as chapters you can expand.
+
+<p align="center"><img src="docs/webby.png" width="560" alt="Webby, a fuzzy violet spider, hanging on its silk thread four times: calm, happy with blushing cheeks, surprised with wide eyes, and sad"></p>
+
+**Webby in the notch**: if your pal is Webby, it hangs on its thread from the bottom of the island whenever the notch shows. It drops out when the notch appears and drops again when an agent finishes or needs you. Clicks go straight through it.
 
 Alerts open it by themselves, one at a time. One that needs you shows even if you've been away, and stays until you answer. Done and error cards close after about 5 and 8 seconds. When you open it yourself, it closes 8 seconds after the pointer leaves (a shrinking line shows the last seconds), or after a quiet minute with the pointer resting on it. **Esc** closes it while the pointer is over it. Its window lets clicks through everywhere except the island, and the peek never takes a click, so it doesn't get in the way of your browser tabs.
 
@@ -172,7 +189,7 @@ Send JSON to the local bridge from your agent loop, a hook script or a wrapper. 
 | Drag the pal | Move the window; it remembers where you put it |
 | **▦** | Open the dashboard: sessions, logs, stats and settings |
 | **⤡** | Switch between just the pal and the full view |
-| **×** | Hide to the tray. The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
+| **–** | Minimize: hide the pal to the tray (the notch keeps watching, and **Ctrl+Alt+P** brings it back). The tray menu has *Dashboard*, *Just the pal*, *Notifications*, *Open when I log in* and *Quit* |
 | 🔊 | Sounds on or off |
 
 From a terminal, after setup (or with `npx dotpals <command>`):
@@ -183,26 +200,63 @@ dotpals dashboard   # open the dashboard
 dotpals status      # what's running and connected
 dotpals doctor      # no pal or notch? checks and fixes it (setup runs the same check at the end)
 dotpals bridge      # only the bridge, e.g. on a machine without a desktop; dashboard at http://127.0.0.1:5175/dashboard
+dotpals mcp         # an MCP server, so any assistant can ask dotpals what your agents did (see below)
 ```
+
+## Ask dotpals from any agent (MCP)
+
+`dotpals mcp` is an [MCP](https://modelcontextprotocol.io) server: Claude Code, Codex, Cursor and other assistants can ask dotpals what your agents really did, and get the evidence instead of the agent's word. It only reads, from the pal running on this computer, so keep dotpals running.
+
+```bash
+claude mcp add dotpals -- npx dotpals mcp
+```
+
+Codex, in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.dotpals]
+command = "npx"
+args = ["dotpals", "mcp"]
+```
+
+Cursor and others: command `npx`, arguments `dotpals mcp`.
+
+| Tool | Answers |
+| --- | --- |
+| `agents_now` | Which agents worked in the last 2 hours, on what, whether they're still at it, and how their tests stand |
+| `test_status` | Is it really tested? Passed or failed (read from the output), why the last run failed ("expected 3, got -1 (test/math.test.js:5)"), and whether code changed since |
+| `ready_to_merge` | The checks a reviewer would make: tests ran after the last change and passed (not because the tests were changed), nothing left failing, nothing risky, and the work is committed. Mid-request too, as it stands now. Pass `branch` to ask about a git branch |
+| `recap` | What each agent was asked and did, request by request, with the files it changed, why its tests failed, and tests that passed only after they were changed (a project or a session, `since` a time) |
+| `today` | Today's work per agent, for a standup: requests, files changed and test runs, then each request in a sentence |
+| `risky_steps` | Force pushes, recursive deletes, changes to `.env` and other risky steps, each with when, which agent and the command |
+| `handoff_note` | A note for another agent to pick up a session's work: the ask, what was done, the files, how the tests stand, what's left |
+| `check_my_work` | For the agent itself, before it says "done": "Looks done", or what to fix first (with why the tests fail, or "put the test back and fix the code"). Tests that were failing before the session changed anything are its to report, not to fix |
+
+Ask things like "What are my agents doing?", "Is this really tested?", "Is feat/login ready to merge?" or "What did Codex change in billing this morning?". The project is the folder the assistant runs in, unless you name another. dotpals matches it by the folder each agent really works in, so two folders with the same name, a monorepo's packages and git worktrees stay apart (a project's name alone matches by name). It notes the branch when an agent finishes a request in a git repository. Only tests an agent ran count: dotpals can't see the ones you run yourself, or CI.
 
 ## Privacy
 
-Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
+Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. *Make agents fix failing tests* (on by default) adds short notes about Claude's own test runs to its context, which Claude Code sends to its model like anything else there; turn it off in Settings. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
 
 ## How accurate is it?
 
-We check. `test/accuracy/cases` holds 21 real requests from building dotpals itself (cleaned of paths, keys and prompts), and every claim dotpals makes about them was checked by hand against what really happened: 145 claims.
+We check. `test/accuracy/cases` holds 36 real requests (cleaned of paths, keys and prompts): 21 from building dotpals itself, and 15 from a small practice project with a planted bug, where Claude was asked to run the tests, add code, and fake a passing test. Every claim dotpals makes about them was checked by hand against what really happened: 255 claims.
 
 | Claim | Claims | Right | Wrong | Unsure |
 |---|---:|---:|---:|---:|
-| Test results (passed, failed) | 79 | 74 | 1 | 4 |
-| Risky steps | 13 | 13 | 0 | 0 |
-| Retries ("fixed on try 2") | 11 | 10 | 1 | 0 |
-| Ready to merge? | 21 | 20 | 1 | 0 |
-| Why it stopped | 21 | 20 | 1 | 0 |
-| **All** | **145** | **137 (94.5%)** | **4** | **4** |
+| Test results (passed, failed) | 99 | 91 | 1 | 7 |
+| Risky steps | 14 | 14 | 0 | 0 |
+| Retries ("fixed on try 2") | 15 | 14 | 1 | 0 |
+| Ready to merge? | 36 | 35 | 1 | 0 |
+| Why it stopped | 36 | 35 | 1 | 0 |
+| What changed (git) | 10 | 9 | 1 | 0 |
+| Tests changed to pass | 20 | 20 | 0 | 0 |
+| Why tests failed | 25 | 25 | 0 | 0 |
+| **All** | **255** | **243 (95.3%)** | **5** | **7** |
 
-"Unsure" is a test run dotpals called unclear though a person could tell; that's what the optional [Jev or Laya check](#privacy) is for. The 4 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
+*Tests changed to pass* is the faked pass: green only because an edit to a test took out an assertion, turned a test off or changed what it expects (3 fakes caught; rightly quiet on 17 others: honest test edits while building dotpals, a skip taken out again before a real fix, fixes that didn't touch the tests). *Why tests failed* is the reason dotpals reads from a failed run's output and tells the agent ("expected 3, got -1").
+
+"Unsure" is a missing answer, not a false one: a test run dotpals called unclear though a person could tell (that's what the optional [Jev or Laya check](#privacy) is for), or a failed run it gave no reason for though the output shows one. The 5 wrong claims are listed by `npm run accuracy`. One test result and one "Ready to merge?" are wrong because the bridge stored a long command cut off (fixed for new requests). A retry and a "Why it stopped" are wrong because a render that failed twice worked later with different arguments, and dotpals didn't link the two. Git can't tell who changed a file, so a file you reset during a request counts as changed by it. The test suite fails if a claim that's right turns wrong. Add your own cases with `node scripts/accuracy-capture.mjs`.
 
 ## How it works
 
@@ -294,6 +348,7 @@ The pal is a dependency-free Web Component, `<dot-pal>`, for chat UIs, IDE panel
 | `grok`  | Grok, a slate bot with a glowing visor | nod |
 | `nova`  | Nova, an orange bot with a light-bulb antenna | jump |
 | `byte`  | Byte, a teal cat with pixel eyes    | wiggle |
+| `webby` | Webby, a violet spider that hangs on its thread and bungee-drops when your agent finishes or needs you | drop |
 
 ### Quick start
 
@@ -441,7 +496,7 @@ pal.say('Hi! Ask me anything.');
 // Show a mood for a moment
 pal.flash('surprised', 1500);
 
-// One-shot actions: jump · squish · wiggle · shake · nod · spin · love · hop · jitter · hello · dizzy
+// One-shot actions: jump · squish · wiggle · shake · nod · spin · love · hop · jitter · hello · drop · dizzy
 await pal.play('love');
 
 // Say hello: rise up from below, squint happily, hop and blink twice
@@ -543,6 +598,8 @@ registerCharacter('ghost', {
 - Put `class="dp-blink"` on each eye so it blinks and reacts to moods.
 - Put `class="dp-look"` on anything that should follow the cursor.
 - `eyes` (optional) says where the eyes are, so the pal can swap in expression eyes: `at` (the two centres), `r` (their size), and optionally `ink` (their color), `glow` (`true` or a color) and `own` (expressions your eyes already do well, e.g. `['wide']`). While they show, the parts marked `class="dp-eyes"` hide (or the `.dp-blink` parts). Without `eyes`, the eyes just squint for moods.
+- `hang: true` (optional) makes a pal that hangs instead of peeking: draw its whole body above the bottom edge and its thread as `class="dp-thread"` (hidden on tiny pals), and it swings from the top of the thread while idle.
+- `moves` (optional) swaps the action a pal plays when it says hello (`greet()`) or enters a state, e.g. `moves: { hello: 'drop', done: 'drop', waiting: 'drop' }` (Webby's).
 - Let bodies run below `y=200`, so jumping reveals more body instead of a flat edge.
 
 You can add actions too, with `registerAction('pop', { keyframes, duration, particles })`. `particles` is a shape (`heart`, `sparkle`, `star`, `sweat` or `z`, drawn as SVG) or any text or emoji.

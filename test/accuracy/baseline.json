@@ -1,32 +1,47 @@
 {
   "total": {
-    "right": 137,
-    "wrong": 4,
-    "unsure": 4
+    "right": 244,
+    "wrong": 5,
+    "unsure": 7
   },
   "byKind": {
     "risky": {
-      "right": 13,
+      "right": 14,
       "wrong": 0,
       "unsure": 0
     },
     "ready": {
-      "right": 20,
+      "right": 35,
       "wrong": 1,
       "unsure": 0
     },
     "stopped": {
-      "right": 20,
+      "right": 35,
       "wrong": 1,
       "unsure": 0
     },
     "tests": {
-      "right": 74,
+      "right": 92,
       "wrong": 1,
-      "unsure": 4
+      "unsure": 7
     },
     "retries": {
-      "right": 10,
+      "right": 14,
+      "wrong": 1,
+      "unsure": 0
+    },
+    "why": {
+      "right": 25,
+      "wrong": 0,
+      "unsure": 0
+    },
+    "weakened": {
+      "right": 20,
+      "wrong": 0,
+      "unsure": 0
+    },
+    "changed": {
+      "right": 9,
       "wrong": 1,
       "unsure": 0
     }
@@ -35,12 +50,16 @@
     "2026-10-01-claude-964b-82310 retries e44",
     "2026-10-01-claude-964b-82310 stopped stopped",
     "2026-10-02-claude-964b-97004 tests e61",
-    "2026-10-02-claude-964b-97004 ready ready"
+    "2026-10-02-claude-964b-97004 ready ready",
+    "2026-10-04-claude-44d0-82752 changed math.js"
   ],
   "unsure": [
     "2026-10-01-claude-964b-26947 tests e45",
     "2026-10-01-claude-964b-98422 tests e33",
     "2026-10-01-claude-964b-98422 tests e39",
-    "2026-10-02-claude-964b-76648 tests e7"
+    "2026-10-02-claude-964b-76648 tests e7",
+    "2026-10-04-claude-899f-4245 tests e2",
+    "2026-10-04-claude-c3ae-65750 tests e2",
+    "2026-10-05-claude-4cfd-39389 tests e2"
   ]
 }
