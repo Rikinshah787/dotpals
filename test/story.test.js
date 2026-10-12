@@ -490,6 +490,42 @@ test('failing test names show next to the counts, shortened to the test’s own 
   assert.match(simple({ steps: [edit('src/locks.py'), failing], end: { kind: 'done' } }).text, /the tests are failing \(test_locked_failure_does_not_block_requested_work\)\.$/);
 });
 
+test('stuck: the same thing failing again and again, or nothing working for a while, while it works', async () => {
+  const { stuck } = await import('../bridge/ui/story.js');
+  const at = (e, t) => ({ ...e, at: t });
+  const fail = (t) => at({ ...run('npm test', 'failed'), body: { command: 'npm test', output: 'Tests: 1 failed, 3 passed' } }, t);
+  const pass = (t) => at({ ...run('npm test'), body: { command: 'npm test', output: 'Tests: 4 passed' } }, t);
+  const ed = (t) => at(edit('src/a.js'), t);
+  const now = 10 * 60_000;
+
+  // Three failed tries at the same test, the last one failing: stuck.
+  const s = stuck([fail(1000), ed(2000), fail(3000), ed(4000), fail(5000)], { now: 6000 });
+  assert.equal(s.kind, 'repeat');
+  assert.equal(s.text, '`npm test` still fails after 3 tries');
+  // Two is just test-first work, or one fix that didn't take.
+  assert.equal(stuck([fail(1000), ed(2000), fail(3000)], { now: 4000 }), null);
+  // Fixed on the third try, or the request is over: not stuck.
+  assert.equal(stuck([fail(1000), fail(2000), fail(3000), pass(4000)], { now: 5000 }), null);
+  assert.equal(stuck([fail(1000), fail(2000), fail(3000), at(step('done'), 4000)], { now: 5000 }), null);
+  // Still trying (the fourth run is going): wait for it.
+  assert.equal(stuck([fail(1000), fail(2000), fail(3000), at({ ...run('npm test', 'running'), body: { command: 'npm test' } }, 4000)], { now: 5000 }), null);
+
+  // Nothing has worked for 10 minutes, and it keeps trying.
+  const quiet = [ed(0), at(run('npm run build', 'failed'), 60_000), at(run('npx tsc', 'failed'), 5 * 60_000)];
+  const q = stuck(quiet, { now: now + 1000 });
+  assert.equal(q.kind, 'quiet');
+  assert.equal(q.text, 'Nothing has worked for 10 minutes: 2 steps failed since');
+  assert.equal(stuck(quiet, { now: 9 * 60_000 }), null); // not yet
+  // One failure in 10 minutes is a slow step, not a stuck one.
+  assert.equal(stuck([ed(0), at(run('npm run build', 'failed'), 60_000)], { now: now + 1000 }), null);
+  // A step still running (a long build, a question for you) isn't stuck.
+  assert.equal(stuck([...quiet, at(run('npm run e2e', 'running'), 6 * 60_000)], { now: now + 1000 }), null);
+  // Gone quiet itself for longer than that: the agent stopped, it isn't going round.
+  assert.equal(stuck(quiet, { now: 30 * 60_000 }), null);
+  // Reading counts as working.
+  assert.equal(stuck([...quiet, at(read('src/b.js'), 6 * 60_000)], { now: now + 1000 }), null);
+});
+
 test('whyStopped: why a request ended, in plain words', async () => {
   const { whyStopped } = await import('../bridge/ui/story.js');
   const failing = (n) => Array.from({ length: n }, () => ({ ...run('npm test', 'failed'), body: { command: 'npm test', output: 'Tests: 1 failed, 3 passed' } }));

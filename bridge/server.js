@@ -25,6 +25,8 @@
 //                            conflict: an agent is changing a file another active session just changed (see guard.js)
 //                            loop:     Claude was told its tests failed, or sent back to fix them (see "the fix loop"):
 //                                      { id, at, session, harness, label, kind: 'told' | 'sent-back' | 'blocked-ship' | 'gave-up' | 'fixed', text }
+//                            stuck:    a request going round in circles (Settings: stuckAlerts), once per request and reason:
+//                                      { id, at, session, harness, label, kind: 'repeat' | 'quiet', text, step }
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
@@ -77,7 +79,7 @@ import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
 import { failureReason } from './ui/testout.js';
-import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
+import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, stuck as findStuck, testEvidence, testState, testVerdict } from './ui/story.js';
 import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -329,6 +331,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       maybeCheck(entry);
       snapTests(entry);
       checkConflicts(entry);
+      if (entry.status === 'failed' || entry.kind === 'run') checkStuck(entry.session);
       groundTruth(entry);
       any = true;
     }
@@ -361,6 +364,29 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       text: alertText(by, conflict), ...(guard ? { guard } : {}),
     });
   }
+  // -- "It's stuck" (Settings: stuckAlerts, on by default) ---------------------------
+  // A request that keeps failing at the same thing, or where nothing has worked for a
+  // while: a `stuck` event, once per request and reason. Any agent. Checked when a step
+  // comes in, and every minute (for "nothing has worked for 10 minutes").
+  const stuckSent = new Map(); // session → Set of reasons already told for its current request
+  function checkStuck(session, now = Date.now()) {
+    if (!config.stuckAlerts || !session || asleep.has(session)) return;
+    const prompt = activity.findLast(session, (e) => e.kind === 'prompt');
+    const steps = [];
+    for (const e of activity.each()) if (e.session === session && (!prompt || e.at >= prompt.at) && e !== prompt) steps.push(e);
+    const s = findStuck(steps, { now, from: prompt?.at });
+    if (!s || now - (s.step?.at ?? 0) > 15 * 60_000) return; // not history read at startup
+    const told = stuckSent.get(session) ?? new Set();
+    const key = `${prompt?.id ?? ''}|${s.kind === 'quiet' ? 'quiet' : s.key}`;
+    if (told.has(key)) return;
+    told.add(key);
+    stuckSent.set(session, told);
+    const e = s.step ?? {};
+    send('stuck', { id: randomUUID(), at: now, session, harness: e.harness, label: e.label, kind: s.kind, text: s.text, step: e.id });
+  }
+  const stuckTimer = setInterval(() => { for (const session of sessions.keys()) checkStuck(session); }, 60_000);
+  stuckTimer.unref?.();
+
   /** Any agent's change that's happening now: alert if another active session just changed the same file. */
   function checkConflicts(entry) {
     if (config.conflictGuard === 'off' || !entry.session || entry.guard || entry.status === 'failed' || entry.status === 'stopped') return;
@@ -1356,10 +1382,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
+  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
-    server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });
+    server.once('error', (err) => { stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); fail(err); });
     server.listen(port, '127.0.0.1', () => {
       print(`dotpals bridge → http://localhost:${port}`);
       print(`dashboard      → http://localhost:${port}/dashboard`);

@@ -810,6 +810,16 @@
       }
     }
 
+    // -- "It's stuck" (Settings → stuckAlerts) --------------------------------------------
+    // An agent keeps failing at the same thing, or nothing has worked for a while: its pal
+    // says so, and a gentle ping and a notification tell you, once per request and reason.
+    function applyStuck(s) {
+      if (!s?.text || !fresh(s.at)) return;
+      slots.get(s.session)?.pal.say?.(`Going in circles? ${s.text}`, { duration: 8000 });
+      sound.play('waiting');
+      desktop?.notify?.(`${harnessName(s.harness)}${s.label ? ` · ${s.label}` : ''} may be stuck`, s.text);
+    }
+
     function pick(session, byUser) {
       picked = session;
       if (byUser) pickedByUser = true;
@@ -2056,6 +2066,7 @@
       : type === 'helpers' ? applyHelpers(data)
       : type === 'conflict' ? applyConflict(data)
       : type === 'loop' ? applyLoop(data)
+      : type === 'stuck' ? applyStuck(data)
       : type === 'config' ? applyConfig(data)
       : type === 'reset' ? resetAll()
       : type === 'ready' ? endReplay()
@@ -2263,6 +2274,7 @@
       source.addEventListener('helpers', (e) => onEvent({ type: 'helpers', data: JSON.parse(e.data) }));
       source.addEventListener('conflict', (e) => onEvent({ type: 'conflict', data: JSON.parse(e.data) }));
       source.addEventListener('loop', (e) => onEvent({ type: 'loop', data: JSON.parse(e.data) }));
+      source.addEventListener('stuck', (e) => onEvent({ type: 'stuck', data: JSON.parse(e.data) }));
       source.addEventListener('reset', () => onEvent({ type: 'reset' }));
       source.addEventListener('ready', () => onEvent({ type: 'ready' }));
     }
