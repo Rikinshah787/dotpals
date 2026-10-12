@@ -396,6 +396,31 @@ test('an unclear test run is double-checked once by the local checker (a fake La
   assert.ok(!JSON.stringify(asked[0].body).includes('me@example.com'));
 });
 
+test('an agent failing at the same thing 3 times gets one `stuck` event, for any agent', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const base = { session: 'loopy', harness: 'my-agent', label: 'shop' };
+  const fail = (id) => post(port, '/event', { ...base, state: 'working', activity: { id, kind: 'run', tool: 'shell', title: 'npm test', status: 'failed', at: Date.now(), body: { command: 'npm test', output: 'Tests: 1 failed, 3 passed' } } });
+  await post(port, '/event', { ...base, activity: { id: 'p1', kind: 'prompt', title: 'Fix the cart', status: 'info', at: Date.now() - 1000 } });
+  const watching = readEvents(port, 800);
+  await new Promise((r) => setTimeout(r, 50));
+  await fail('r1');
+  await fail('r2');
+  await fail('r3');
+  await fail('r4'); // still stuck: told once per request
+  const stuck = (await watching).events.filter((e) => e.event === 'stuck');
+  assert.equal(stuck.length, 1);
+  assert.deepEqual([stuck[0].data.session, stuck[0].data.kind, stuck[0].data.text], ['loopy', 'repeat', '`npm test` still fails after 3 tries']);
+  // Off in Settings: nothing.
+  await api(port, '/api/config', { stuckAlerts: false });
+  await post(port, '/event', { ...base, activity: { id: 'p2', kind: 'prompt', title: 'Try again', status: 'info', at: Date.now() } });
+  const quiet = readEvents(port, 500);
+  await new Promise((r) => setTimeout(r, 50));
+  for (const id of ['r5', 'r6', 'r7']) await fail(id);
+  assert.equal((await quiet).events.filter((e) => e.event === 'stuck').length, 0);
+  await api(port, '/api/config', { stuckAlerts: true });
+});
+
 /**
  * Laya set up by dotpals, with a pretend install and server: `spawn` starts nothing real,
  * `fetch` answers Laya's /health while the pretend server runs.

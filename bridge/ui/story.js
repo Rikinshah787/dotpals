@@ -1314,6 +1314,32 @@ export const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change
   && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
 
 /**
+ * Is a request that's still going round in circles? While it works, not after it ends:
+ *   'repeat': the same thing (a test, a command, an edit to one file) failed `times` times
+ *             and its last try failed too ("`npm test` still fails after 3 tries");
+ *   'quiet':  nothing has worked for `quiet` ms, though it keeps trying (2+ steps failed
+ *             since). Reads count as working, and a step still running (a long build, a
+ *             question for you) means it isn't stuck.
+ * → { kind, key, text, step }, or null. `from`: when the request started.
+ */
+export function stuck(steps, { now = Date.now(), from, quiet = 10 * 60_000, times = 3 } = {}) {
+  const list = [...steps].filter((e) => !['prompt', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
+  if (!list.length || ['done', 'error'].includes(list.at(-1).kind)) return null;
+  let worst = null;
+  for (const [id, c] of retries(list).chains) {
+    const failed = c.attempts.filter(failedStep).length;
+    if (c.outcome !== 'fixed' && failed >= times && failedStep(c.attempts.at(-1)) && failed > (worst?.failed ?? 0)) worst = { id, c, failed };
+  }
+  if (worst) return { kind: 'repeat', key: worst.id, text: `${whatOf(worst.c.attempts[0])} still fails after ${worst.failed} tries`, step: worst.c.attempts.at(-1) };
+  if (list.some(running)) return null;
+  const lastOk = list.findLast((e) => !failedStep(e) && e.status !== 'stopped' && !['done', 'error'].includes(e.kind));
+  const start = lastOk?.at ?? from ?? list[0].at;
+  const failedSince = list.filter((e) => e.at > start && failedStep(e));
+  if (now - start < quiet || failedSince.length < 2 || now - list.at(-1).at > quiet) return null;
+  return { kind: 'quiet', key: `quiet:${start}`, text: `Nothing has worked for ${Math.round((now - start) / 60_000)} minutes: ${plural(failedSince.length, 'step')} failed since`, step: list.at(-1) };
+}
+
+/**
  * Why a request ended, in plain words: { kind, text }, or null while the agent is still
  * working on it. Agents don't say why they stopped, so this reads it from what happened:
  * an error, a failure it kept retrying, failing tests, a question at the end, or a clean

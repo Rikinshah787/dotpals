@@ -532,6 +532,9 @@
         onConflict(data);
       } else if (type === 'loop') {
         onLoop(data);
+      } else if (type === 'stuck') {
+        // "It's stuck" (Settings → stuckAlerts): an alert on that agent, like a clash.
+        if (data?.id && data.session) { send({ type: 'alert', id: `stuck:${data.id}`, kind: 'clash', session: data.session, text: `Going in circles? ${data.text}` }); schedule(); }
       } else if (type === 'reset') {
         steps.clear();
         schedule();
