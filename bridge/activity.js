@@ -74,7 +74,9 @@ export function toPatch(before, after, max = 6000) {
  */
 export function addUsage(log, session, at, key, [input = 0, output = 0, cacheRead = 0, cacheWrite = 0]) {
   if (!key || !(input + output + cacheRead + cacheWrite)) return null;
-  const entry = log.findLast(session, (x) => x.at <= at);
+  // A reply already noted stays on its own request, even when it's logged again after the
+  // next prompt (Codex repeats token_count when its rate limits change).
+  const entry = log.findLast(session, (x) => x.usage && key in x.usage) ?? log.findLast(session, (x) => x.at <= at);
   if (!entry) return null;
   const now = [input, output, cacheRead, cacheWrite];
   if (String(entry.usage?.[key]) === String(now)) return null;

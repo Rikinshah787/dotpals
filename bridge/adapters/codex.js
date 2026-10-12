@@ -209,11 +209,12 @@ export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd 
         if (last?.input_tokens && size) context(session, label, { used: last.input_tokens, size, known: true, at });
         // The tokens of the reply just made. Codex logs this again with the same numbers (with
         // its rate limits), so the session's running total names the reply. Its input counts
-        // the cached tokens in it; they're kept apart, as Claude's are.
+        // the cached tokens and cache writes in it; they're kept apart, as Claude's are.
         const total = p.info?.total_token_usage?.total_tokens;
         if (last && total) {
-          const cached = last.cached_input_tokens ?? 0;
-          const changed = addUsage(log, session, at, `t${total}`, [Math.max(0, (last.input_tokens ?? 0) - cached), last.output_tokens ?? 0, cached, 0]);
+          const cached = Math.max(0, last.cached_input_tokens ?? 0);
+          const written = Math.max(0, last.cache_write_input_tokens ?? 0);
+          const changed = addUsage(log, session, at, `t${total}`, [Math.max(0, (last.input_tokens ?? 0) - cached - written), last.output_tokens ?? 0, cached, written]);
           if (changed) out.push(changed);
         }
         break;
