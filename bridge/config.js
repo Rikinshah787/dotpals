@@ -43,6 +43,9 @@ export const DEFAULTS = {
   // "It's stuck" (bridge/server.js, stuck() in bridge/ui/story.js): a ping when an agent keeps
   // failing at the same thing, or nothing has worked for 10 minutes. Any agent; on by default.
   stuckAlerts: true,
+  // The morning brief (bridge/ui/brief.js): the first time the pal opens each day, it says what
+  // your agents did since yesterday, what's unfinished and what's failing. On by default.
+  morningBrief: true,
   agents: {},           // per integration on/off, e.g. { cursor: false } (see bridge/adapters/index.js)
   custom: null,         // your own pal: { name, shape, eyes, top, color, fur }
   storyView: 'simple',  // how requests read by default: 'simple' (one sentence) or 'detailed' (the chapters)
@@ -60,7 +63,7 @@ const CHARACTERS = ['blu', 'hop', 'sunny', 'lovi', 'muse', 'grok', 'nova', 'byte
 /** Keep only known settings with sensible values. */
 function clean(input = {}) {
   const out = {};
-  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap', 'chat', 'greetOnStart', 'fixLoop', 'stuckAlerts']) if (typeof input[key] === 'boolean') out[key] = input[key];
+  for (const key of ['sounds', 'notifications', 'history', 'codex', 'approvals', 'shareRecap', 'chat', 'greetOnStart', 'fixLoop', 'stuckAlerts', 'morningBrief']) if (typeof input[key] === 'boolean') out[key] = input[key];
   const wait = Number(input.approvalWait);
   if (Number.isInteger(wait) && wait >= 10 && wait <= 120) out.approvalWait = wait;
   const size = Number(input.palSize);

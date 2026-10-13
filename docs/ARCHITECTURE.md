@@ -261,7 +261,7 @@ On unless `fixLoop` is off. It makes Claude Code fix the tests it broke, and cat
 
 - MCP over stdio, without an SDK: one JSON-RPC 2.0 message per line on stdin and stdout. Logs go to stderr, so stdout carries nothing else.
 - Read-only. Each tool call fetches `GET /api/activity` and `GET /api/sessions` (and `GET /api/git?session=` for what isn't committed yet) from `DOTPALS_BRIDGE`, and reads them with the same story engine as the pal, so the answers match what it shows. With no bridge running, every tool says how to start it.
-- Tools: `agents_now`, `test_status`, `ready_to_merge`, `recap`, `today`, `risky_steps`, `handoff_note` and `check_my_work`. A project is matched by the folder each session works in (`cwd`), so same-named folders and worktrees stay apart.
+- Tools: `agents_now`, `test_status`, `ready_to_merge`, `recap`, `today`, `brief`, `risky_steps`, `handoff_note` and `check_my_work`. A project is matched by the folder each session works in (`cwd`), so same-named folders and worktrees stay apart.
 
 ## Approve from the pal
 
