@@ -21,6 +21,7 @@ import { handoffNote } from './ui/handoff.js';
 import { baseName, facts, harnessName, plural, sentence, shortTime, startOfDay, summarizeSessions, tokenLine, tokens } from './ui/recap.js';
 import { flags, list as nameList, onlyOldFailures, readiness, simple, stepType, testLine, testState, testVerdict, weakenedTests, whyStopped } from './ui/story.js';
 import { failureReason } from './ui/testout.js';
+import { reportCard, reportMarkdown } from './ui/report.js';
 
 const version = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; } catch { return '0.0.0'; } })();
 // Like the hooks (guard-hook.js): not PORT, which the assistant's own environment may set for an app.
@@ -28,7 +29,7 @@ const bridge = process.env.DOTPALS_BRIDGE || `http://127.0.0.1:${Number(process.
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05']; // the first is the one we answer with when the client's is unknown
 const MIN = 60_000;
 const NOT_RUNNING = 'dotpals isn’t running. Start it with `npx dotpals start` (or open the pal).';
-const INSTRUCTIONS = 'dotpals watches the coding agents on this computer (Claude Code, Codex, Cursor and others) and checks what they really did: files changed, commands run, and test results read from the test output, not from what the agent said. Before you tell the user your work is done, call check_my_work. Use agents_now, recap, today, test_status, ready_to_merge and risky_steps to answer questions about what agents did, and handoff_note to pass a session\'s work to another agent.';
+const INSTRUCTIONS = 'dotpals watches the coding agents on this computer (Claude Code, Codex, Cursor and others) and checks what they really did: files changed, commands run, and test results read from the test output, not from what the agent said. Before you tell the user your work is done, call check_my_work. Use agents_now, recap, today, test_status, ready_to_merge and risky_steps to answer questions about what agents did, report_card to compare the agents, and handoff_note to pass a session\'s work to another agent.';
 
 // -- reading the bridge's activity ---------------------------------------------------
 
@@ -271,6 +272,18 @@ const TOOLS = {
           ...shown.map(({ s, t }) => [`  ${shortTime(t.at)} ${asked(t)}`, ...result(t, s.live && t === s.turn).map((l) => `    ${l}`)].join('\n')),
         ].join('\n');
       })].join('\n\n');
+    },
+  },
+  report_card: {
+    description: 'A report card comparing the agents side by side over a period (default: the last 7 days, every project): requests, how many that changed code were tested after the last change and passed, how many weren\'t tested, how many tries a failure took to fix, tests changed to make them pass, things a summary claimed that didn\'t happen, requests that went in circles, tokens per request and time spent. Read from what the agents did, not what they said. A Markdown table. Pass `project` for one project.',
+    inputSchema: { type: 'object', properties: { project: { ...PROJECT, description: 'Only this project: its folder\'s path or its name. Default: every project.' }, since: { ...SINCE, description: 'Since then: minutes ago ("1440") or a time ("2026-10-04T09:00"). Default: the last 7 days.' } } },
+    run(args, all) {
+      const from = args.since ? sinceOf(args.since) : startOfDay() - 6 * 24 * 60 * MIN;
+      const list = args.project ? pick(all, args) : all;
+      if (!list.length) return none(all, args);
+      const turns = list.flatMap((s) => s.turns.filter((t) => t.at >= from));
+      const title = `Agent report card${args.project ? ` · ${titleOf(list, args)}` : ''} · since ${when(from)}`;
+      return reportMarkdown(title, reportCard(turns));
     },
   },
   risky_steps: {
