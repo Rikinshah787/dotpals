@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claudeTaskArgs, detectTestCommand, evaluate, fixRequest, makePlan, parsePlanReply, pickProject, plannerArgs, plannerInput, receiptMarkdown, relativeTo, sessionName, taskMarkdown, tidyPath, under, verdictWords } from '../bridge/tasks.js';
+import { appReceipts, askPlanner, claudeTaskArgs, detectTestCommand, evaluate, fixRequest, makePlan, parsePlanReply, pickProject, plannerArgs, plannerInput, receiptMarkdown, relativeTo, sessionName, taskMarkdown, tidyPath, under, verdictWords } from '../bridge/tasks.js';
 import { launchCommand } from '../bridge/handoff.js';
 
 const projects = [{ path: '/code/shop', name: 'shop' }, { path: '/code/dotpals', name: 'dotpals' }, { path: '/code/billing-api', name: 'billing-api' }];
@@ -47,6 +47,10 @@ test('plannerArgs: lean (no tools, MCP servers, settings or sessions) and no tex
   for (const flag of ['-p', '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence', '--json-schema']) assert.ok(args.includes(flag), flag);
   assert.equal(args[args.indexOf('--tools') + 1], '');
   assert.ok(!plannerArgs('/f', { schema: false }).includes('--json-schema'));
+  // Haiku unless you set Claude Code's model in Settings → Blu's brain.
+  assert.equal(args[args.indexOf('--model') + 1], 'haiku');
+  const sonnet = plannerArgs('/f', { model: 'sonnet' });
+  assert.equal(sonnet[sonnet.indexOf('--model') + 1], 'sonnet');
 });
 
 test('plannerInput: the pal sees what the agents are doing right now', () => {
@@ -151,4 +155,46 @@ test('evaluate: no code changed, other sessions and older steps don’t count', 
   const other = { ...edit('x.js'), session: 'someone-else' };
   const old = { ...edit('y.js'), at: T0 - 60_000 };
   assert.equal(evaluate(sent(), [other, old]).state, 'starting');
+});
+
+// -- any AI, work in your apps, pointing at the screen --------------------------------------------
+
+test('askPlanner: Blu’s brain (any AI) gets the instructions and the JSON comes back as a plan', async () => {
+  let asked;
+  const think = async (system, input) => { asked = { system, input }; return 'Sure!\n```json\n{"kind":"task","reply":"","title":"Draft an email to Sam","task":"Draft (do not send) an email to Sam saying the cart total is fixed.","code":false,"project":"","mustNotTouch":[],"doneAlso":[]}\n```'; };
+  const plan = await askPlanner('Blu, email Sam that the cart is fixed', projects, { name: 'Blu', agents: [], shot: { path: '/h/shots/s.png', x: 10, y: 20 }, think, claude: null });
+  assert.deepEqual([plan.title, plan.code], ['Draft an email to Sam', false]);
+  assert.match(asked.system, /never sends, posts, deletes or pays without asking/);
+  assert.match(asked.input, /A screenshot of their screen as they spoke: \/h\/shots\/s\.png \(their pointer was at 10, 20\)/);
+  const chat = await askPlanner('hi', projects, { think: async () => '{"kind":"chat","reply":"Hey! What should Claude work on?","title":"","task":"","code":false,"project":"","mustNotTouch":[],"doneAlso":[]}', claude: null });
+  assert.equal(chat.chat, 'Hey! What should Claude work on?');
+});
+
+test('work in your apps: no tests to pass, drafts only, and the screenshot in the task', () => {
+  const plan = makePlan({ text: 'email Sam about this', reply: { title: 'Email Sam', task: 'Draft an email to Sam about the error on screen', code: false, project: 'shop', mustNotTouch: [], doneAlso: [] }, projects, shot: { path: '/h/shots/s.png' }, testCommand: () => 'npm test' });
+  assert.equal(plan.done.some((d) => d.kind === 'tests'), false);
+  assert.equal(plan.testCommand, null);
+  const md = taskMarkdown(plan);
+  assert.match(md, /screenshot of their screen when they asked: `\/h\/shots\/s\.png`/);
+  assert.match(md, /Nothing is sent, posted, deleted or paid for without asking first: draft it\./);
+  assert.doesNotMatch(md, /npm test/);
+  // Not tied to a project: it runs in a folder of its own, unless you named one.
+  const apps = { path: '/h/blu', name: 'your apps' };
+  const email = (project) => makePlan({ text: 'email Sam', reply: { title: 'Email Sam', task: 'Draft it', code: false, project, mustNotTouch: [], doneAlso: [] }, projects: [], apps });
+  assert.equal(email('').project.path, '/h/blu');
+  assert.throws(() => makePlan({ text: 'fix it', reply: { title: 'Fix', task: 'Fix it', code: true, project: '', mustNotTouch: [], doneAlso: [] }, projects: [], apps }), /doesn’t know any project folders/);
+});
+
+test('evaluate, work in your apps: the receipts are its own tool calls; dotpals’ tools aren’t actions', () => {
+  const appTask = () => ({ ...makePlan({ text: 'email Sam', reply: { title: 'Email Sam', task: 'Draft it', code: false, project: 'shop', mustNotTouch: [], doneAlso: [] }, projects }), id: 'task-2', session: S, startedAt: T0 });
+  const draft = step('mcp', { title: 'create draft', detail: 'Gmail' });
+  const check = step('mcp', { title: 'check my work', detail: 'dotpals' });
+  const v = evaluate(appTask(), [prompt(), check, draft, done()]);
+  assert.equal(v.state, 'done');
+  assert.deepEqual(v.checks, [{ ok: true, text: 'Gmail: create draft' }]);
+  assert.match(verdictWords(appTask(), v), /what it really did: Gmail: create draft\./);
+  const failed = evaluate(appTask(), [prompt(), step('mcp', { title: 'create draft', detail: 'Gmail', status: 'failed' }), done()]);
+  assert.deepEqual([failed.state, failed.problems], ['not-ready', ['Gmail: create draft (failed)']]);
+  assert.equal(evaluate(appTask(), [prompt(), done()]).state, 'no-actions');
+  assert.deepEqual(appReceipts([step('mcp', { title: 'search', detail: 'Notion', status: 'running' })]), [{ ok: null, text: 'Notion: search' }]);
 });

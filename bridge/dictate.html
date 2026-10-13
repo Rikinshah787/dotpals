@@ -71,7 +71,7 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { createVoice } from './ui/voice.js';
-    import { cleanDictation } from './ui/dictation.js';
+    import { cleanDictation, fixWords, toPal } from './ui/dictation.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -83,10 +83,17 @@
 
     // Your pal (Settings → character, or the one you made).
     pal.character = 'blu';
-    fetch('/api/config', { headers: { 'x-dotpals': '1' } }).then((r) => r.json()).then((c) => {
+    // Its name ("Blu, …" is for Talk, not for typing) and your words (fixes made every time),
+    // read again each time it starts, so a change in Settings counts at once.
+    let palName = 'Blu';
+    let dictionary = [];
+    const loadSettings = () => fetch('/api/config', { headers: { 'x-dotpals': '1' } }).then((r) => r.json()).then((c) => {
       if (c.custom) { registerCustom(c.custom); DotPal.refresh?.('custom'); }
       if (DotPal.characters?.includes(c.character)) pal.character = c.character;
+      palName = (c.character === 'custom' ? c.custom?.name : null) || (c.character ? c.character.charAt(0).toUpperCase() + c.character.slice(1) : 'Blu');
+      dictionary = c.brain?.dictionary ?? [];
     }).catch(() => {});
+    loadSettings();
     const STATES = new Set(['idle', 'listening', 'thinking', 'working', 'waiting', 'done', 'error']);
     const palState = (s) => { const v = STATES.has(s) ? s : 'idle'; if (pal.dataset.state !== v) { pal.dataset.state = v; pal.setState?.(v); } };
 
@@ -146,9 +153,23 @@
       heard: async (said) => {
         console.log(`[dictate] words ready ${Math.round(performance.now() - finishedAt)} ms after you finished`);
         if (!wanted) return; // Esc while it was still writing
+        const mine = ticket; // this dictation's, so a slow polish can't type it into the next one
+        let text = fixWords(cleanDictation(said), dictionary);
+        if (!text) { wanted = false; show('error', 'Nothing to type.', 'hint'); hide(1500); return; }
+        // "Blu, email Sam that…": that's for Blu, not for typing. Talk (in the notch) takes it.
+        const toBlu = forBlu(text);
+        if (toBlu) {
+          wanted = false;
+          desktop?.dictateToBlu?.(toBlu);
+          show('done', `→ ${palName}: ${toBlu}`, 'ok');
+          hide(1600);
+          return;
+        }
+        // Cleaned up by Blu's brain (the AI you brought), when that's on: self-corrections, grammar.
+        show('writing', 'Polishing', 'hint dots');
+        text = await polish(text);
+        if (!wanted || mine !== ticket) return; // Esc while it was polishing, or you've started another
         wanted = false;
-        const text = cleanDictation(said);
-        if (!text) { show('error', 'Nothing to type.', 'hint'); hide(1500); return; }
         show('writing', 'Typing', 'hint dots');
         let r;
         try { r = await desktop?.dictateType?.(text); }
@@ -165,12 +186,27 @@
       },
     });
 
+    const forBlu = (text) => toPal(text, palName);
+    /** Your words, cleaned up by Blu's brain; as they were when that's off, slow or fails. */
+    async function polish(text) {
+      try {
+        const r = await (await fetch('/api/brain/polish', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify({ text }), signal: AbortSignal.timeout(20_000) })).json();
+        console.log(r.by ? `[dictate] polished by ${r.by} in ${r.ms} ms` : `[dictate] not polished${r.error ? `: ${r.error}` : ''}`);
+        return r.text || text;
+      } catch (err) {
+        console.log(`[dictate] not polished: ${err.message}`);
+        return text;
+      }
+    }
     let finishedAt = 0; // when you finished talking (it started writing)
     let wanted = false; // what's heard gets typed (Esc says no)
+    let ticket = 0;     // one per dictation (and per Esc)
     let letGo = false;  // you let go of the shortcut you were holding: finish as soon as it listens
     async function start() {
+      ticket++;
       wanted = true;
       letGo = false;
+      loadSettings();
       show('listening', `Listening… let go of ${key}, or pause, when you’re done`, 'hint');
       desktop?.dictateState?.('listening');
       await voice.listen();
@@ -187,6 +223,7 @@
       }
       if (what === 'cancel') {
         wanted = false;
+        ticket++;
         if (voice.listening()) voice.stop({ discard: true });
         show('idle', 'Cancelled', 'hint');
         hide(500);

@@ -542,6 +542,25 @@
           </div>
 
           <div class="card">
+            <h2>Blu’s brain</h2>
+            <div class="row"><div class="text">Your AI<small>What Blu thinks with: cleaning up what you dictate (Ctrl+Alt+D) and planning what you ask Talk. Bring any you have: a subscription (Claude Code, Codex, Gemini CLI, Cursor), an API key, or Ollama on this computer.</small><small id="b-uses"></small></div>
+              <select id="b-choice" aria-label="Your AI"><option value="auto">Auto</option></select></div>
+            <div class="row" id="b-model-row" hidden><div class="text">Model<small>Leave it empty for the usual one.</small></div>
+              <input type="text" class="field" id="b-model" spellcheck="false" autocomplete="off" aria-label="Model"></div>
+            <div class="row" id="b-key-row" hidden><div class="text"><span id="b-key-name">API key</span><small id="b-key-state">No key saved.</small><small>Kept in your dotpals settings on this computer, and only sent to that provider.</small></div>
+              <form class="keyform" id="b-key-form" autocomplete="off">
+                <input type="password" class="field" id="b-key" autocomplete="new-password" spellcheck="false" placeholder="Paste a key" aria-label="API key">
+                <button type="submit">Save</button>
+                <button type="button" class="danger" id="b-key-remove" hidden>Remove key</button>
+              </form></div>
+            <div class="row"><div class="text">Test it<small id="b-test-note">One tiny request, to check it answers.</small></div><button type="button" id="b-test">Test</button></div>
+            <div class="row"><div class="text">Clean up dictation with it<small>Self-corrections (“no, sorry, I mean…”), grammar and spelling. Auto: always with a quick AI (Ollama or a key); with a subscription, which takes a few seconds, only when you correct yourself.</small></div>
+              <select id="b-polish" aria-label="Clean up dictation"><option value="auto">Auto</option><option value="always">Always</option><option value="off">Off</option></select></div>
+            <div class="row"><div class="text">Your words<small>Separated by commas. A name or word spelled your way (Rikin, dotpals), or a fix for a word it keeps mishearing, made every time: Regan → Rikin, Kokoa → coucou.</small></div>
+              <input type="text" class="field" id="b-dictionary" spellcheck="false" autocomplete="off" aria-label="Your words"></div>
+          </div>
+
+          <div class="card">
             <h2>Fix failing tests</h2>
             <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code only. dotpals tells Claude when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
           </div>
@@ -1710,6 +1729,72 @@
       await save({ checker: { removeKey: true } });
       toast('Key removed');
     };
+
+    // -- Blu's brain (bridge/brain.js): the AI you brought ----------------------------------
+    let brainInfo = null; // GET /api/brain: the AIs here and which one each job uses
+    async function loadBrain() {
+      try { brainInfo = await api('/api/brain'); } catch { brainInfo = null; }
+      renderBrain();
+    }
+    function renderBrain() {
+      const b = config.brain ?? { choice: 'auto', models: {}, polish: 'auto', dictionary: [] };
+      const brains = brainInfo?.brains ?? [];
+      const opts = [['auto', 'Auto: the first that’s ready'], ...brains.map((x) => [x.id, `${x.name} (${x.how})${x.ready ? ' ✓' : `: ${x.why}`}`])];
+      const sel = $('b-choice');
+      if (sel.options.length !== opts.length || [...sel.options].some((o, i) => o.textContent !== opts[i][1])) sel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+      sel.value = b.choice ?? 'auto';
+      const name = (id) => brains.find((x) => x.id === id)?.name;
+      const notReady = brains.find((x) => x.id === b.choice && !x.ready);
+      $('b-uses').textContent = !brainInfo ? '' : notReady ? `${notReady.name} isn’t ready yet: ${notReady.why}.`
+        : `Dictation uses ${name(brainInfo.quick) ?? 'nothing yet'}. Talk plans with ${name(brainInfo.plan) ?? 'nothing yet'}.`;
+      const chosen = brains.find((x) => x.id === b.choice);
+      $('b-model-row').hidden = !chosen;
+      if (chosen && document.activeElement !== $('b-model')) {
+        $('b-model').value = b.models?.[chosen.id] ?? '';
+        $('b-model').placeholder = chosen.model || 'its usual model';
+      }
+      $('b-key-row').hidden = chosen?.kind !== 'key';
+      if (chosen?.kind === 'key') {
+        const last4 = config.brainKeys?.[chosen.id];
+        $('b-key-name').textContent = `${chosen.name} API key`;
+        $('b-key-state').textContent = last4 ? `Saved: …${last4}` : 'No key saved.';
+        $('b-key-remove').hidden = !last4;
+      }
+      $('b-polish').value = b.polish ?? 'auto';
+      if (document.activeElement !== $('b-dictionary')) $('b-dictionary').value = (b.dictionary ?? []).join(', ');
+    }
+    $('b-choice').onchange = async (e) => { await save({ brain: { choice: e.target.value } }); loadBrain(); };
+    $('b-model').onchange = (e) => { if ($('b-choice').value !== 'auto') save({ brain: { models: { [$('b-choice').value]: e.target.value.trim() } } }); };
+    $('b-polish').onchange = (e) => save({ brain: { polish: e.target.value } });
+    $('b-dictionary').onchange = (e) => save({ brain: { dictionary: e.target.value.split(/[,\n]/).map((w) => w.trim()).filter(Boolean) } });
+    $('b-key-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const id = $('b-choice').value;
+      const key = $('b-key').value.trim();
+      if (!key || id === 'auto') return;
+      try {
+        config = await api('/api/config', { brainKeys: { [id]: key } });
+        $('b-key').value = '';
+        toast('Key saved');
+        await loadBrain();
+      } catch (err) { toast(err.message === '403' ? 'The bridge refused. Reload the page and try again.' : err.message || 'Couldn’t save the key'); }
+    };
+    $('b-key-remove').onclick = async () => {
+      if (!confirm('Remove this API key?')) return;
+      await save({ brainKeys: { [$('b-choice').value]: null } });
+      toast('Key removed');
+      loadBrain();
+    };
+    $('b-test').onclick = async () => {
+      const id = $('b-choice').value === 'auto' ? brainInfo?.quick : $('b-choice').value;
+      if (!id) { $('b-test-note').textContent = 'No AI is ready yet: pick one above.'; return; }
+      $('b-test-note').textContent = 'Asking…';
+      try {
+        const r = await api('/api/brain/test', { id });
+        $('b-test-note').textContent = r.ok ? `✓ ${r.by} answered in ${(r.ms / 1000).toFixed(1)} s` : `✗ ${r.error}`;
+      } catch { $('b-test-note').textContent = 'Couldn’t ask. Is the bridge running?'; }
+    };
+    loadBrain();
     $('c-test').onclick = async () => {
       const b = $('c-test');
       b.disabled = true;
@@ -1958,6 +2043,7 @@
       $('s-days').value = String(config.historyDays);
       $('s-days').disabled = !config.history;
       renderChecker();
+      renderBrain();
       if (!status) return;
       $('history-where').textContent = config.history ? `Saved on this computer only: ${status.historyFile} (${(status.historySize / 1024).toFixed(0)} KB, ${status.entries} entries)` : 'Off. Activity is kept only until the pal closes.';
       $('about-version').textContent = `dotpals ${status.version} · bridge on port ${status.port}`;

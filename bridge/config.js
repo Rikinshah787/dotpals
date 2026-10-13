@@ -47,7 +47,18 @@ export const DEFAULTS = {
   // computer) or 'cloud' (TypeSafe Jev, with an API key). Off unless you turn it on.
   // layaManaged: Laya was set up by dotpals (bridge/laya.js), which then starts and stops it.
   checker: { mode: 'off', localUrl: LAYA_URL, layaManaged: false, keySet: false, keyLast4: null, keyFrom: null },
+  // Blu's brain (bridge/brain.js): the AI it thinks with. `choice`: 'auto' or a brain's id;
+  // `models`: a model per brain, where you want another; `polish`: clean up dictation with it
+  // 'always', 'auto' (always with a quick brain, with a subscription only when you correct
+  // yourself) or 'off'; `dictionary`: words to spell your way (names, products).
+  brain: { choice: 'auto', models: {}, polish: 'auto', dictionary: [] },
+  // Its API keys, like the checker's: never handed out, only whether each is set and its last 4.
+  brainKeys: {},
 };
+
+/** Blu's brains (bridge/brain.js), and the ones that take an API key. */
+export const BRAIN_IDS = ['ollama', 'anthropic', 'openai', 'google', 'openrouter', 'claude', 'codex', 'gemini', 'cursor'];
+export const KEY_BRAINS = ['anthropic', 'openai', 'google', 'openrouter'];
 
 /** Integrations that can be switched off in `agents` (ids from bridge/adapters/index.js). */
 export const AGENT_IDS = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'copilot', 'generic'];
@@ -81,6 +92,30 @@ function clean(input = {}) {
   // Talk to Blu's and Dictate's shortcuts, as Electron writes one ("CommandOrControl+Alt+T").
   const shortcut = /^(?:(?:CommandOrControl|CmdOrCtrl|Control|Ctrl|Command|Cmd|Alt|Option|AltGr|Shift|Super|Meta)\+){1,3}(?:[A-Z0-9]|F(?:[1-9]|1\d|2[0-4])|Space)$/i;
   for (const key of ['talkShortcut', 'dictateShortcut']) if (typeof input[key] === 'string' && shortcut.test(input[key])) out[key] = input[key];
+  // Blu's brain: only the parts given (a change to one keeps the rest, see saveConfig).
+  if (input.brain && typeof input.brain === 'object' && !Array.isArray(input.brain)) {
+    const b = input.brain, brain = {};
+    if (b.choice === 'auto' || BRAIN_IDS.includes(b.choice)) brain.choice = b.choice;
+    if (['auto', 'always', 'off'].includes(b.polish)) brain.polish = b.polish;
+    if (b.models && typeof b.models === 'object' && !Array.isArray(b.models)) {
+      brain.models = {};
+      for (const id of BRAIN_IDS) if (typeof b.models[id] === 'string' && /^[\w.:/@-]{0,100}$/.test(b.models[id].trim())) brain.models[id] = b.models[id].trim();
+    }
+    if (Array.isArray(b.dictionary)) brain.dictionary = [...new Set(b.dictionary.map((w) => String(w).trim().slice(0, 40)).filter(Boolean))].slice(0, 100);
+    out.brain = brain;
+  }
+  return out;
+}
+
+/** The brains' API keys as stored, patched: a new key sets it, null or '' removes it. */
+function cleanBrainKeys(input, before = {}) {
+  const out = {};
+  for (const id of KEY_BRAINS) if (validKey(before[id])) out[id] = validKey(before[id]);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return out;
+  for (const id of KEY_BRAINS) {
+    if (input[id] === null || input[id] === '') delete out[id];
+    else if (validKey(input[id])) out[id] = validKey(input[id]);
+  }
   return out;
 }
 
@@ -140,7 +175,15 @@ export function loadConfig() {
     keyLast4: key ? key.slice(-4) : null,
     keyFrom: checker.jevKey ? 'settings' : key ? 'env' : null,
   };
+  // Blu's brain, with each part filled in; its keys only as their last 4 characters.
+  config.brain = { ...DEFAULTS.brain, ...config.brain, models: { ...config.brain?.models } };
+  config.brainKeys = Object.fromEntries(Object.entries(cleanBrainKeys({}, saved.brainKeys)).map(([id, k]) => [id, k.slice(-4)]));
   return config;
+}
+
+/** Blu's brains' API keys: { anthropic: 'sk-…', … }. Only for bridge/brain.js, through the bridge. */
+export function brainKeys() {
+  return cleanBrainKeys({}, readSaved().brainKeys);
 }
 
 /** Merge `patch` into the saved settings. Returns the full, effective config. */
@@ -150,8 +193,11 @@ export function saveConfig(patch) {
   const change = clean(patch);
   const next = { ...before, ...change };
   if (change.agents) next.agents = { ...before.agents, ...change.agents };
+  if (change.brain) next.brain = { ...before.brain, ...change.brain, models: { ...before.brain?.models, ...change.brain.models } };
   const checker = cleanChecker(patch?.checker, cleanChecker(saved.checker));
   if (Object.keys(checker).length) next.checker = checker;
+  const keys = cleanBrainKeys(patch?.brainKeys, saved.brainKeys);
+  if (Object.keys(keys).length) next.brainKeys = keys; else delete next.brainKeys;
   mkdirSync(home(), { recursive: true });
   // Readable by you only, since it may hold an API key (POSIX; Windows keeps the
   // folder's own permissions, which are per user in your home folder).

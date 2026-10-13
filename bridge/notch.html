@@ -569,7 +569,7 @@
       taskAlerts.set(id, t);
       send({ type: 'resolve', session: t.session, kind: 'done' });
       send({ type: 'alert', id, kind: 'clash', session: t.session, text: t.words ?? '' });
-      if (t.state === 'ready') flash('done');
+      if (t.state === 'ready' || t.state === 'done') flash('done');
       // A task you gave by voice: Blu says how it went, and offers the PR.
       if (talk.task?.id === t.id) {
         talk.on = true;
@@ -602,9 +602,20 @@
     function startTalk() {
       talk.on = true;
       tabPick = null;
+      talk.shot = null; // said here, not pointing at anything
       keepOpen();
       if (!voice.listening()) voice.listen();
     }
+    // "Blu, …" said to Dictate (Ctrl+Alt+D): the same as saying it here, with a screenshot of
+    // what was on screen (so "what's this?" and "fix this" can point).
+    desktop?.onTalkText?.(({ text, shot } = {}) => {
+      if (!text) return;
+      talk.on = true;
+      tabPick = null;
+      talk.shot = shot ?? null;
+      keepOpen();
+      talkHeard(text);
+    });
     async function speak(text) { await voice.say(text); talk.pal = 'idle'; schedule(); }
     /** A step that talks to the bridge: on failure, show and say why. */
     async function attempt(fn) {
@@ -620,6 +631,7 @@
       if (talk.mode === 'plan') {
         if (YES.test(t) && !MORE.test(t)) return sendPlan();
         if (NO.test(t) && few(t)) { talk.mode = 'idle'; talk.plan = null; talk.note = 'Cancelled.'; keepOpen(); return speak(choose(['Okay, scrapped it.', 'No problem, cancelled.'])); }
+        if (talk.plan.shot) talk.shot = { path: talk.plan.shot }; // the same screenshot as the plan it changes
         return makePlan(`${talk.plan.said}. Also: ${t}`, talk.plan.project.path); // "yes, but also…" changes the plan
       }
       if (talk.mode === 'pr-offer' || talk.mode === 'pr-confirm') {
@@ -646,7 +658,10 @@
       return attempt(async () => {
         Object.assign(talk, { plan: null, pr: null, answer: '', bad: false, note: 'Thinking…', pal: 'thinking' });
         keepOpen();
-        const { plan, reply } = await api('/api/talk/plan', { text, project, pal: palName() });
+        // The screenshot goes with this request only (a plan keeps it for "yes, but also…").
+        const shot = talk.shot;
+        talk.shot = null;
+        const { plan, reply } = await api('/api/talk/plan', { text, project, pal: palName(), ...(shot ? { shot } : {}) });
         if (reply) { // just talk: say it back, and listen if it asked you something
           Object.assign(talk, { answer: reply, note: '' });
           keepOpen();
@@ -1248,7 +1263,7 @@
       palState(pal, s ? (kind === 'approval' ? 'waiting' : s.state) : kind === 'talk' ? talk.pal : 'idle');
       for (const k of bigPals.keys()) if (k !== 'you' && !sessions.has(k)) bigPals.delete(k);
       box.className = `who ${s ? harnessClass(s.harness) : 'h-other'}`;
-      box.style.setProperty('--tone', kind === 'task' ? (taskAlerts.get(shown.v?.alert?.id)?.state === 'ready' ? 'var(--ok)' : 'var(--warn)') : TONE[kind] ?? 'var(--h)');
+      box.style.setProperty('--tone', kind === 'task' ? (['ready', 'done'].includes(taskAlerts.get(shown.v?.alert?.id)?.state) ? 'var(--ok)' : 'var(--warn)') : TONE[kind] ?? 'var(--h)');
       const state = kind === 'approval' ? 'waiting' : s?.state;
       keyed(box, [
         { key: `pal|${id}`, make: () => { const wrap = el('div', 'stagepal'); wrap.append(pal); return wrap; } },
@@ -1567,7 +1582,7 @@
     }
 
     /** The Talk tab: what you said, Blu's plan to send, or the task and how it went. */
-    const TASK_WORDS = { starting: 'starting', working: 'working', ready: '✓ ready to merge', 'not-ready': '⚠ not ready', 'no-changes': 'no code changed', stopped: 'stopped' };
+    const TASK_WORDS = { starting: 'starting', working: 'working', ready: '✓ ready to merge', 'not-ready': '⚠ not ready', 'no-changes': 'no code changed', done: '✓ done', 'no-actions': 'nothing done in your apps', stopped: 'stopped' };
     function fillTalk(main) {
       const t = talk.task, p = talk.plan;
       const key = JSON.stringify([voice.listening(), talk.mode, talk.note, talk.bad, talk.said, talk.answer, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url]);
@@ -1604,7 +1619,7 @@
     /** A Talk to Blu task, checked: the verdict, each check, and where to go next. */
     function taskCard(a) {
       const t = taskAlerts.get(a?.id);
-      const ready = t?.state === 'ready';
+      const ready = t?.state === 'ready' || t?.state === 'done'; // done: work in your apps, with receipts
       const card = el('div', `card ${ready ? 'tone-done' : 'tone-need'}`);
       const head = el('div', 'card-head');
       const mark = el('span', 'mark', ready ? '✓' : '!');
@@ -1619,7 +1634,7 @@
       }
       if (checks.children.length) card.append(checks);
       const actions = el('div', 'actions');
-      if (t && ready && !t.pr) actions.append(button('btn allow', 'Open a PR…', () => { talk.task = t; startTalk(); preparePr(); }));
+      if (t?.state === 'ready' && !t.pr) actions.append(button('btn allow', 'Open a PR…', () => { talk.task = t; startTalk(); preparePr(); }));
       if (t?.state === 'not-ready') actions.append(button('btn', 'Fix it…', () => fixIt(t)));
       actions.append(button('btn', 'Story', () => chooseTab('story')), button('btn', 'OK', () => send({ type: 'close' })));
       card.append(actions);

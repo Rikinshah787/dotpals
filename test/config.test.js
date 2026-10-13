@@ -84,3 +84,20 @@ test('checker: the key is write-only, an empty key keeps it, removeKey clears it
   assert.equal(saveConfig({ checker: { mode: 'everywhere' } }).checker.mode, 'local');
   saveConfig({ checker: { mode: 'off' } });
 });
+
+test('brain: a change to one part keeps the rest; its keys are write-only and can be removed', async () => {
+  const { brainKeys } = await import('../bridge/config.js');
+  saveConfig({ brain: { choice: 'claude', dictionary: ['Rikin', ' Blu ', 'Rikin', ''] } });
+  saveConfig({ brain: { polish: 'always', models: { anthropic: 'claude-haiku-5-5', openai: 'bad model name!' } } });
+  const { brain } = loadConfig();
+  assert.deepEqual(brain, { choice: 'claude', polish: 'always', dictionary: ['Rikin', 'Blu'], models: { anthropic: 'claude-haiku-5-5' } });
+  saveConfig({ brain: { choice: 'nonsense', polish: 'maybe' } }); // unknown values are ignored
+  assert.deepEqual([loadConfig().brain.choice, loadConfig().brain.polish], ['claude', 'always']);
+  const c = saveConfig({ brainKeys: { openai: 'sk-test-1234567890abcd', google: 'short', unknown: 'sk-xxxxxxxxxxxx' } });
+  assert.deepEqual(c.brainKeys, { openai: 'abcd' }); // the page sees the last 4 only
+  assert.deepEqual(brainKeys(), { openai: 'sk-test-1234567890abcd' });
+  saveConfig({ sounds: false }); // other changes keep the keys
+  assert.equal(brainKeys().openai, 'sk-test-1234567890abcd');
+  saveConfig({ brainKeys: { openai: null } });
+  assert.deepEqual(brainKeys(), {});
+});

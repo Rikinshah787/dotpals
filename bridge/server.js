@@ -64,8 +64,14 @@
 //   GET  /api/chat/projects → { projects: [{ path, name }] } folders agents worked in, newest first
 //   GET  /api/talk/projects          → { projects, claude } the folders a task can go to; is Claude Code installed
 //   GET  /api/talk/tasks             → { tasks } the tasks so far, newest first (also `task` events as they change)
-//   POST /api/talk/plan { text, project?, pal? }   your words → { plan } with a definition of done (bridge/tasks.js),
-//                        or { reply } when it was just talk (what the pal, named `pal`, says back)
+//   POST /api/talk/plan { text, project?, pal?, shot? }   your words → { plan } with a definition of done (bridge/tasks.js),
+//                        or { reply } when it was just talk (what the pal, named `pal`, says back). Planned by
+//                        Blu's brain; `shot`: { path, x, y }, a screenshot under ~/.dotpals/shots as you spoke
+//   GET  /api/brain                  → { brains, quick, plan, brain, keys } the AIs here, which ones each job uses,
+//                        the settings, and which API keys are saved (their last 4 characters)
+//   POST /api/brain/polish { text }  → { text, by?, ms?, error? } dictation, cleaned up by Blu's brain (your text
+//                        back as it was when that's off, there's no AI, or it fails)
+//   POST /api/brain/test { id }      → { ok, by, ms } or { ok: false, error } is that brain working?
 //   POST /api/talk/start { id, title?, task?, done?, project? }   start Claude Code on it in a new terminal
 //   POST /api/talk/fix { id }        → { text } a request for the agent to fix what isn't done (to paste)
 //   POST /api/talk/pr/plan { id }    → { pr } what opening a PR would do; POST /api/talk/pr/open { id } does it
@@ -78,7 +84,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
@@ -89,7 +95,9 @@ import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
-import { checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
+import { brainKeys, checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
+import { ask, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem } from './brain.js';
+import { yourWords } from './ui/dictation.js';
 import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, guardReply, pathKey, who } from './guard.js';
 import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
@@ -747,6 +755,62 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   }
   /** A project folder the agents worked in, by its path; never a folder only a request names. */
   const knownProject = (path) => projectsNow().find((p) => p.path.toLowerCase() === String(path ?? '').toLowerCase()) ?? null;
+
+  // -- Blu's brain (bridge/brain.js): the AI you brought, for cleaning up dictation and Talk's plans --
+  /** The AIs here, and the one a job ('quick' or 'plan') uses: { brain, here, keys }. Looked up again after 20 s, or when Settings change. */
+  let brainsSeen = null; // { at, here }
+  async function brainFor(job) {
+    const keys = brainKeys();
+    if (!brainsSeen || Date.now() - brainsSeen.at > 20_000) {
+      brainsSeen = { at: Date.now(), here: await (handoffOptions.brains ?? brainsHere)({ keys: Object.fromEntries(Object.keys(keys).map((id) => [id, true])) }) };
+    }
+    const here = brainsSeen.here;
+    return { brain: pickBrain(here, { choice: config.brain?.choice, job }), here, keys };
+  }
+  const askBrain = (brain, keys, system, text, timeoutMs) =>
+    (handoffOptions.ask ?? ask)(brain, { system, text, model: config.brain?.models?.[brain?.id], key: keys[brain?.id], timeoutMs });
+  /** A screenshot you pointed at as you spoke: only one dotpals took, under ~/.dotpals/shots. */
+  function shotOf(s) {
+    const dir = join(home(), 'shots');
+    const path = typeof s?.path === 'string' ? normalize(s.path) : '';
+    if (!path.toLowerCase().startsWith(`${normalize(dir).toLowerCase()}${sep}`) || !/\.png$/i.test(path) || !existsSync(path)) return null;
+    return { path, ...(Number.isFinite(s.x) && Number.isFinite(s.y) ? { x: s.x, y: s.y } : {}) };
+  }
+  async function brainApi(req, res, path) {
+    const body = await talkBody(req, res);
+    if (!body) return;
+    if (path === '/api/brain/polish') {
+      const text = String(body.text ?? '').trim().slice(0, 8000);
+      const mode = config.brain?.polish ?? 'auto';
+      if (!text || mode === 'off') return json(res, 200, { text });
+      const { brain, keys } = await brainFor('quick');
+      if (!brain) return json(res, 200, { text, error: 'no AI is set up (Settings → Blu’s brain)' });
+      // "auto": a subscription's command line takes seconds, so only when you corrected yourself.
+      if (mode === 'auto' && !isQuick(brain) && !correcting(text)) return json(res, 200, { text });
+      try {
+        // Under the pill's own 20 s wait, so an answer nobody would read isn't waited for.
+        const r = await askBrain(brain, keys, polishSystem(config.brain?.dictionary), text, isQuick(brain) ? 12_000 : 18_000);
+        const clean = polished(text, r.text, yourWords(config.brain?.dictionary ?? []).words);
+        return json(res, 200, clean ? { text: clean, by: r.by, ms: r.ms } : { text, error: `${r.by}’s answer didn’t look like your words` });
+      } catch (err) {
+        return json(res, 200, { text, error: err.message });
+      }
+    }
+    if (path === '/api/brain/test') {
+      const { here, keys } = await brainFor('quick');
+      const brain = here.find((b) => b.id === body.id);
+      if (!brain) return json(res, 404, { error: 'dotpals doesn’t know that brain' });
+      if (!brain.ready) return json(res, 200, { ok: false, error: brain.why });
+      try {
+        const r = await askBrain(brain, keys, 'Reply with the single word: ready', 'Are you there?', 45_000);
+        return json(res, 200, { ok: true, by: r.by, ms: r.ms });
+      } catch (err) {
+        return json(res, 200, { ok: false, error: err.message });
+      }
+    }
+    return json(res, 404, { error: 'not found' });
+  }
+
   async function talk(req, res, path) {
     const body = await talkBody(req, res);
     if (!body) return;
@@ -758,9 +822,18 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (body.project && !chosen) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
       try {
         const name = typeof body.pal === 'string' && /^[\w .'-]{1,30}$/.test(body.pal) ? body.pal : 'Blu';
-        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name, agents: agentsNow() });
+        const shot = shotOf(body.shot);
+        // Planned by Blu's brain: your Claude Code as before, or whichever AI you chose.
+        const { brain, here, keys } = await brainFor('plan');
+        const chosen = here.find((b) => b.id === config.brain?.choice);
+        if (!brain && chosen && !chosen.ready) return json(res, 400, { error: `${chosen.name} isn’t ready: ${chosen.why} (Settings → Blu’s brain)` });
+        const think = brain && brain.id !== 'claude' ? (system, input) => askBrain(brain, keys, system, input, 90_000).then((r) => r.text) : null;
+        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name, agents: agentsNow(), shot, think, model: config.brain?.models?.claude });
         if (reply.chat) return json(res, 200, { reply: reply.chat }); // just talk: what the pal says back
-        const plan = makePlan({ text, reply, projects, project: chosen });
+        // An email or a note isn't work in a project: it runs in ~/.dotpals/blu.
+        const apps = { path: join(home(), 'blu'), name: 'your apps' };
+        if (reply.code === false) await mkdir(apps.path, { recursive: true });
+        const plan = makePlan({ text, reply, projects, project: chosen, shot, apps });
         plans.set(plan.id, plan);
         for (const [id, p] of plans) if (Date.now() - p.createdAt > 30 * 60_000) plans.delete(id);
         return json(res, 200, { plan });
@@ -1225,6 +1298,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     // Talk to Blu: the project folders a task can go to, and the tasks so far.
     if (req.method === 'GET' && path === '/api/talk/projects') return json(res, 200, { projects: projectsNow(), claude: (handoffOptions.has ?? onPath)('claude') });
     if (req.method === 'GET' && path === '/api/talk/tasks') return json(res, 200, { tasks: taskList.list().map(taskView) });
+    if (req.method === 'GET' && path === '/api/brain') {
+      const { brain, here } = await brainFor('quick');
+      const plan = pickBrain(here, { choice: config.brain?.choice, job: 'plan' });
+      return json(res, 200, { brains: here, quick: brain?.id ?? null, plan: plan?.id ?? null, brain: config.brain, keys: config.brainKeys ?? {} });
+    }
 
     // Changes need a custom header: browsers won't send it cross-site without
     // asking first (and we never say yes), so other websites can't change settings.
@@ -1235,8 +1313,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       // A pasted key that can't be one (spaces, line breaks): say so rather than drop it quietly.
       const key = patch?.checker?.jevKey;
       if (typeof key === 'string' && key.trim() && !validKey(key)) return json(res, 400, { error: 'That doesn’t look like an API key (it has spaces or unusual characters). Paste it again.' });
+      for (const k of Object.values(patch?.brainKeys ?? {})) if (typeof k === 'string' && k.trim() && !validKey(k)) return json(res, 400, { error: 'That doesn’t look like an API key (it has spaces or unusual characters). Paste it again.' });
       const before = config;
       config = saveConfig(patch);
+      brainsSeen = null; // a new key or choice: look again
       applyWatchers();
       if (enabled('claude') !== (before.agents?.claude !== false)) applyClaude();
       if (config.history && !before.history) history.save();
@@ -1312,6 +1392,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }
     if (path === '/api/handoff') return handoff(req, res);
     if (path.startsWith('/api/talk/')) return talk(req, res, path);
+    if (path.startsWith('/api/brain/')) return brainApi(req, res, path);
     // Chat (bridge/chat.js): a prompt typed in the pal goes to OpenCode.
     // { text, session? ('opencode:ses_…' to continue it), directory? (for a new one) }
     // Answer an OpenCode permission request or question from the pal.

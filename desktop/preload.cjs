@@ -95,6 +95,13 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   dictateType: (text) => ipcRenderer.invoke('dictate:type', text),
   /** Dictate is 'listening' (Esc cancels it), or 'hide' (it's done: hide the pill). */
   dictateState: (state) => ipcRenderer.send('dictate:state', state),
+  /** "Blu, …" said to Dictate: hand the request to Talk in the notch (with a screenshot). */
+  dictateToBlu: (text) => ipcRenderer.send('dictate:blu', text),
+  /** The notch: onTalkText({ text, shot }), a request said to Blu from Dictate. */
+  onTalkText(callback) {
+    ipcRenderer.removeAllListeners('notch:talk-text');
+    ipcRenderer.on('notch:talk-text', (_, said) => callback(said));
+  },
   /** onIdle(seconds): how long since the last keyboard or mouse input (every 2 s). */
   onIdle(callback) {
     ipcRenderer.removeAllListeners('notch:idle');

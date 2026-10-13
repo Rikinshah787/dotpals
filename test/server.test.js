@@ -677,3 +677,49 @@ test('/api/status says whether the desktop pal and notch follow the events (for 
   notch.destroy();
   browser.destroy();
 });
+
+test('Blu’s brain: polish uses the AI you brought, falls back to your words, and plans use it too', async (t) => {
+  const { BRAINS } = await import('../bridge/brain.js');
+  const ready = (ids) => async () => BRAINS.map((b) => ({ ...b, ready: ids.includes(b.id), why: '' }));
+  const asked = [];
+  let answer = 'Hi, my name is Rikin.';
+  const fakeAsk = async (brain, opts) => { asked.push({ id: brain.id, ...opts }); if (answer instanceof Error) throw answer; return { text: answer, by: brain.name, ms: 5 }; };
+  let planned;
+  const planner = async (text, projects, opts) => { planned = opts; return { chat: 'Hey!' }; };
+  let port, server;
+  for (let tries = 0; !server; tries++) {
+    port = freshPort();
+    try { server = await startBridge({ port, log: () => {}, handoff: { brains: ready(['ollama', 'claude']), ask: fakeAsk, planner } }); }
+    catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
+  }
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  await api(port, '/api/config', { brain: { choice: 'auto', polish: 'auto', dictionary: ['Rikin'] } });
+  const info = await (await fetch(`http://127.0.0.1:${port}/api/brain`)).json();
+  assert.deepEqual([info.quick, info.plan], ['ollama', 'claude']); // the quick one for dictation, Claude Code for plans
+  const said = 'Hi, my name is Regan. I am. No, sorry, my name is Rikin.';
+  const r = JSON.parse((await api(port, '/api/brain/polish', { text: said })).text);
+  assert.deepEqual([r.text, r.by], ['Hi, my name is Rikin.', 'Ollama']);
+  assert.equal(asked[0].id, 'ollama');
+  assert.match(asked[0].system, /Their own words \(names, products\): Rikin\./);
+  answer = new Error('Ollama didn’t answer');
+  const failed = JSON.parse((await api(port, '/api/brain/polish', { text: said })).text);
+  assert.deepEqual([failed.text, failed.error], [said, 'Ollama didn’t answer']); // your words, as they were
+  await api(port, '/api/config', { brain: { choice: 'claude' } });
+  const n = asked.length;
+  const plain = JSON.parse((await api(port, '/api/brain/polish', { text: 'Ship it today.' })).text);
+  assert.equal(plain.text, 'Ship it today.');
+  assert.equal(asked.length, n, 'a subscription (seconds) only cleans up when you corrected yourself');
+  await api(port, '/api/config', { brain: { polish: 'off' } });
+  assert.equal(JSON.parse((await api(port, '/api/brain/polish', { text: said })).text).text, said);
+  // Talk plans with the AI you chose (here Ollama), and a screenshot only from ~/.dotpals/shots.
+  await api(port, '/api/config', { brain: { choice: 'ollama' } });
+  mkdirSync(join(home, 'shots'), { recursive: true });
+  const shot = join(home, 'shots', 'now.png');
+  writeFileSync(shot, 'png');
+  await api(port, '/api/talk/plan', { text: 'hi', shot: { path: shot, x: 5, y: 6 } });
+  assert.equal(typeof planned.think, 'function');
+  assert.deepEqual(planned.shot, { path: shot, x: 5, y: 6 });
+  await api(port, '/api/talk/plan', { text: 'hi', shot: { path: join(home, 'config.json') } });
+  assert.equal(planned.shot, null);
+  await api(port, '/api/config', { brain: { choice: 'auto', polish: 'auto' } });
+});

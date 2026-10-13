@@ -117,33 +117,40 @@ const safeRead = (read, f) => { try { return read(f); } catch { return ''; } };
 
 export const PLAN_SYSTEM = `You are the developer's pal, a friendly little character who lives in the notch at the top of their screen (your name is given below). You hand their work to a coding agent (Claude Code) and check it when it's done.
 They spoke to you and it was transcribed, so fix obvious transcription mistakes (for example "pie test" means pytest, "get hub" means GitHub, "Blue" may be your name).
-If they're asking for work to be done in a project, it's a task. Anything else (hello, how are you, a question, small talk) is chat: answer them yourself, warmly and briefly, in one or two short spoken sentences with no Markdown, and if it fits, ask what they'd like Claude to work on.
+If they're asking for work to be done, in a project or in their apps (an email, a note, a calendar invite, a message, a search), it's a task. Anything else (hello, how are you, a question, small talk) is chat: answer them yourself, warmly and briefly, in one or two short spoken sentences with no Markdown, and if it fits, ask what they'd like Claude to work on.
+For work in their apps, the agent uses the apps it's connected to. Write the task so it never sends, posts, deletes or pays without asking them first: it drafts, and says where the draft is.
+If a screenshot of their screen is listed below and they say "this", "that" or "here", tell the agent in the task to open that screenshot first (give its path).
 You can see their coding agents right now (listed below, from dotpals). If they ask what their agents are doing, answer from that list in plain words: which project, what it's doing or what it finished. If none are listed, say none are running.
 Reply with only a JSON object, no other text:
 {"kind": "task" or "chat",
  "reply": "for chat, what you say back; for a task, an empty string",
  "title": "for a task, a short imperative title, at most 60 characters",
  "task": "for a task, the instructions for the agent: specific, in the developer's own terms, everything they asked for and nothing they didn't",
+ "code": true if the task changes code in a project, false for anything else (an email, a note, a search),
  "project": "the project's name if they named one of the known projects, else an empty string",
  "mustNotTouch": ["files or folders they said not to change, as paths relative to the project"],
- "doneAlso": ["other conditions for done they asked for, each short; leave out running the tests, that is always added"]}
+ "doneAlso": ["other conditions for done they asked for, each short; leave out running the tests, that is always added for code"]}
 For chat, leave the task fields empty. Don't invent requirements. If a task is unclear, keep their words in "task".`;
 
 export const PLAN_SCHEMA = {
   type: 'object',
   properties: {
     kind: { type: 'string', enum: ['task', 'chat'] }, reply: { type: 'string' },
-    title: { type: 'string' }, task: { type: 'string' }, project: { type: 'string' },
+    title: { type: 'string' }, task: { type: 'string' }, code: { type: 'boolean' }, project: { type: 'string' },
     mustNotTouch: { type: 'array', items: { type: 'string' } }, doneAlso: { type: 'array', items: { type: 'string' } },
   },
-  required: ['kind', 'reply', 'title', 'task', 'project', 'mustNotTouch', 'doneAlso'],
+  required: ['kind', 'reply', 'title', 'task', 'code', 'project', 'mustNotTouch', 'doneAlso'],
 };
 
-/** What the planner reads on stdin: what was said, the pal's name, the projects it can name and what the agents are doing. */
-export function plannerInput(text, projects, { name = 'Blu', agents = [] } = {}) {
+/**
+ * What the planner reads on stdin: what was said, the pal's name, the projects it can name, what
+ * the agents are doing and, when they pointed at their screen, the screenshot (`shot`: { path, x, y }).
+ */
+export function plannerInput(text, projects, { name = 'Blu', agents = [], shot = null } = {}) {
   const agentLine = (a) => `- ${a.label || 'a project'} (${a.harness}): ${a.state}${a.asked ? `. Asked: "${clean(a.asked, 160)}"` : ''}${a.latest ? `. Latest: ${clean(a.latest, 200)}` : ''}`;
   return [`They said: ${String(text).trim()}`, '', `Your name: ${name}`, `Known projects: ${projects.map((p) => p.name).join(', ') || '(none)'}`,
-    'Their agents right now:', ...(agents.length ? agents.map(agentLine) : ['(none running)'])].join('\n');
+    'Their agents right now:', ...(agents.length ? agents.map(agentLine) : ['(none running)']),
+    ...(shot ? ['', `A screenshot of their screen as they spoke: ${shot.path}${Number.isFinite(shot.x) ? ` (their pointer was at ${Math.round(shot.x)}, ${Math.round(shot.y)})` : ''}`] : [])].join('\n');
 }
 
 const clean = (s, max) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -173,7 +180,7 @@ export function parsePlanReply(stdout) {
   }
   const list = (a, max) => (Array.isArray(a) ? a : []).map((x) => clean(x, max)).filter(Boolean).slice(0, 8);
   const out = {
-    title: clean(plan.title, 80), task: String(plan.task ?? '').trim().slice(0, 4000), project: clean(plan.project, 80),
+    title: clean(plan.title, 80), task: String(plan.task ?? '').trim().slice(0, 4000), code: plan.code !== false, project: clean(plan.project, 80),
     mustNotTouch: list(plan.mustNotTouch, 200).map(tidyPath).filter(Boolean), doneAlso: list(plan.doneAlso, 200),
   };
   if (!out.task) throw new Error('Claude’s plan had no task');
@@ -182,8 +189,8 @@ export function parsePlanReply(stdout) {
 }
 
 /** The arguments for the planner: lean, and no text from the request (that goes on stdin). */
-export function plannerArgs(systemFile, { schema = true } = {}) {
-  return ['-p', '--model', 'haiku', '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands',
+export function plannerArgs(systemFile, { schema = true, model = 'haiku' } = {}) {
+  return ['-p', '--model', model || 'haiku', '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands',
     '--no-session-persistence', '--system-prompt-file', systemFile, '--output-format', 'json',
     ...(schema ? ['--json-schema', JSON.stringify(PLAN_SCHEMA)] : [])];
 }
@@ -214,8 +221,12 @@ export function run(file, args, { cwd, input, timeoutMs = 60_000, env = agentEnv
   });
 }
 
-/** Ask your Claude for the plan. */
-export async function askPlanner(text, projects, { name, agents, claude = findOnPath('claude'), runner = run } = {}) {
+/**
+ * Ask for the plan: your Claude Code, or `think(system, input)` → text, the AI you chose as Blu's
+ * brain (bridge/brain.js), which is asked for the JSON in the instructions.
+ */
+export async function askPlanner(text, projects, { name, agents, shot, think, model, claude = findOnPath('claude'), runner = run } = {}) {
+  if (think) return parsePlanReply(JSON.stringify({ result: await think(PLAN_SYSTEM, plannerInput(text, projects, { name, agents, shot })) }));
   if (!claude) throw new Error('Claude Code isn’t installed (no `claude` on PATH)');
   const dir = join(home(), 'tasks');
   await mkdir(dir, { recursive: true });
@@ -224,7 +235,7 @@ export async function askPlanner(text, projects, { name, agents, claude = findOn
   // Through cmd (an npm-installed claude.cmd) a JSON argument can't be quoted safely: the system prompt asks for JSON instead.
   const viaCmd = process.platform === 'win32' && /\.(cmd|bat)$/i.test(claude);
   // No extended thinking: this is a quick call (it halves the wait, 11 s → 4.5 s for "hi").
-  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd }), { input: plannerInput(text, projects, { name, agents }), cwd: home(), timeoutMs: 90_000, env: { ...agentEnv(), MAX_THINKING_TOKENS: '0' } });
+  const r = await runner(claude, plannerArgs(systemFile, { schema: !viaCmd, model }), { input: plannerInput(text, projects, { name, agents, shot }), cwd: home(), timeoutMs: 90_000, env: { ...agentEnv(), MAX_THINKING_TOKENS: '0' } });
   if (r.code !== 0 && !r.stdout.trim()) throw new Error(clean(r.stderr, 200) || `claude exited with ${r.code}`);
   return parsePlanReply(r.stdout);
 }
@@ -236,32 +247,45 @@ export async function askPlanner(text, projects, { name, agents, claude = findOn
  *   untouched  nothing under a path changes (checked)
  *   manual     anything else you asked for (shown, not checked)
  */
-export function makePlan({ text, reply, projects, project: chosen, testCommand = detectTestCommand }) {
-  const picked = chosen ? { project: chosen, guessed: false } : pickProject(reply.project, projects);
+export function makePlan({ text, reply, projects, project: chosen, shot = null, apps = null, testCommand = detectTestCommand }) {
+  const code = reply.code !== false; // an email or a note has no tests to pass
+  // Work in your apps runs in a folder of its own (`apps`), unless you named a project.
+  const picked = chosen ? { project: chosen, guessed: false } : !code && apps && !reply.project ? { project: apps, guessed: false } : pickProject(reply.project, projects);
   if (!picked.project) throw new Error('dotpals doesn’t know any project folders yet: start an agent in one first');
-  const cmd = testCommand(picked.project.path);
+  const cmd = code ? testCommand(picked.project.path) : null;
   const done = [
-    { kind: 'tests', command: cmd, text: cmd ? `\`${cmd}\` passes, run after the last change` : 'The tests pass, run after the last change' },
+    ...(code ? [{ kind: 'tests', command: cmd, text: cmd ? `\`${cmd}\` passes, run after the last change` : 'The tests pass, run after the last change' }] : []),
     ...reply.mustNotTouch.map((path) => ({ kind: 'untouched', path, text: `Nothing in \`${path}\` changes` })),
     ...reply.doneAlso.map((text) => ({ kind: 'manual', text })),
   ];
   return {
     id: `plan-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`, said: String(text).trim().slice(0, 2000),
-    title: reply.title, task: reply.task, agent: 'claude', project: picked.project, guessedProject: picked.guessed,
-    testCommand: cmd, done, createdAt: Date.now(),
+    title: reply.title, task: reply.task, code, agent: 'claude', project: picked.project, guessedProject: picked.guessed,
+    testCommand: cmd, done, ...(shot ? { shot: shot.path } : {}), createdAt: Date.now(),
   };
 }
 
 /** The task file the agent reads. */
 export function taskMarkdown(plan) {
-  const lines = [`# ${plan.title}`, '', `Task from dotpals (Blu) for the project in \`${plan.project.path}\`.`, '', plan.task.trim(), '', '## Definition of done', ''];
+  const lines = [`# ${plan.title}`, '', `Task from dotpals (Blu) for the project in \`${plan.project.path}\`.`, '', plan.task.trim(), ''];
+  if (plan.shot) lines.push(`A screenshot of their screen when they asked: \`${plan.shot}\` (open it if the task says "this" or "here").`, '');
+  lines.push('## Definition of done', '');
   for (const d of plan.done) {
     if (d.kind === 'tests') lines.push(`- ${d.command ? `\`${d.command}\` passes, run after your last change` : 'The project’s tests pass, run after your last change'}.`);
     else if (d.kind === 'untouched') lines.push(`- Don’t change anything in \`${d.path}\`.`);
     else lines.push(`- ${d.text}`);
   }
-  lines.push('', `When you’ve finished, run ${plan.testCommand ? `\`${plan.testCommand}\`` : 'the tests'} once more after your final edit, then say what you changed and how the tests went.`);
+  if (plan.code === false) lines.push('- Nothing is sent, posted, deleted or paid for without asking first: draft it.', '', 'When you’ve finished, say exactly what you did and where (for example: a draft saved in Gmail, not sent).');
+  else lines.push('', `When you’ve finished, run ${plan.testCommand ? `\`${plan.testCommand}\`` : 'the tests'} once more after your final edit, then say what you changed and how the tests went.`);
   return `${lines.join('\n')}\n`;
+}
+
+/** What it did in your apps (their tools, through MCP), as receipts: [{ ok, text }]. dotpals' own tools aren't actions. */
+export function appReceipts(steps) {
+  return steps.filter((s) => s.kind === 'mcp' && !/^dotpals$/i.test(String(s.detail ?? '').trim())).map((s) => ({
+    ok: s.status === 'ok' ? true : s.status === 'failed' ? false : null,
+    text: `${s.detail ? `${s.detail}: ` : ''}${clean(s.title, 80)}${s.status === 'failed' ? ' (failed)' : ''}`,
+  }));
 }
 
 /** Save the task file; returns its path. The name is ours (time and random letters), never from a request. */
@@ -342,6 +366,14 @@ export function evaluate(task, entries) {
   }
   const sentence = simple(merged, { live: false }).text;
   if (last.end.kind === 'error') return { state: 'stopped', sentence, problems: [whyStopped(merged).text], at: last.end.at };
+  if (task.code === false) {
+    // Work in your apps: the receipts are what it really did there, from its own tool calls.
+    const checks = appReceipts(steps);
+    for (const d of task.done) if (d.kind === 'manual') checks.push({ ok: null, text: `Not checked by Blu: ${d.text}` });
+    const problems = checks.filter((c) => c.ok === false).map((c) => c.text);
+    const acted = checks.some((c) => c.ok === true);
+    return { state: problems.length ? 'not-ready' : acted ? 'done' : 'no-actions', sentence, checks, problems, at: last.end.at, turn: merged };
+  }
   const ready = readiness(merged);
   const changed = changedFiles(merged, task.project.path);
   if (!ready) return { state: 'no-changes', sentence, changed, at: last.end.at };
@@ -363,6 +395,8 @@ export function verdictWords(task, v) {
   const who = TASK_AGENTS[task.agent]?.name ?? 'The agent';
   const lower = (s) => String(s ?? '').charAt(0).toLowerCase() + String(s ?? '').slice(1);
   if (v.state === 'ready') return `${who}'s done, and it checks out. ${v.sentence} Ready to merge. Want me to open a PR?`;
+  if (v.state === 'done') return `${who}'s done. Here's what it really did: ${v.checks.filter((c) => c.ok === true).map((c) => c.text).join(', ')}.`;
+  if (v.state === 'no-actions') return `${who} says it's finished, but it didn't do anything in your apps. ${v.sentence}`;
   if (v.state === 'not-ready') return `Hmm. ${who} says it's done, but it isn't ready yet: ${lower(v.problems[0])}.`;
   if (v.state === 'no-changes') return `${who} finished, but it didn't change any code. ${v.sentence}`;
   if (v.state === 'stopped') return `${who} stopped: ${lower(v.problems?.[0] ?? 'it hit an error')}.`;
@@ -372,7 +406,7 @@ export function verdictWords(task, v) {
 /** A request to send the agent to fix what's wrong (copied for you to paste into its terminal). */
 export function fixRequest(task, v) {
   const lines = [`dotpals checked your work on "${task.title}" and it isn't done yet:`, ...v.problems.map((p) => `- ${p}`), ''];
-  lines.push(`Fix that, then run ${task.testCommand ? `\`${task.testCommand}\`` : 'the tests'} again after your last change.`);
+  lines.push(task.code === false ? 'Fix that, and say exactly what you did and where.' : `Fix that, then run ${task.testCommand ? `\`${task.testCommand}\`` : 'the tests'} again after your last change.`);
   return lines.join('\n');
 }
 

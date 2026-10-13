@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanDictation } from '../bridge/ui/dictation.js';
+import { cleanDictation, fixWords, toPal, yourWords } from '../bridge/ui/dictation.js';
 
 test('cleanDictation drops ums and uhs, and the commas around them', () => {
   assert.equal(cleanDictation(' Um, so I think, uh, we should ship it today.'), 'So I think we should ship it today.');
@@ -25,4 +25,31 @@ test('cleanDictation tidies spaces and capitals, and leaves nothing for nothing'
   assert.equal(cleanDictation('  hello   there .  how are you ?'), 'Hello there. How are you?');
   assert.equal(cleanDictation(''), '');
   assert.equal(cleanDictation('  Um.  '), '');
+});
+
+test('toPal: "Blu, …" and "Hey Blue …" are for your pal; a sentence about blue is dictation', () => {
+  assert.equal(toPal('Blu, email Sam that the cart is fixed.'), 'Email Sam that the cart is fixed.');
+  assert.equal(toPal('Blue: what is this error?'), 'What is this error?');
+  assert.equal(toPal('Hey Blue, fix the failing test.'), 'Fix the failing test.');
+  assert.equal(toPal('Okay blu draft a note'), 'Draft a note');
+  assert.equal(toPal('Webby, check my PR.', 'Webby'), 'Check my PR.');
+  assert.equal(toPal('Blue is my favourite colour.'), null);
+  assert.equal(toPal('Blu,'), null);
+  assert.equal(toPal('The blue button is broken.'), null);
+  // The name alone only before something you'd ask; "Hey Blu" always.
+  assert.equal(toPal('Blue, green and red are the options.'), null);
+  assert.equal(toPal('Blue: the primary colour.'), null);
+  assert.equal(toPal('Hey Blue, the build is green now.'), 'The build is green now.');
+});
+
+test('your words: a "$" in the word you want stays a "$"', () => {
+  assert.equal(fixWords('I paid ten dollars.', ['dollars → $&']), 'I paid ten $&.');
+});
+
+test('your words: plain words for the AI, fixes ("Regan → Rikin") made every time, whole words only', () => {
+  const dictionary = ['Rikin', 'dotpals', 'Regan → Rikin', 'Kokoa=coucou', 'blue -> Blu'];
+  assert.deepEqual(yourWords(dictionary), { words: ['Rikin', 'dotpals', 'coucou', 'Blu'], fixes: [['Regan', 'Rikin'], ['Kokoa', 'coucou'], ['blue', 'Blu']] });
+  assert.equal(fixWords('Hi, my name is Regan. Regan’s app beats kokoa.', dictionary), 'Hi, my name is Rikin. Rikin’s app beats coucou.');
+  assert.equal(fixWords('Blue, open the bluetooth settings.', dictionary), 'Blu, open the bluetooth settings.');
+  assert.equal(fixWords('Nothing to fix.', []), 'Nothing to fix.');
 });

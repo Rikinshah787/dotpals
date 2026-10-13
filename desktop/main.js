@@ -5,13 +5,14 @@
 //
 // Closing hides it to the tray; Ctrl+Alt+P (Cmd+Option+P on macOS) shows or
 // hides it from anywhere. Quit from the tray menu.
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, systemPreferences, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, systemPreferences, Tray } from 'electron';
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startBridge } from '../bridge/server.js';
-import { loadConfig, saveConfig } from '../bridge/config.js';
+import { home, loadConfig, saveConfig } from '../bridge/config.js';
 import { readUsage } from '../bridge/usage.js';
 
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
@@ -241,6 +242,38 @@ if (!app.requestSingleInstanceLock()) {
     if (!dictate || event.sender !== dictate.webContents || typeof text !== 'string' || !text.trim()) return { ok: false };
     return typeOut(text.slice(0, 20_000));
   });
+  // "Blu, …" said to Dictate: Talk (in the notch) takes it, with a screenshot of what you were
+  // looking at, so "Blu, what's this error?" or "fix this" can point. Only then: dictation alone
+  // never takes one.
+  ipcMain.on('dictate:blu', async (event, text) => {
+    if (!dictate || event.sender !== dictate.webContents || typeof text !== 'string' || !text.trim()) return;
+    const shot = await takeShot();
+    logDictate(`to Blu${shot ? ', with a screenshot' : ''}: ${text.slice(0, 80)}`);
+    createNotch();
+    const go = () => notch?.webContents.send('notch:talk-text', { text: text.slice(0, 2000), shot });
+    if (notch.webContents.isLoading()) notch.webContents.once('did-finish-load', () => setTimeout(go, 300)); else go();
+  });
+  /** The screen under your pointer, as a PNG under ~/.dotpals/shots (the newest 20 are kept): { path, x, y } or null. */
+  async function takeShot() {
+    try {
+      const point = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(point);
+      const k = display.scaleFactor || 1;
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(display.size.width * k), height: Math.round(display.size.height * k) } });
+      const source = sources.find((s) => String(s.display_id) === String(display.id)) ?? sources[0];
+      if (!source || source.thumbnail.isEmpty()) return null;
+      const dir = join(home(), 'shots');
+      await mkdir(dir, { recursive: true });
+      const old = (await readdir(dir)).filter((f) => /^shot-\d+\.png$/.test(f)).sort();
+      for (const f of old.slice(0, Math.max(0, old.length - 19))) await rm(join(dir, f), { force: true }).catch(() => {});
+      const path = join(dir, `shot-${Date.now()}.png`);
+      await writeFile(path, source.thumbnail.toPNG());
+      return { path, x: Math.round((point.x - display.bounds.x) * k), y: Math.round((point.y - display.bounds.y) * k) };
+    } catch (err) {
+      logDictate(`screenshot failed: ${err.message}`);
+      return null;
+    }
+  }
 
   /**
    * Type `text` into the app you're in: onto the clipboard, the system's paste keys, then
