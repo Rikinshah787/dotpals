@@ -375,7 +375,7 @@
     .rc .empty b { font-weight: 600; }
     .rc-note { margin: -8px 2px 0; font-size: 12px; color: var(--faint); max-width: 70ch; }
     @media (prefers-reduced-motion: no-preference) {
-      .rc tbody tr { animation: rc-in .32s ease-out both; animation-delay: calc(var(--i, 0) * 28ms); }
+      .rc:not(.still) tbody tr { animation: rc-in .32s ease-out both; animation-delay: calc(var(--i, 0) * 28ms); }
       @keyframes rc-in { from { opacity: 0; transform: translateY(3px); } }
     }
     @media (max-width: 560px) {
@@ -835,10 +835,23 @@
     const reportData = () => reportCard(buildTurns([...entries.values()].filter((e) => e.at >= reportStart())));
     $('copy-report').onclick = () => copy(reportMarkdown(reportTitle(), reportData()));
 
+    // What the card last showed: live activity redraws it only when a number changes, so the
+    // table keeps its scroll and focus, and the rows animate only when it first shows or the range changes.
+    let reportShown = '';
+    let reportShownRange = '';
     function renderReport() {
       const card = reportData();
       const box = $('report');
       $('copy-report').disabled = !card.length;
+      const sig = `${reportRange}|${JSON.stringify(card.length ? [card.map((a) => [a.harness, a.requests]), reportRows(card).map((r) => r.cells.map((c) => `${c.warn ? '!' : ''}${c.text}`))] : [])}`;
+      if (sig === reportShown && box.firstChild) return;
+      const animate = reportShownRange !== reportRange || !reportShown;
+      reportShown = sig;
+      reportShownRange = reportRange;
+      const old = box.querySelector('.rc-scroll');
+      const scrollLeft = old?.scrollLeft ?? 0;
+      const focused = old && old === document.activeElement;
+      box.classList.toggle('still', !animate);
       if (!card.length) {
         const empty = el('div', 'empty');
         empty.append(el('b', '', 'No agent work in this period.'), el('span', 'faint', reportRange === 'today' ? 'Try 7 days, or come back after an agent has worked on a request.' : 'It fills in once an agent works on a request.'));
@@ -880,6 +893,8 @@
       scroll.setAttribute('aria-labelledby', 't-report');
       scroll.append(table);
       box.replaceChildren(scroll);
+      scroll.scrollLeft = scrollLeft;
+      if (focused) scroll.focus({ preventScroll: true });
     }
 
     /** Jump to one request on the Sessions page. */
