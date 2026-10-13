@@ -346,6 +346,43 @@
     .helper small { color: var(--faint); }
     .helper .ok { color: var(--ok); } .helper .bad { color: var(--bad); }
     .sess { font-weight: 600; display: inline-flex; align-items: center; }
+    /* -- report card: agents side by side ----------------------------------- */
+    .rc { padding: 0; overflow: hidden; }
+    .rc-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+    .rc table { width: auto; min-width: 100%; font-variant-numeric: tabular-nums; }
+    .rc th, .rc td { padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .rc tbody tr:last-child > * { border-bottom: 0; }
+    .rc thead th { vertical-align: bottom; padding-top: 16px; background: var(--sunk); }
+    .rc thead th.ag { text-align: right; min-width: 132px; border-top: 3px solid var(--h); }
+    .rc thead th.ag .agent { color: var(--text); font-size: 13.5px; font-weight: 650; justify-content: flex-end; }
+    .rc thead th.ag .agent i { width: 9px; height: 9px; }
+    .rc thead th.ag small { display: block; color: var(--faint); font-weight: 400; font-size: 11.5px; margin-top: 2px; }
+    .rc thead th.corner { color: var(--faint); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    /* The metric names stay put while many agent columns scroll under them. */
+    .rc th[scope="row"], .rc thead th.corner { position: sticky; left: 0; z-index: 1; text-align: left; min-width: 220px; border-right: 1px solid var(--line); }
+    .rc tbody th[scope="row"] { background: var(--panel); color: var(--muted); font-size: 13px; font-weight: 500; }
+    .rc td { text-align: right; color: var(--text); }
+    .rc td.dash { color: var(--faint); }
+    .rc td.warn { color: var(--bad); }
+    .rc td.warn .mk { display: inline-block; margin-right: 6px; font-size: 11px; padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--bad) 14%, transparent); }
+    .rc tbody tr:hover > * { background: color-mix(in srgb, var(--text) 2.5%, var(--panel)); }
+    /* The headline: did the code change hold up. */
+    .rc tr.lead > * { background: color-mix(in srgb, var(--ok) 6%, var(--panel)); font-size: 15px; font-weight: 650; padding-top: 14px; padding-bottom: 14px; }
+    .rc tr.lead th[scope="row"] { color: var(--text); box-shadow: inset 3px 0 0 var(--ok); }
+    .rc tr.lead td.warn { color: var(--bad); }
+    .rc tr.lead td:not(.warn):not(.dash) { color: var(--ok); }
+    .rc .empty { padding: 34px 20px; text-align: center; display: grid; gap: 4px; }
+    .rc .empty b { font-weight: 600; }
+    .rc-note { margin: -8px 2px 0; font-size: 12px; color: var(--faint); max-width: 70ch; }
+    @media (prefers-reduced-motion: no-preference) {
+      .rc:not(.still) tbody tr { animation: rc-in .32s ease-out both; animation-delay: calc(var(--i, 0) * 28ms); }
+      @keyframes rc-in { from { opacity: 0; transform: translateY(3px); } }
+    }
+    @media (max-width: 560px) {
+      .rc th[scope="row"], .rc thead th.corner { min-width: 150px; white-space: normal; }
+      .rc th, .rc td { padding: 10px 12px; }
+    }
+
     .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 9px; font-weight: 600; font-size: 13px; }
     .toast[hidden] { display: none; }
 
@@ -385,6 +422,8 @@
       <nav aria-label="Dashboard">
         <a href="#overview" data-view="overview">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 13V8M6 13V3M10 13V6M14 13V10"/></svg>Overview</a>
+        <a href="#report" data-view="report">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5h-2v12h9v-12h-2M5.5 1.5h5v2h-5zM5.5 7.5l1 1 2-2M10 8h.5M5.5 11.5h5"/></svg>Report card</a>
         <a href="#sessions" data-view="sessions">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3.5h10M3 8h10M3 12.5h6"/></svg>Sessions</a>
         <a href="#map" data-view="map">
@@ -424,6 +463,22 @@
           <div class="card"><h2>By project</h2><div id="projects"></div></div>
           <div class="card"><h2>Recent requests</h2><div id="recent"></div></div>
         </div>
+      </section>
+
+      <!-- Report card ----------------------------------------------------------- -->
+      <section class="view" id="view-report" aria-labelledby="t-report" hidden>
+        <div class="head">
+          <h1 id="t-report">Report card</h1>
+          <span class="spacer"></span>
+          <div class="seg" role="group" aria-label="Time range" id="report-range">
+            <button type="button" data-range="today" aria-pressed="false">Today</button>
+            <button type="button" data-range="week" aria-pressed="true">7 days</button>
+          </div>
+          <button type="button" id="copy-report">Copy as Markdown</button>
+        </div>
+        <p class="muted" style="margin:0">Your agents side by side: how their work held up.</p>
+        <div class="card rc" id="report"></div>
+        <p class="rc-note">Read from what the agents did: their steps and test output, not their summaries. Only tests an agent ran count.</p>
       </section>
 
       <!-- Sessions ------------------------------------------------------------ -->
@@ -613,6 +668,7 @@
     } from '/bridge/ui/recap.js';
     import { checkOf, minorChapter, overlaps, readiness, readinessLine, gitTruth, gitLine, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown, whyStopped } from '/bridge/ui/story.js';
     import { continueMenu } from '/bridge/ui/handoff-menu.js';
+    import { reportCard, reportRows, reportMarkdown } from '/bridge/ui/report.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -684,11 +740,12 @@
       if (current === 'settings' || current === 'agents') refreshStatus();
       render();
     }
-    const VIEWS = ['overview', 'sessions', 'map', 'agents', 'settings'];
+    const VIEWS = ['overview', 'report', 'sessions', 'map', 'agents', 'settings'];
     addEventListener('hashchange', route);
 
     function render() {
       if (current === 'overview') renderOverview();
+      if (current === 'report') renderReport();
       if (current === 'sessions') renderSessions();
       if (current === 'settings') renderSettings();
       if (current === 'agents') renderAgents();
@@ -766,6 +823,78 @@
       }
       t.append(label, el('div', 'value', String(checks.length)), sub);
       return t;
+    }
+
+    // -- report card: the agents side by side (numbers from bridge/ui/report.js) ----
+    let reportRange = 'week';
+    for (const b of $('report-range').querySelectorAll('button')) {
+      b.onclick = () => { reportRange = b.dataset.range; for (const x of $('report-range').querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b)); renderReport(); };
+    }
+    const reportStart = () => (reportRange === 'today' ? startOfDay() : startOfDay() - 6 * DAY);
+    const reportTitle = () => `Report card · ${reportRange === 'today' ? 'Today' : 'The last 7 days'}`;
+    const reportData = () => reportCard(buildTurns([...entries.values()].filter((e) => e.at >= reportStart())));
+    $('copy-report').onclick = () => copy(reportMarkdown(reportTitle(), reportData()));
+
+    // What the card last showed: live activity redraws it only when a number changes, so the
+    // table keeps its scroll and focus, and the rows animate only when it first shows or the range changes.
+    let reportShown = '';
+    let reportShownRange = '';
+    function renderReport() {
+      const card = reportData();
+      const box = $('report');
+      $('copy-report').disabled = !card.length;
+      const sig = `${reportRange}|${JSON.stringify(card.length ? [card.map((a) => [a.harness, a.requests]), reportRows(card).map((r) => r.cells.map((c) => `${c.warn ? '!' : ''}${c.text}`))] : [])}`;
+      if (sig === reportShown && box.firstChild) return;
+      const animate = reportShownRange !== reportRange || !reportShown;
+      reportShown = sig;
+      reportShownRange = reportRange;
+      const old = box.querySelector('.rc-scroll');
+      const scrollLeft = old?.scrollLeft ?? 0;
+      const focused = old && old === document.activeElement;
+      box.classList.toggle('still', !animate);
+      if (!card.length) {
+        const empty = el('div', 'empty');
+        empty.append(el('b', '', 'No agent work in this period.'), el('span', 'faint', reportRange === 'today' ? 'Try 7 days, or come back after an agent has worked on a request.' : 'It fills in once an agent works on a request.'));
+        box.replaceChildren(empty);
+        return;
+      }
+      const table = el('table');
+      table.append(el('caption', 'sr-only', `${reportTitle()}: one column per agent`));
+      const head = el('tr');
+      head.append(Object.assign(el('th', 'corner', 'Agent'), { scope: 'col' }));
+      for (const a of card) {
+        const th = el('th', `ag ${harnessClass(a.harness)}`);
+        th.scope = 'col';
+        th.append(agentChip(a.harness), el('small', '', plural(a.requests, 'request')));
+        head.append(th);
+      }
+      const thead = el('thead');
+      thead.append(head);
+      table.append(thead);
+      const body = el('tbody');
+      reportRows(card).forEach((r, i) => {
+        if (r.key === 'requests') return; // already under each agent's name
+        const tr = el('tr', r.lead ? 'lead' : '');
+        tr.style.setProperty('--i', String(i));
+        tr.append(Object.assign(el('th', '', r.label), { scope: 'row' }));
+        for (const c of r.cells) {
+          const td = el('td', c.warn ? 'warn' : c.text === '—' ? 'dash' : '');
+          if (c.warn) { const mk = el('span', 'mk', '⚠'); mk.setAttribute('aria-hidden', 'true'); td.append(mk, el('span', 'sr-only', 'Needs a look: ')); }
+          if (c.text === '—') td.append(Object.assign(el('span', '', '—'), { title: 'Nothing to count' }), el('span', 'sr-only', 'none'));
+          else td.append(c.text);
+          tr.append(td);
+        }
+        body.append(tr);
+      });
+      table.append(body);
+      const scroll = el('div', 'rc-scroll');
+      scroll.tabIndex = 0; // so keyboard users can scroll many agent columns
+      scroll.setAttribute('role', 'region');
+      scroll.setAttribute('aria-labelledby', 't-report');
+      scroll.append(table);
+      box.replaceChildren(scroll);
+      scroll.scrollLeft = scrollLeft;
+      if (focused) scroll.focus({ preventScroll: true });
     }
 
     /** Jump to one request on the Sessions page. */

@@ -121,7 +121,7 @@ test('dotpals mcp: answers from the running bridge, with the pal\'s rules', asyn
   assert.deepEqual(client.unasked, []); // the notification got no reply
 
   const { tools } = (await client.call('tools/list')).result;
-  assert.deepEqual(tools.map((x) => x.name), ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'risky_steps', 'handoff_note', 'check_my_work']);
+  assert.deepEqual(tools.map((x) => x.name), ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'report_card', 'risky_steps', 'handoff_note', 'check_my_work']);
   for (const x of tools) assert.equal(x.inputSchema.type, 'object');
 
   const now = (await client.tool('agents_now')).content[0].text;
@@ -150,6 +150,14 @@ test('dotpals mcp: answers from the running bridge, with the pal\'s rules', asyn
   assert.equal(nope, `dotpals has seen no agent working in nope. Projects it knows: shop, ${shop}, api. Pass one as \`project\`.`);
   const badSince = await client.call('tools/call', { name: 'recap', arguments: { since: 'yesterday-ish' } });
   assert.equal(badSince.error.code, -32602);
+
+  // report_card: every project by default, one column per agent, busiest first.
+  const card = (await client.tool('report_card')).content[0].text;
+  assert.match(card, /^## Agent report card · since .*\n\n\| \| Codex \| Claude \|\n/);
+  assert.match(card, /\n\| Requests \| 2 \| 1 \|\n/);
+  assert.match(card, /\n\| Changed code, tested and passed \| — \| 1 of 1 \(100%\) \|\n/); // Codex is still working
+  assert.match(card, /\n\| Tries to fix a failure \| — \| 2\.0 \|\n/);
+  assert.match((await client.tool('report_card', { project: 'api' })).content[0].text, /^## Agent report card · api · since .*\n\n\| \| Codex \|\n/);
 
   // check_my_work: Claude Code asking checks Claude's own session, though Codex's is newer.
   assert.match((await client.tool('check_my_work')).content[0].text, /^Looks done \(Claude Code in shop, session sess-shop-1\): tests passed after the last change, nothing risky\. Tests passed · 2 passed/);
@@ -316,7 +324,7 @@ test('dotpals mcp: with no bridge running, every tool says how to start it', asy
   const client = mcp(freshPort(), tmpdir());
   t.after(() => client.close());
   await client.call('initialize', { protocolVersion: '2099-01-01', capabilities: {}, clientInfo: { name: 'cursor' } }).then((r) => assert.equal(r.result.protocolVersion, '2025-06-18'));
-  for (const name of ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'risky_steps', 'handoff_note', 'check_my_work']) {
+  for (const name of ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'report_card', 'risky_steps', 'handoff_note', 'check_my_work']) {
     const r = await client.tool(name);
     assert.equal(r.isError, true);
     assert.match(r.content[0].text, /^dotpals isn.t running\. Start it with `npx dotpals start`/);
