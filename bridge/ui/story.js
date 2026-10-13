@@ -1314,15 +1314,43 @@ export const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change
   && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
 
 /**
+ * The file a request keeps changing back and forth: { path, undos, step } for the one
+ * with the most edits that exactly undo an earlier edit of it (at least `times`), or null.
+ * Only finished, successful edits with a patch count; a change of whitespace alone isn't
+ * one, and a Write (the whole file, no "before") can't be told apart, so it doesn't count.
+ */
+function backAndForth(list, times = 2) {
+  const same = (a, b) => a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n');
+  const reverts = (later, earlier) => later.gone.length + later.added.length > 0 && same(later.gone, earlier.added) && same(later.added, earlier.gone);
+  const files = new Map(); // path → { edits, undos, step }
+  let worst = null;
+  for (const e of list) {
+    if (e.status !== 'ok' || !e.body?.patch || outside(e)) continue;
+    const changed = (e.files ?? []).filter((f) => f.change === 'edit');
+    if (changed.length !== 1) continue;
+    const path = String(changed[0].path).replace(/\\/g, '/');
+    const file = files.get(path.toLowerCase()) ?? { path, edits: [], undos: 0 };
+    files.set(path.toLowerCase(), file);
+    const edit = lineChanges(e.body.patch);
+    if (file.edits.some((x) => reverts(edit, x))) { file.undos++; file.step = e; }
+    file.edits.push(edit);
+    if (file.undos >= times && file.undos > (worst?.undos ?? 0)) worst = file;
+  }
+  return worst && { path: worst.path, undos: worst.undos, step: worst.step };
+}
+
+/**
  * Is a request that's still going round in circles? While it works, not after it ends:
  *   'repeat': the same thing (a test, a command, an edit to one file) failed `times` times
  *             and its last try failed too ("`npm test` still fails after 3 tries");
+ *   'flip':   one file changed back and forth: an edit that puts back exactly what an
+ *             earlier edit of it took out, and takes out what it put in, `flips` times;
  *   'quiet':  nothing has worked for `quiet` ms, though it keeps trying (2+ steps failed
  *             since). Reads count as working, and a step still running (a long build, a
  *             question for you) means it isn't stuck.
  * → { kind, key, text, step }, or null. `from`: when the request started.
  */
-export function stuck(steps, { now = Date.now(), from, quiet = 10 * 60_000, times = 3 } = {}) {
+export function stuck(steps, { now = Date.now(), from, quiet = 10 * 60_000, times = 3, flips = 2 } = {}) {
   const list = [...steps].filter((e) => !['prompt', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
   if (!list.length || ['done', 'error'].includes(list.at(-1).kind)) return null;
   let worst = null;
@@ -1331,6 +1359,8 @@ export function stuck(steps, { now = Date.now(), from, quiet = 10 * 60_000, time
     if (c.outcome !== 'fixed' && failed >= times && failedStep(c.attempts.at(-1)) && failed > (worst?.failed ?? 0)) worst = { id, c, failed };
   }
   if (worst) return { kind: 'repeat', key: worst.id, text: `${whatOf(worst.c.attempts[0])} still fails after ${worst.failed} tries`, step: worst.c.attempts.at(-1) };
+  const flip = backAndForth(list, flips);
+  if (flip) return { kind: 'flip', key: `flip:${flip.path}`, text: `${code(baseName(flip.path))} keeps changing back and forth: an edit undone ${flip.undos} times`, step: flip.step };
   if (list.some(running)) return null;
   const lastOk = list.findLast((e) => !failedStep(e) && e.status !== 'stopped' && !['done', 'error'].includes(e.kind));
   const start = lastOk?.at ?? from ?? list[0].at;
