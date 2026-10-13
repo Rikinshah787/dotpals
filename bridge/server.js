@@ -26,7 +26,7 @@
 //                            loop:     Claude was told its tests failed, or sent back to fix them (see "the fix loop"):
 //                                      { id, at, session, harness, label, kind: 'told' | 'sent-back' | 'blocked-ship' | 'gave-up' | 'fixed', text }
 //                            stuck:    a request going round in circles (Settings: stuckAlerts), once per request and reason:
-//                                      { id, at, session, harness, label, kind: 'repeat' | 'quiet', text, step }
+//                                      { id, at, session, harness, label, kind: 'repeat' | 'flip' | 'quiet', text, step }
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
@@ -331,7 +331,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       maybeCheck(entry);
       snapTests(entry);
       checkConflicts(entry);
-      if (entry.status === 'failed' || entry.kind === 'run') checkStuck(entry.session);
+      if (entry.status === 'failed' || entry.kind === 'run' || (entry.kind === 'edit' && entry.status === 'ok')) checkStuck(entry.session);
       groundTruth(entry);
       any = true;
     }

@@ -544,7 +544,7 @@
           <div class="card">
             <h2>Fix failing tests</h2>
             <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code only. dotpals tells Claude when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
-            <div class="row"><div class="text">Tell me when an agent seems stuck<small>Any agent. A ping when the same test, command or edit fails 3 times in a row, or nothing has worked for 10 minutes while it keeps trying. Once per request; a step still running (a long build) never counts.</small></div><input type="checkbox" class="switch" id="s-stuck" aria-label="Tell me when an agent seems stuck"></div>
+            <div class="row"><div class="text">Tell me when an agent seems stuck<small>Any agent. A ping when the same test, command or edit fails 3 times in a row, a file keeps being changed back and forth, or nothing has worked for 10 minutes while it keeps trying. Once per request; a step still running (a long build) never counts.</small></div><input type="checkbox" class="switch" id="s-stuck" aria-label="Tell me when an agent seems stuck"></div>
           </div>
 
           <div class="card">
