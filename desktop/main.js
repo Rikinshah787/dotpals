@@ -244,25 +244,23 @@ if (!app.requestSingleInstanceLock()) {
 
   /**
    * Type `text` into the app you're in: onto the clipboard, the system's paste keys, then
-   * your clipboard back (its text, formatting and picture; files copied in Explorer or
-   * Finder aren't put back). If the keys can't be sent, the words stay on the clipboard.
+   * your clipboard back. Its text only: Electron 44's clipboard reads nothing else, so a
+   * picture or files you'd copied aren't put back. If the keys can't be sent, the words
+   * stay on the clipboard. (Electron 44's clipboard calls return promises.)
    */
   async function typeOut(text) {
-    const saved = { text: clipboard.readText(), html: clipboard.readHTML(), rtf: clipboard.readRTF(), image: clipboard.readImage() };
-    clipboard.writeText(text);
+    const saved = await clipboard.readText();
+    await clipboard.writeText(text);
     const started = Date.now();
     try { await keys.paste(); }
     catch (err) { logDictate(`paste failed: ${err.message}`); return { ok: false, copied: true, error: err.message }; }
     logDictate(`pasted ${text.length} characters in ${Date.now() - started} ms`);
     // Some apps read the clipboard a moment after the keys; and don't undo a copy you made since.
-    setTimeout(() => {
-      if (clipboard.readText() !== text) return;
-      const back = {};
-      if (saved.text) back.text = saved.text;
-      if (saved.html) back.html = saved.html;
-      if (saved.rtf) back.rtf = saved.rtf;
-      if (!saved.image.isEmpty()) back.image = saved.image;
-      if (Object.keys(back).length) clipboard.write(back); else clipboard.clear();
+    setTimeout(async () => {
+      try {
+        if ((await clipboard.readText()) !== text) return;
+        await (saved ? clipboard.writeText(saved) : clipboard.clear());
+      } catch (err) { logDictate(`clipboard not put back: ${err.message}`); }
     }, 450);
     return { ok: true };
   }

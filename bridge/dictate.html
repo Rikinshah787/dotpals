@@ -150,7 +150,9 @@
         const text = cleanDictation(said);
         if (!text) { show('error', 'Nothing to type.', 'hint'); hide(1500); return; }
         show('writing', 'Typing', 'hint dots');
-        const r = await desktop?.dictateType?.(text);
+        let r;
+        try { r = await desktop?.dictateType?.(text); }
+        catch (err) { console.log(`[dictate] typing failed: ${err.message}`); r = { ok: false, error: 'something went wrong (see dictate.log)' }; }
         if (r?.ok) {
           const n = text.split(/\s+/).filter(Boolean).length;
           show('done', `✓ Typed ${n} word${n === 1 ? '' : 's'}`, 'ok');
