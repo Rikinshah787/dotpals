@@ -1098,6 +1098,7 @@
       box.hidden = !slotShown(update.session);
       resizePals();
       renderSessions();
+      if (slots.size === 1) setTimeout(maybeBrief, 0); // the first pal: the morning brief can show now
       pal.greet(); // pops up from below the ledge and says hi
       return slot;
     }
@@ -2038,10 +2039,15 @@
     function maybeBrief() {
       if (replaying || !briefConfig || briefConfig.morningBrief === false) return;
       const today = new Date(startOfDay()).toDateString();
-      try { if (localStorage.getItem('dotpals.brief') === today) return; localStorage.setItem('dotpals.brief', today); } catch { return; }
-      const line = briefLine('Since yesterday', brief(summarizeSessions([...entries.values()].map((x) => x.entry)), { since: startOfDay() - 86_400_000 }));
+      try { if (localStorage.getItem('dotpals.brief') === today) return; } catch { return; }
+      // Nothing to say yet (no pal on the stage, or no work since yesterday): try again when there is.
       const slot = slots.values().next().value;
-      if (line && slot) slot.pal.say?.(line, { duration: 10000 });
+      if (!slot) return;
+      const line = briefLine('Since yesterday', brief(summarizeSessions([...entries.values()].map((x) => x.entry)), { since: startOfDay() - 86_400_000 }));
+      if (!line) return;
+      slot.pal.say?.(line, { duration: 10000 });
+      // Told: once a day, from here on.
+      try { localStorage.setItem('dotpals.brief', today); } catch {}
     }
 
     function applyConfig(config) {
