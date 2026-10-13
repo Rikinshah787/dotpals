@@ -515,6 +515,17 @@ test('stuck: a file changed back and forth', async () => {
   assert.equal(stuck([at(edit('src/a.js', '-  x\n+x'), 1000), at(edit('src/a.js', '-x\n+  x'), 2000), at(edit('src/a.js', '-  x\n+x'), 3000)], { now: 4000 }), null);
   // Finished: not stuck any more.
   assert.equal(stuck([there(1000), back(2000), there(3000), back(4000), at(step('done'), 5000)], { now: 6000 }), null);
+  // A build still running after the edits: wait for it.
+  assert.equal(stuck([there(1000), back(2000), there(3000), back(4000), at(run('npm run build', 'running'), 4500)], { now: 5000 }), null);
+  // One patch over two files (apply_patch) isn't one file's edit, even if only one is an "edit".
+  const both = (t, patch) => at({ ...edit('src/a.js', patch), files: [{ path: '/p/src/a.js', change: 'edit' }, { path: '/p/src/b.js', change: 'write' }] }, t);
+  assert.equal(stuck([both(1000, '-const x = 1;\n+const x = 2;'), both(2000, '-const x = 2;\n+const x = 1;'), both(3000, '-const x = 1;\n+const x = 2;')], { now: 4000 }), null);
+  // The key names the reason, not the file: another file flipping later is the same alert.
+  const otherThere = (t) => at(edit('src/b.js', '-y = 1;\n+y = 2;'), t);
+  const otherBack = (t) => at(edit('src/b.js', '-y = 2;\n+y = 1;'), t);
+  const first = stuck([there(1000), back(2000), there(3000)], { now: 4000 });
+  const later = stuck([there(1000), back(2000), there(3000), otherThere(4000), otherBack(5000), otherThere(6000), otherBack(7000)], { now: 8000 });
+  assert.deepEqual([first.key, later.key], ['flip', 'flip']);
 });
 
 test('stuck: the same thing failing again and again, or nothing working for a while, while it works', async () => {

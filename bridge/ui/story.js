@@ -1325,9 +1325,10 @@ function backAndForth(list, times = 2) {
   const files = new Map(); // path → { edits, undos, step }
   let worst = null;
   for (const e of list) {
-    if (e.status !== 'ok' || !e.body?.patch || outside(e)) continue;
-    const changed = (e.files ?? []).filter((f) => f.change === 'edit');
-    if (changed.length !== 1) continue;
+    if (e.kind !== 'edit' || e.status !== 'ok' || !e.body?.patch || outside(e)) continue;
+    // One edit of one file: a patch over several files (apply_patch) mixes their lines together.
+    const changed = e.files ?? [];
+    if (changed.length !== 1 || changed[0].change !== 'edit') continue;
     const path = String(changed[0].path).replace(/\\/g, '/');
     const file = files.get(path.toLowerCase()) ?? { path, edits: [], undos: 0 };
     files.set(path.toLowerCase(), file);
@@ -1359,9 +1360,11 @@ export function stuck(steps, { now = Date.now(), from, quiet = 10 * 60_000, time
     if (c.outcome !== 'fixed' && failed >= times && failedStep(c.attempts.at(-1)) && failed > (worst?.failed ?? 0)) worst = { id, c, failed };
   }
   if (worst) return { kind: 'repeat', key: worst.id, text: `${whatOf(worst.c.attempts[0])} still fails after ${worst.failed} tries`, step: worst.c.attempts.at(-1) };
-  const flip = backAndForth(list, flips);
-  if (flip) return { kind: 'flip', key: `flip:${flip.path}`, text: `${code(baseName(flip.path))} keeps changing back and forth: an edit undone ${flip.undos} times`, step: flip.step };
+  // A step still running (a build after the edits) may settle it: wait for it.
   if (list.some(running)) return null;
+  const flip = backAndForth(list, flips);
+  // One key for the reason, whichever file: told once per request, not once per file.
+  if (flip) return { kind: 'flip', key: 'flip', text: `${code(baseName(flip.path))} keeps changing back and forth: an edit undone ${flip.undos} times`, step: flip.step };
   const lastOk = list.findLast((e) => !failedStep(e) && e.status !== 'stopped' && !['done', 'error'].includes(e.kind));
   const start = lastOk?.at ?? from ?? list[0].at;
   const failedSince = list.filter((e) => e.at > start && failedStep(e));
