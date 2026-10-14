@@ -754,7 +754,7 @@
             <div class="row"><div class="text">Test it<small id="b-test-note">One tiny request, to check it answers.</small></div><button type="button" id="b-test">Test</button></div>
             <div class="row"><div class="text">Clean up dictation with it<small>Self-corrections (“no, sorry, I mean…”), grammar and spelling. Auto: always with a quick AI (Ollama or a key); with a subscription, which takes a few seconds, only when you correct yourself.</small></div>
               <select id="b-polish" aria-label="Clean up dictation"><option value="auto">Auto</option><option value="always">Always</option><option value="off">Off</option></select></div>
-            <div class="row"><div class="text">Your words<small>Separated by commas. A name or word spelled your way (Rikin, dotpals), or a fix for a word it keeps mishearing, made every time: Regan → Rikin, Kokoa → coucou.</small></div>
+            <div class="row"><div class="text">Your words<small>Separated by commas. A word spelled your way (dotpals, Blu), or a fix for a word it keeps mishearing, made every time: dot pals → dotpals, blue → Blu.</small></div>
               <input type="text" class="field" id="b-dictionary" spellcheck="false" autocomplete="off" aria-label="Your words"></div>
           </div>
 
@@ -762,7 +762,7 @@
             <h2>Talking to Blu</h2>
             <div class="row"><div class="text">What Blu is for<small>Blu answers you itself. Coding: what you say goes to your coding agents, and Blu checks their work. Everyday: Blu helps with your whole computer, and only hands work to Claude when you name it. Both: work goes to Claude when you name an agent or ask for coding work; it always asks before sending.</small></div>
               <select id="u-mode" aria-label="What Blu is for"><option value="both">Both</option><option value="developer">Coding</option><option value="everyday">Everyday</option></select></div>
-            <div class="row"><div class="text">Hearing<small>How Blu hears you, on this computer. Quick: English only, about 80 MB. Better: any accent, and names and songs in any language (“play Honey Singh”), about 600 MB. Best: the most accurate, about 760 MB, for a good graphics card. Downloaded once, the first time you talk. Dictate uses it too.</small></div>
+            <div class="row"><div class="text">Hearing<small>How Blu hears you, on this computer. Quick: English only, about 80 MB. Better: any accent, and names and songs in any language, about 600 MB. Best: the most accurate, about 760 MB, for a good graphics card. Downloaded once, the first time you talk. Dictate uses it too.</small></div>
               <select id="u-hearing" aria-label="Hearing"><option value="quick">Quick</option><option value="better">Better</option><option value="best">Best</option></select></div>
             <div class="row"><div class="text">Keep listening<small>After Blu answers, it listens for what you say next, like a conversation. Say nothing, say “stop”, or press ■ Stop, and it stops.</small></div><input type="checkbox" class="switch" id="u-conversation" aria-label="Keep listening"></div>
           </div>

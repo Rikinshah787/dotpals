@@ -123,7 +123,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       };
       let kind = want, a = await load(want);
       if (!a) { kind = 'quick'; a = await load('quick'); }
-      // Whisper for any language writes what you said in English letters ("Honey Singh"), not in another script.
+      // Whisper for any language writes what you said in English letters (a name from another language too), not in another script.
       const opts = HEARING[kind].english ? {} : { language: 'english', task: 'transcribe' };
       asr = Object.assign((audio) => a(audio, opts), { dispose: () => a.dispose?.() });
       asrKind = want;

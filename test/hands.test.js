@@ -59,14 +59,14 @@ test('run: a receipt for each action; off switches and unknown actions refuse, t
   const hands = createHands({ shell: { openExternal: async (u) => opened.push(u) }, screen: {}, typeOut: async (t) => ({ ok: t === 'hi' }), platform: 'linux-test' });
   const receipts = await hands.run([
     { act: 'url', url: 'https://example.com', words: 'Open example.com' },
-    { act: 'play', url: 'https://www.youtube.com/watch?v=Zi_XLOBDo_Y', words: 'Play “Billie Jean”' },
+    { act: 'play', url: 'https://www.youtube.com/watch?v=aBcDeFgHiJk', words: 'Play “Sunny Morning”' },
     { act: 'play', url: 'https://evil.example/x' },
     { act: 'click', x: 1, y: 1 },
     { act: 'teleport' },
   ], { allow: { hands: true, click: false } });
   assert.deepEqual(receipts.map((r) => r.ok), [true, true, false, false, false]);
   assert.match(receipts[3].error, /clicking and typing are off/);
-  assert.deepEqual(opened, ['https://example.com', 'https://www.youtube.com/watch?v=Zi_XLOBDo_Y']);
+  assert.deepEqual(opened, ['https://example.com', 'https://www.youtube.com/watch?v=aBcDeFgHiJk']);
   const off = await hands.run([{ act: 'url', url: 'https://example.com' }], { allow: { hands: false } });
   assert.match(off[0].error, /hands are off/);
   const typed = await hands.run([{ act: 'type', text: 'hi' }], { allow: { hands: true, click: true } });

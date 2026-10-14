@@ -27,5 +27,5 @@ export function route(text, { mode = 'both' } = {}) {
 /** Does it need a look at the screen? (Only then is the screenshot sent.) */
 export const aboutScreen = (text) => SCREEN.test(String(text ?? ''));
 
-/** What Blu drew, in a few words, for the next request's memory: 'circle "C=C double bond", arrow'. */
+/** What Blu drew, in a few words, for the next request's memory: 'circle "total", arrow'. */
 export const drewWords = (marks) => (marks ?? []).map((m) => `${m.shape}${m.label ? ` “${m.label}”` : ''}`).join(', ');

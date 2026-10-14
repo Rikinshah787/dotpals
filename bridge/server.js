@@ -933,7 +933,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         // yes, right after a question from Blu: the brain can't confirm a change on its own.
         const lastAsked = (history.at(-1)?.reply ?? '').includes('?'); // Blu asked something
         if (reply.apps?.change && lastAsked && /^(yes|yeah|yep|yup|sure|ok|okay|alright|do it|go ahead|go for it|please( do)?|create it|make it|add it|sounds good)\b[\s\S]{0,120}$/i.test(text.replace(/^(hey |ok )?blu(e)?[,.]?\s*/i, ''))) reply.apps.confirmed = true;
-        // "Play Billie Jean": the link that plays it, found here (YouTube's first result, or your Spotify app's).
+        // "Play some jazz": the link that plays it, found here (YouTube's first result, or your Spotify app's).
         for (const a of reply.do) if (a.act === 'play') Object.assign(a, await resolvePlay(a, { music: blu.music, spotifyKey: keys.spotify }).catch(() => ({})));
         return json(res, 200, { ...reply, words: reply.do.map(actionWords), by: r.by, ms: r.ms, saw: !!images.length });
       } catch (err) {

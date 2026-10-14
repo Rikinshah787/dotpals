@@ -1,5 +1,5 @@
 # A pretend music player for test/linux/hands-linux.mjs: it shows up to playerctl over MPRIS
-# (the session bus) as "dotplayer", playing "Billie Jean" by Michael Jackson, and prints each
+# (the session bus) as "dotplayer", playing "Sunny Morning" by The Examples, and prints each
 # button pressed on it.
 import sys
 from gi.repository import Gio, GLib
@@ -23,7 +23,7 @@ XML = """<node>
 </node>"""
 P = "org.mpris.MediaPlayer2.Player"
 state = {"status": "Playing", "track": 0}
-TRACKS = [("Billie Jean", "Michael Jackson"), ("Beat It", "Michael Jackson")]
+TRACKS = [("Sunny Morning", "The Examples"), ("Rainy Evening", "The Examples")]
 conn = None
 
 

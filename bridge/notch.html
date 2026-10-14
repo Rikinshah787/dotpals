@@ -1860,7 +1860,7 @@
           const mode = settings?.blu?.mode;
           const keys = `Hold ${keyLabel(keysNow.talk, 'Ctrl+Shift+Space')} while you talk, or tap it. ${keyLabel(keysNow.circle, 'Ctrl+Alt+C')}: circle something and ask.`;
           card.append(el('p', 'asked', mode === 'developer' ? 'Say what you want done, like “Have Claude fix the failing checkout test in shop.”'
-            : mode === 'everyday' ? 'Ask about anything on your screen (“explain this like I’m 12”), or “play Billie Jean”, “turn it down a bit”, “make this window smaller”.'
+            : mode === 'everyday' ? 'Ask about anything on your screen (“explain this simply”), or “play some jazz”, “turn it down a bit”, “make this window smaller”.'
               : 'Ask about your screen (“what’s this error?”), “play some jazz in Chrome”, “make this window smaller”, or “have Claude fix the failing test”.'));
           if (mode !== 'developer') card.append(el('p', 'asked', keys));
         }

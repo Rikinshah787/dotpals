@@ -7,9 +7,9 @@
 const FILLER = String.raw`\b(?:u+h*m+|u+h+|e+r+m*|a+h+|h+m+|m+h+m+)\b`;
 
 /**
- * Your words (Settings → Blu's brain → Your words): "Rikin" is a word to spell your way (for the
- * AI); "Regan → Rikin" (or "Regan = Rikin") is a fix for a word the speech recognition keeps
- * mishearing, made every time. → { words: ['Rikin', …], fixes: [['Regan', 'Rikin'], …] }
+ * Your words (Settings → Blu's brain → Your words): "dotpals" is a word to spell your way (for
+ * the AI); "dot pals → dotpals" (or "dot pals = dotpals") is a fix for words the speech
+ * recognition keeps mishearing, made every time. → { words: ['dotpals', …], fixes: [['dot pals', 'dotpals'], …] }
  */
 export function yourWords(dictionary = []) {
   const words = [], fixes = [];
@@ -21,7 +21,7 @@ export function yourWords(dictionary = []) {
   return { words: [...new Set(words)], fixes };
 }
 
-/** The fixes in your words, whole words only, in any case: "regan's" → "Rikin's". */
+/** The fixes in your words, whole words only, in any case: "Dot pals'" → "dotpals'". */
 export function fixWords(text, dictionary = []) {
   let t = String(text ?? '');
   for (const [heard, meant] of yourWords(dictionary).fixes) {

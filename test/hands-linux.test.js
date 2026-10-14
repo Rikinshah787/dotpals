@@ -171,8 +171,8 @@ test('Linux links in a named browser: started with the link; your usual browser 
 
 test('Linux nowPlaying: playerctl’s title, artist, status and player; null when nothing plays', async () => {
   const format = ['playerctl', 'metadata', '--format', '{{title}}\t{{artist}}\t{{status}}\t{{playerName}}'];
-  const spotify = linux(() => 'Billie Jean\tMichael Jackson\tPlaying\tspotify');
-  assert.deepEqual(await spotify.hands.nowPlaying(), { title: 'Billie Jean', artist: 'Michael Jackson', playing: true, app: 'Spotify' });
+  const spotify = linux(() => 'Sunny Morning\tThe Examples\tPlaying\tspotify');
+  assert.deepEqual(await spotify.hands.nowPlaying(), { title: 'Sunny Morning', artist: 'The Examples', playing: true, app: 'Spotify' });
   assert.deepEqual(spotify.calls, [format]);
   assert.deepEqual(await linux(() => 'Lo-fi beats\t\tPaused\tchromium.instance4242').hands.nowPlaying(), { title: 'Lo-fi beats', artist: '', playing: false, app: 'Chromium' });
   assert.equal(await linux(() => '\t\tStopped\tvlc').hands.nowPlaying(), null);

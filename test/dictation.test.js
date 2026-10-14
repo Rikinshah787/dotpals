@@ -46,10 +46,10 @@ test('your words: a "$" in the word you want stays a "$"', () => {
   assert.equal(fixWords('I paid ten dollars.', ['dollars → $&']), 'I paid ten $&.');
 });
 
-test('your words: plain words for the AI, fixes ("Regan → Rikin") made every time, whole words only', () => {
-  const dictionary = ['Rikin', 'dotpals', 'Regan → Rikin', 'Kokoa=coucou', 'blue -> Blu'];
-  assert.deepEqual(yourWords(dictionary), { words: ['Rikin', 'dotpals', 'coucou', 'Blu'], fixes: [['Regan', 'Rikin'], ['Kokoa', 'coucou'], ['blue', 'Blu']] });
-  assert.equal(fixWords('Hi, my name is Regan. Regan’s app beats kokoa.', dictionary), 'Hi, my name is Rikin. Rikin’s app beats coucou.');
+test('your words: plain words for the AI, fixes ("dot pals → dotpals") made every time, whole words only', () => {
+  const dictionary = ['dotpals', 'Blu', 'dot pals → dotpals', 'blew=Blu', 'blue -> Blu'];
+  assert.deepEqual(yourWords(dictionary), { words: ['dotpals', 'Blu'], fixes: [['dot pals', 'dotpals'], ['blew', 'Blu'], ['blue', 'Blu']] });
+  assert.equal(fixWords('We ship dot pals today. Dot pals’ notch beats blew.', dictionary), 'We ship dotpals today. dotpals’ notch beats Blu.');
   assert.equal(fixWords('Blue, open the bluetooth settings.', dictionary), 'Blu, open the bluetooth settings.');
   assert.equal(fixWords('Nothing to fix.', []), 'Nothing to fix.');
 });

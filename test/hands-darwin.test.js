@@ -115,9 +115,9 @@ test('volume: speakers the Mac can’t set (missing value) get a clear answer an
 });
 
 test('nowPlaying: asks Spotify, then Music, in JavaScript for Automation, and reads the answer', async (t) => {
-  let out = 'Billie Jean\tMichael Jackson\tplaying\tSpotify';
+  let out = 'Sunny Morning\tThe Examples\tplaying\tSpotify';
   const { hands, calls } = mac(t, { answer: () => { if (out instanceof Error) throw out; return out; } });
-  assert.deepEqual(await hands.nowPlaying(), { title: 'Billie Jean', artist: 'Michael Jackson', playing: true, app: 'Spotify' });
+  assert.deepEqual(await hands.nowPlaying(), { title: 'Sunny Morning', artist: 'The Examples', playing: true, app: 'Spotify' });
   assert.deepEqual(calls, [javascript(NOW_PLAYING)]);
   out = 'Hey Jude\tThe Beatles\tpaused\tMusic';
   assert.deepEqual(await hands.nowPlaying(), { title: 'Hey Jude', artist: 'The Beatles', playing: false, app: 'Music' });
@@ -259,19 +259,19 @@ test('keys: letters are keystrokes, the rest key codes, with their modifiers; ke
 test('Apple Music: plays the first match in your library; YouTube when there isn’t one', async (t) => {
   let found = true;
   const { run, calls, opened } = mac(t, { answer: (file, args) => { if (args.at(-1).includes('"Music"') && !found) throw new Error('Can’t get item 1 of {}. (-1728)'); return ''; } });
-  assert.equal((await run([{ act: 'play', applemusic: 'Billie Jean' }]))[0].ok, true);
-  assert.deepEqual(calls.splice(0), [applescript('tell application "Music" to play (item 1 of (search library playlist 1 for "Billie Jean"))')]);
+  assert.equal((await run([{ act: 'play', applemusic: 'Sunny Morning' }]))[0].ok, true);
+  assert.deepEqual(calls.splice(0), [applescript('tell application "Music" to play (item 1 of (search library playlist 1 for "Sunny Morning"))')]);
   assert.deepEqual(opened, []);
 
   await run([{ act: 'play', applemusic: 'Say "Hi" \\ now' }]);
   assert.equal(calls.splice(0)[0].at(-1), 'tell application "Music" to play (item 1 of (search library playlist 1 for "Say \\"Hi\\" \\\\ now"))');
 
   found = false;
-  assert.equal((await run([{ act: 'play', applemusic: 'Billie Jean' }]))[0].ok, true);
-  assert.deepEqual(opened, ['https://www.youtube.com/results?search_query=Billie%20Jean']);
+  assert.equal((await run([{ act: 'play', applemusic: 'Sunny Morning' }]))[0].ok, true);
+  assert.deepEqual(opened, ['https://www.youtube.com/results?search_query=Sunny%20Morning']);
   calls.length = 0;
-  await run([{ act: 'play', applemusic: 'Billie Jean', browser: 'chrome' }]);
-  assert.deepEqual(calls[1], ['open', '-a', 'Google Chrome', 'https://www.youtube.com/results?search_query=Billie%20Jean']);
+  await run([{ act: 'play', applemusic: 'Sunny Morning', browser: 'chrome' }]);
+  assert.deepEqual(calls[1], ['open', '-a', 'Google Chrome', 'https://www.youtube.com/results?search_query=Sunny%20Morning']);
 });
 
 test('not allowed under Accessibility: media keys, windows, clicks and keys refuse and ask; the rest still work', async (t) => {
@@ -283,7 +283,7 @@ test('not allowed under Accessibility: media keys, windows, clicks and keys refu
   assert.deepEqual(asked, [false, true, false, true, false, true, false, true]); // checked, then the system's prompt
 
   asked.length = 0;
-  const fine = await run([{ act: 'volume', by: 10 }, { act: 'open', app: 'Spotify' }, { act: 'url', url: 'https://example.com/', browser: 'brave' }, { act: 'play', applemusic: 'Billie Jean' }]);
+  const fine = await run([{ act: 'volume', by: 10 }, { act: 'open', app: 'Spotify' }, { act: 'url', url: 'https://example.com/', browser: 'brave' }, { act: 'play', applemusic: 'Sunny Morning' }]);
   assert.deepEqual(fine.map((r) => r.ok), [true, true, true, true]);
   assert.deepEqual(asked, []);
 });

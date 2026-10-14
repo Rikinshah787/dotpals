@@ -190,15 +190,15 @@ test('media and nowPlaying with a player (a pretend MPRIS one): what’s playing
   let said = '';
   player.stdout.on('data', (d) => { said += d; });
   await until(() => said.includes('ready'));
-  assert.deepEqual(await hands.nowPlaying(), { title: 'Billie Jean', artist: 'Michael Jackson', playing: true, app: 'Dotplayer' });
+  assert.deepEqual(await hands.nowPlaying(), { title: 'Sunny Morning', artist: 'The Examples', playing: true, app: 'Dotplayer' });
   assert.equal((await act({ act: 'media', key: 'pause' })).ok, true);
   assert.equal((await hands.nowPlaying()).playing, false);
   assert.equal((await act({ act: 'media', key: 'playpause' })).ok, true);
   assert.equal((await hands.nowPlaying()).playing, true);
   assert.equal((await act({ act: 'media', key: 'next' })).ok, true);
-  assert.equal((await hands.nowPlaying()).title, 'Beat It');
+  assert.equal((await hands.nowPlaying()).title, 'Rainy Evening');
   assert.equal((await act({ act: 'media', key: 'previous' })).ok, true);
-  assert.equal((await hands.nowPlaying()).title, 'Billie Jean');
+  assert.equal((await hands.nowPlaying()).title, 'Sunny Morning');
   assert.deepEqual(said.trim().split('\n'), ['ready', 'Pause', 'PlayPause', 'Next', 'Previous']);
   player.kill();
 });
@@ -213,9 +213,9 @@ test('a link in a named browser: started with the link when it’s installed, yo
   assert.equal((await act({ act: 'url', url: 'https://example.com/a', browser: 'firefox' })).ok, true);
   assert.equal(await until(() => existsSync(got) && readFileSync(got, 'utf8')), 'https://example.com/a');
   assert.equal((await act({ act: 'url', url: 'https://example.com/b', browser: 'chrome' })).ok, true); // no google-chrome here
-  assert.equal((await act({ act: 'play', url: 'https://www.youtube.com/watch?v=Zi_XLOBDo_Y', browser: 'brave' })).ok, true);
+  assert.equal((await act({ act: 'play', url: 'https://www.youtube.com/watch?v=aBcDeFgHiJk', browser: 'brave' })).ok, true);
   await until(() => opened.length === 2);
-  assert.deepEqual(opened, ['https://example.com/b', 'https://www.youtube.com/watch?v=Zi_XLOBDo_Y']);
+  assert.deepEqual(opened, ['https://example.com/b', 'https://www.youtube.com/watch?v=aBcDeFgHiJk']);
 });
 
 test('Wayland: windows, keys and clicks say they need X11, not what xdotool said', { skip }, async () => {

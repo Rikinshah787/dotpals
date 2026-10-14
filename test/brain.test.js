@@ -44,15 +44,15 @@ test('pickBrain: your choice if it’s ready; else the quickest for a quick job,
 });
 
 test('ask: Anthropic’s Messages API, its text blocks only, low effort on current models', async () => {
-  const fetchFn = fakeFetch({ content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: 'Hi, I’m Rikin.' }], stop_reason: 'end_turn' });
-  const r = await ask(brain('anthropic'), { system: 'clean', text: 'hi im rikin', key: 'sk-ant-test', fetchFn });
-  assert.equal(r.text, 'Hi, I’m Rikin.');
+  const fetchFn = fakeFetch({ content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: 'Hi, I’m ready.' }], stop_reason: 'end_turn' });
+  const r = await ask(brain('anthropic'), { system: 'clean', text: 'hi im ready', key: 'sk-ant-test', fetchFn });
+  assert.equal(r.text, 'Hi, I’m ready.');
   assert.equal(r.by, 'Anthropic');
   const call = fetchFn.calls[0];
   assert.equal(call.url, 'https://api.anthropic.com/v1/messages');
   assert.equal(call.init.headers['x-api-key'], 'sk-ant-test');
   assert.equal(call.init.headers['anthropic-version'], '2023-06-01');
-  assert.deepEqual([call.body.model, call.body.system, call.body.messages, call.body.output_config], ['claude-opus-5-5', 'clean', [{ role: 'user', content: 'hi im rikin' }], { effort: 'low' }]);
+  assert.deepEqual([call.body.model, call.body.system, call.body.messages, call.body.output_config], ['claude-opus-5-5', 'clean', [{ role: 'user', content: 'hi im ready' }], { effort: 'low' }]);
   await assert.rejects(ask(brain('anthropic'), { system: 's', text: 't', key: 'k', fetchFn: fakeFetch({ content: [], stop_reason: 'refusal' }) }), /declined/);
   await assert.rejects(ask(brain('anthropic'), { system: 's', text: 't', key: 'bad', fetchFn: fakeFetch({ error: { message: 'invalid x-api-key' } }, { ok: false, status: 401 }) }), /Anthropic: invalid x-api-key/);
 });
@@ -128,10 +128,10 @@ test('ask with a picture: Claude Code takes it in stream-json, still with no too
   process.env.DOTPALS_HOME = dir;
   t.after(async () => { delete process.env.DOTPALS_HOME; await rm(dir, { recursive: true, force: true }); });
   const seen = [];
-  const out = [JSON.stringify({ type: 'system', subtype: 'init' }), JSON.stringify({ type: 'assistant', message: {} }), JSON.stringify({ type: 'result', result: '{"say":"Billie Jean."}', is_error: false })].join('\n');
+  const out = [JSON.stringify({ type: 'system', subtype: 'init' }), JSON.stringify({ type: 'assistant', message: {} }), JSON.stringify({ type: 'result', result: '{"say":"A bar chart."}', is_error: false })].join('\n');
   const runner = async (file, args, opts) => { seen.push({ args, opts }); return { code: 0, stdout: out, stderr: '' }; };
   const r = await ask(brain('claude'), { system: 's', text: 'what song', images: [{ type: 'image/jpeg', data: 'QUJD' }], runner, find: () => '/usr/bin/claude' });
-  assert.equal(r.text, '{"say":"Billie Jean."}');
+  assert.equal(r.text, '{"say":"A bar chart."}');
   const { args, opts } = seen[0];
   assert.deepEqual(args.slice(args.indexOf('--input-format'), args.indexOf('--input-format') + 2), ['--input-format', 'stream-json']);
   assert.equal(args[args.indexOf('--tools') + 1], '');
@@ -222,16 +222,16 @@ test('askWithTools, Claude Code: your app as its MCP config, only the tools it m
 });
 
 test('polish: the dictionary goes in the instructions; a reply that answered instead of cleaning is dropped', () => {
-  assert.match(polishSystem(['Rikin', 'Blu', 'coucou']), /Their own words \(names, products\): Rikin, Blu, coucou\. Speech recognition often writes these as other, similar-sounding words/);
+  assert.match(polishSystem(['dotpals', 'Blu']), /Their own words \(names, products\): dotpals, Blu\. Speech recognition often writes these as other, similar-sounding words/);
   assert.equal(polishSystem([]).includes('Their own words'), false);
-  assert.equal(polished('my name is rikin', '“My name is Rikin.”'), 'My name is Rikin.');
+  assert.equal(polished('we ship it with blu today', '“We ship it with Blu today.”'), 'We ship it with Blu today.');
   assert.equal(polished('hi', 'Sure! Here is a long friendly answer to your greeting, with some extra ideas you might like to try today.'), null);
   assert.equal(polished('hi', '   '), null);
   // An answer, not your words cleaned up.
   assert.equal(polished('can you send me the report by Friday?', 'Sure, I will.'), null);
-  assert.equal(polished('Hi, my name is Regan. I am. No, sorry, my name is Rikin.', 'Hi, my name is Rikin.'), 'Hi, my name is Rikin.');
+  assert.equal(polished('The meeting is on Monday. It is. No, sorry, the meeting is on Tuesday.', 'The meeting is on Tuesday.'), 'The meeting is on Tuesday.');
   assert.equal(polished('we ship it with blue', 'We ship it with Blu.', ['Blu']), 'We ship it with Blu.'); // your words count as yours
-  assert.equal(correcting('Hi, my name is Regan. I am. No, sorry, my name is Rikin.'), true);
+  assert.equal(correcting('The meeting is on Monday. It is. No, sorry, the meeting is on Tuesday.'), true);
   assert.equal(correcting('Ship it today, I mean it.'), true);
   assert.equal(correcting('The tests pass now.'), false);
 });

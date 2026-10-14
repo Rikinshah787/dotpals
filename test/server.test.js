@@ -901,7 +901,7 @@ test('Blu’s brain: polish uses the AI you brought, falls back to your words, a
   const { BRAINS } = await import('../bridge/brain.js');
   const ready = (ids) => async () => BRAINS.map((b) => ({ ...b, ready: ids.includes(b.id), why: '' }));
   const asked = [];
-  let answer = 'Hi, my name is Rikin.';
+  let answer = 'The meeting is on Tuesday.';
   const fakeAsk = async (brain, opts) => { asked.push({ id: brain.id, ...opts }); if (answer instanceof Error) throw answer; return { text: answer, by: brain.name, ms: 5 }; };
   let planned;
   const planner = async (text, projects, opts) => { planned = opts; return { chat: 'Hey!' }; };
@@ -912,14 +912,14 @@ test('Blu’s brain: polish uses the AI you brought, falls back to your words, a
     catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
   }
   t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
-  await api(port, '/api/config', { brain: { choice: 'auto', polish: 'auto', dictionary: ['Rikin'] } });
+  await api(port, '/api/config', { brain: { choice: 'auto', polish: 'auto', dictionary: ['dotpals'] } });
   const info = await (await fetch(`http://127.0.0.1:${port}/api/brain`)).json();
   assert.deepEqual([info.quick, info.plan], ['ollama', 'claude']); // the quick one for dictation, Claude Code for plans
-  const said = 'Hi, my name is Regan. I am. No, sorry, my name is Rikin.';
+  const said = 'The meeting is on Monday. It is. No, sorry, the meeting is on Tuesday.';
   const r = JSON.parse((await api(port, '/api/brain/polish', { text: said })).text);
-  assert.deepEqual([r.text, r.by], ['Hi, my name is Rikin.', 'Ollama']);
+  assert.deepEqual([r.text, r.by], ['The meeting is on Tuesday.', 'Ollama']);
   assert.equal(asked[0].id, 'ollama');
-  assert.match(asked[0].system, /Their own words \(names, products\): Rikin\./);
+  assert.match(asked[0].system, /Their own words \(names, products\): dotpals\./);
   answer = new Error('Ollama didn’t answer');
   const failed = JSON.parse((await api(port, '/api/brain/polish', { text: said })).text);
   assert.deepEqual([failed.text, failed.error], [said, 'Ollama didn’t answer']); // your words, as they were
