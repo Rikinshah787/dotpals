@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **“Open Chrome, go to Notion and create a page” did nothing** with Notion connected: Blu opened the site and asked “shall I create it?” without the change ready, so “yes” had nothing to do. Now a request about a connected app goes to the app (the site opens too, if you asked), Blu asks one clear question with the change ready, and “yes, call it Launch notes” makes it, title and all (only your own plain yes, right after Blu asked, counts). A link in the app’s answer is an *Open ↗* button rather than read out. Comments, sharing and invites are never done for you, like sending.
 - **“Cannot read properties of null (reading 'said')”**: after a plan failed, whatever you said next crashed Talk. And with a plan waiting for “send it”, anything you said was added to that plan; now only “also…”, “but…” and the like add to it, and anything else is a new request. Adding to a plan for your apps (an email) said “dotpals doesn’t know that project folder”.
+- **Blu couldn’t hear you on a computer without a graphics card** (Linux without a GPU): the speech model was tried on the graphics card first, and after that failed the processor fallback failed too. It now uses the graphics card only when there is one to use, for hearing you and for Blu’s voice.
+- **Moving a window on Linux could land a few pixels off** on a busy computer (“nudge left” went 2 px across and 40 px down): Blu now waits until the window has stopped moving before it measures it.
 
 ### Changed
 

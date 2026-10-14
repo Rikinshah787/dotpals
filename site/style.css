@@ -479,6 +479,15 @@ b.green { color: var(--green) !important; }
 .nm-list .x { color: var(--red); font-weight: 700; }
 .nm-say { margin: 0; color: var(--muted); font-size: .95rem; }
 .nm-say b { color: var(--codex); }
+/* Talk to Blu: a bit of screen with Blu's handwriting, and the Yes/No card. */
+.nm-ask-blu { border-left-color: #3b82f6; }
+.nm-screen { border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); padding: .4rem .5rem; }
+.nm-screen svg { display: block; width: 100%; height: auto; }
+.nm-doc { font: 600 17px var(--f-mono); fill: var(--text); }
+.nm-circle { fill: none; stroke: var(--red); stroke-width: 2.5; }
+.nm-hand { font: 700 19px "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", cursive; fill: #3b82f6; }
+.nm-verdict .badge-yes { color: var(--green); background: rgb(74 222 128 / .14); }
+.nm-verdict .badge-no { color: var(--muted); background: var(--line); }
 
 /* ---------- story ---------- */
 .story { padding: clamp(40px, 8vw, 90px) 0 clamp(60px, 8vw, 100px); }

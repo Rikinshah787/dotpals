@@ -12,7 +12,7 @@ A small floating pal that watches Claude Code, Codex or any agent and checks its
 npx dotpals@latest setup
 ```
 
-<sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
+<sub>One command on Windows, macOS or Linux. Free, open source, and your agents’ work stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
 
 [![CI](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml/badge.svg)](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -367,7 +367,7 @@ your agent ─── POST /event ────────┘         one activit
 ```
 
 1. **Your agents report what they do.** Claude Code sends hook events as it works, and dotpals also reads each session's transcript in `~/.claude/projects`, so every session shows up, including ones that started before dotpals was installed. Codex writes session logs to `~/.codex/sessions`, which dotpals follows. Nothing to set up on the Codex side. Any other agent can POST JSON.
-2. **A small local server (the bridge) turns that into one activity feed.** It runs on `127.0.0.1:5175`, only answers your own computer, and keeps history in `~/.dotpals`. Nothing is sent anywhere.
+2. **A small local server (the bridge) turns that into one activity feed.** It runs on `127.0.0.1:5175`, only answers your own computer, and keeps history in `~/.dotpals`. Nothing is sent anywhere, unless you turn on the cloud test check or give Blu a cloud AI.
 3. **The pal shows it.** The desktop app (Electron, always on top) and the dashboard read the feed live: the pal's mood, the Summary, Tools and Files tabs, stats and history.
 
 Each agent connects through an adapter in [`bridge/adapters/`](bridge/adapters), and every adapter produces the same activity entries ([`bridge/activity.js`](bridge/activity.js)). The pal itself is a dependency-free Web Component that you can also drop into your own app (see [below](#use-the-pal-in-your-own-app)).
