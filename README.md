@@ -30,7 +30,7 @@ npx dotpals@latest setup
 
 ## New in 0.11
 
-Your agents, graded. Most of it from [@agusumri](https://github.com/agusumri).
+Your agents, graded.
 
 - **Report card.** Dashboard → *Report card*: your agents side by side. Code changed, tested and passed; changes never tested; tests changed to pass; claims that didn't happen; requests that went in circles; and what the tokens bought. Copy it as Markdown.
 - **Replay a request.** Step through what the agent did, with marks on every failure, retry and fix.
