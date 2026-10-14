@@ -963,15 +963,19 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // with `tooLarge`, so a caller answers 400/413 instead of acting on an empty body.
   const BODY_MAX = 1024 * 1024;
   const HOOK_MAX = 64 * 1024 * 1024;
+  // Counted in bytes, and decoded once at the end (a character split across two chunks stays whole).
   const readBody = (req, max = BODY_MAX) => new Promise((ok, fail) => {
-    let b = '';
+    const chunks = [];
+    let size = 0;
     let over = false;
     req.on('data', (c) => {
       if (over) return;
-      b += c;
-      if (b.length > max) { over = true; b = ''; fail(Object.assign(new Error('request too large'), { tooLarge: true })); req.resume(); }
+      const buf = typeof c === 'string' ? Buffer.from(c) : c;
+      size += buf.length;
+      if (size > max) { over = true; chunks.length = 0; fail(Object.assign(new Error('request too large'), { tooLarge: true })); req.resume(); return; }
+      chunks.push(buf);
     });
-    req.on('end', () => { if (!over) ok(b); });
+    req.on('end', () => { if (!over) ok(Buffer.concat(chunks).toString('utf8')); });
     req.on('error', (err) => { if (!over) fail(err); });
   });
 
@@ -1113,9 +1117,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (touched.length) return json(res, 409, { error: `Changed again since the rewind: ${touched.slice(0, 5).join(', ')}${touched.length > 5 ? ` +${touched.length - 5}` : ''}. Undo would lose that.` });
         const out = await restoreFiles(root, done.backup, done.paths);
         if (!out) return json(res, 500, { error: 'Git couldn’t put the files back. Nothing was deleted.' });
-        done.undone = Date.now();
-        publish([activity.upsert({ id: entry.id, rewound: { at: done.at, paths: done.paths, undone: done.undone } })]);
-        return json(res, 200, { ok: true, ...out });
+        // Only what was really put back: anything skipped stays rewound, and Undo stays on offer for it.
+        const back = new Set([...out.restored, ...out.deleted]);
+        done.paths = done.paths.filter((p) => !back.has(p));
+        if (!done.paths.length) done.undone = Date.now();
+        else done.after = await checkpoint(root) ?? done.after;
+        publish([activity.upsert({ id: entry.id, rewound: { at: done.at, paths: done.paths.length ? done.paths : [...back], ...(done.undone ? { undone: done.undone } : {}) } })]);
+        return json(res, out.skipped.length ? 207 : 200, { ok: !out.skipped.length, ...out, ...(out.skipped.length ? { error: `Couldn’t put back: ${out.skipped.slice(0, 5).join(', ')}${out.skipped.length > 5 ? ` +${out.skipped.length - 5}` : ''}` } : {}) });
       }
       // Only the request's own files, and only if nothing changed since the preview you saw.
       const paths = Array.isArray(body.paths) ? [...new Set(body.paths.filter((p) => typeof p === 'string' && changed.includes(p)))] : [];
@@ -1123,13 +1131,17 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (body.now !== now) return json(res, 409, { error: 'The files changed since the preview. Look again before rewinding.', code: 'stale' });
       const out = await restoreFiles(root, trees.before, paths);
       if (!out) return json(res, 500, { error: 'Git couldn’t put the files back. Nothing was deleted.' });
+      // Only the files really put back count as rewound (and are what Undo puts back).
+      const done = [...out.restored, ...out.deleted];
+      const skippedNote = out.skipped.length ? { error: `Couldn’t put back: ${out.skipped.slice(0, 5).join(', ')}${out.skipped.length > 5 ? ` +${out.skipped.length - 5}` : ''}` } : {};
+      if (!done.length) return json(res, 409, { ok: false, ...out, ...skippedNote });
       // How things were just before (for Undo) and just after (to tell if they changed again).
       const after = await checkpoint(root);
       const at = Date.now();
-      rewinds.set(entry.id, { at, paths, backup: now, after });
+      rewinds.set(entry.id, { at, paths: done, backup: now, after });
       if (rewinds.size > 200) rewinds.delete(rewinds.keys().next().value);
-      publish([activity.upsert({ id: entry.id, rewound: { at, paths } })]);
-      return json(res, 200, { ok: true, ...out, undo: !!after });
+      publish([activity.upsert({ id: entry.id, rewound: { at, paths: done } })]);
+      return json(res, out.skipped.length ? 207 : 200, { ok: !out.skipped.length, ...out, undo: !!after, ...skippedNote });
     } finally { rewinding.delete(root); }
   }
 

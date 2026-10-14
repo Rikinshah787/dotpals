@@ -739,6 +739,19 @@ test('request bodies: a big hook event still arrives; an oversized API call is r
   const big = await api(port, '/api/config', { sounds: !before.sounds, pad: 'x'.repeat(2 * 1024 * 1024) });
   assert.equal(big.status, 400);
   assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/config`)).json()).sounds, before.sounds);
+  // Counted in bytes: 600k three-byte characters is 1.8 MB, though the string is 600k long.
+  const wide = await api(port, '/api/config', { sounds: !before.sounds, pad: '€'.repeat(600 * 1024) });
+  assert.equal(wide.status, 400);
+  // And a character split across two chunks arrives whole.
+  const text = await new Promise((ok, fail) => {
+    const req = request({ host: '127.0.0.1', port, path: '/event', method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => { res.resume(); res.on('end', ok); });
+    req.on('error', fail);
+    const buf = Buffer.from(JSON.stringify({ session: 'utf', activity: { id: 'u1', kind: 'tool', title: 'héllo €', status: 'ok' } }));
+    const cut = buf.indexOf(Buffer.from('€')) + 1; // inside the € sign
+    req.write(buf.subarray(0, cut));
+    setTimeout(() => req.end(buf.subarray(cut)), 30);
+  }).then(async () => (await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json()).entries.find((e) => e.id === 'utf:u1')?.title);
+  assert.equal(text, 'héllo €');
 });
 
 test('generic /event: malformed files are dropped, so a trimmed session never throws (from review)', async (t) => {

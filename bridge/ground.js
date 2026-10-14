@@ -109,22 +109,40 @@ function inside(root, path) {
 }
 
 /**
- * Delete a file the request created, only if it really is inside the repository: its folder,
- * with links followed, must still be in it (a folder that's a link to somewhere else isn't),
- * and it must be a file or a link, not a folder. → true when it was deleted.
+ * Whether the folder `full` would be written in is really inside the repository, with links
+ * followed: the nearest folder of it that exists (a deleted folder comes back under its
+ * parent) must resolve inside `root`. A folder that's a link to somewhere else isn't.
+ */
+async function folderInside(root, full) {
+  try {
+    const top = await realpath(root);
+    let dir = dirname(full);
+    for (;;) {
+      try {
+        const real = await realpath(dir);
+        return real === top || real.startsWith(top + sep);
+      } catch {
+        const up = dirname(dir);
+        if (up === dir) return false;
+        dir = up;
+      }
+    }
+  } catch { return false; }
+}
+
+/**
+ * Delete a file the request created, only if it really is inside the repository (folderInside),
+ * and it's a file or a link, not a folder. → true when it was deleted, or was already gone.
  */
 async function removeInside(root, path) {
   const full = inside(root, path);
-  if (!full) return false;
+  if (!full || !(await folderInside(root, full))) return false;
   try {
-    const top = await realpath(root);
-    const dir = await realpath(dirname(full));
-    if (dir !== top && !dir.startsWith(top + sep)) return false;
     const s = await lstat(full);
     if (s.isDirectory()) return false;
     await rm(full, { force: true });
     return true;
-  } catch { return false; }
+  } catch (err) { return err?.code === 'ENOENT'; }
 }
 
 /**
@@ -159,11 +177,16 @@ export async function rewindPlan(root, { before, after, now, paths }, { git = ru
  * and files behind a link that leads out of it, are left alone.
  */
 export async function restoreFiles(root, tree, paths, { git = runGit, remove = removeInside } = {}) {
-  const safe = [...new Set(paths)].filter((p) => inside(root, p));
-  if (!safe.length) return { restored: [], deleted: [] };
+  const asked = [...new Set(paths)];
+  const safe = asked.filter((p) => inside(root, p));
+  const skipped = asked.filter((p) => !safe.includes(p));
+  if (!safe.length) return { restored: [], deleted: [], skipped };
   const present = await treeFiles(root, tree, git);
   if (!present) return null;
-  const write = safe.filter((p) => present.has(p));
+  // Written only where the folder is really inside the repository: a folder that's become a
+  // link to somewhere else is left as it is (git would replace the link with a folder).
+  const write = [];
+  for (const p of safe.filter((x) => present.has(x))) (await folderInside(root, inside(root, p)) ? write : skipped).push(p);
   const gone = safe.filter((p) => !present.has(p));
   if (write.length) {
     const ok = await withIndex(root, git, async (env) => {
@@ -173,8 +196,8 @@ export async function restoreFiles(root, tree, paths, { git = runGit, remove = r
     if (!ok) return null;
   }
   const deleted = [];
-  for (const p of gone) if (await remove(root, p)) deleted.push(p);
-  return { restored: write, deleted };
+  for (const p of gone) (await remove(root, p) ? deleted : skipped).push(p);
+  return { restored: write, deleted, skipped };
 }
 
 /**

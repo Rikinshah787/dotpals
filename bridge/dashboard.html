@@ -1739,7 +1739,8 @@
         rw.working = false;
         $('rw').close();
         const n = (out.restored?.length ?? 0) + (out.deleted?.length ?? 0);
-        rwNote(`Rewound ${plural(n, 'file')}`, out.undo ? () => rwUndo(id) : null);
+        // Some files left as they were (behind a link out of the project, or couldn't be deleted): say which.
+        rwNote(`Rewound ${plural(n, 'file')}${out.skipped?.length ? `. ${out.error}` : ''}`, out.undo ? () => rwUndo(id) : null, !!out.skipped?.length);
       } catch (err) {
         rw.working = false;
         if (err.status === 409 && err.code === 'stale') {
@@ -1766,7 +1767,7 @@
       try {
         const out = await rwPost('/api/rewind/undo', { id });
         const n = (out.restored?.length ?? 0) + (out.deleted?.length ?? 0);
-        rwNote(`Undone: ${plural(n, 'file')} back as they were before the rewind`);
+        rwNote(`Undone: ${plural(n, 'file')} back as they were before the rewind${out.skipped?.length ? `. ${out.error}` : ''}`, null, !!out.skipped?.length);
       } catch (err) {
         rwNote(err.message || 'Couldn’t undo the rewind.', null, true);
         if (button?.isConnected) button.disabled = false;

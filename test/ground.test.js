@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { changesBetween, checkpoint, createGround, parseStatus, restoreFiles, rewindPlan, snapshot, treeChanges } from '../bridge/ground.js';
 import { gitLine, gitTruth, readiness, turnMarkdown } from '../bridge/ui/story.js';
@@ -59,19 +59,19 @@ test('restore points: a request rewound file by file, without touching the index
 
   // Rewind two of them; a.js stays as you left it.
   const out = await restoreFiles(dir, before, ['docs/x.md', 'new.js']);
-  assert.deepEqual(out, { restored: ['docs/x.md'], deleted: ['new.js'] });
+  assert.deepEqual(out, { restored: ['docs/x.md'], deleted: ['new.js'], skipped: [] });
   assert.equal(await readFile(join(dir, 'docs', 'x.md'), 'utf8'), 'x\n');
   assert.equal(existsSync(join(dir, 'new.js')), false);
   assert.equal(await readFile(join(dir, 'a.js'), 'utf8'), 'a changed, then by you\n');
   assert.equal(index(), staged);
 
   // Undo: back to how things were just before the rewind.
-  assert.deepEqual(await restoreFiles(dir, now, ['docs/x.md', 'new.js']), { restored: ['new.js'], deleted: ['docs/x.md'] });
+  assert.deepEqual(await restoreFiles(dir, now, ['docs/x.md', 'new.js']), { restored: ['new.js'], deleted: ['docs/x.md'], skipped: [] });
   assert.equal(await readFile(join(dir, 'new.js'), 'utf8'), 'new\n');
   assert.equal(existsSync(join(dir, 'docs', 'x.md')), false);
 
   // Paths that leave the repository are refused.
-  assert.deepEqual(await restoreFiles(dir, before, ['../outside.js', '/etc/passwd']), { restored: [], deleted: [] });
+  assert.deepEqual(await restoreFiles(dir, before, ['../outside.js', '/etc/passwd']), { restored: [], deleted: [], skipped: ['../outside.js', '/etc/passwd'] });
 });
 
 test('restore points (from review): a tree git can\'t read deletes nothing; paths are names, not patterns', async () => {
@@ -88,7 +88,7 @@ test('restore points (from review): a tree git can\'t read deletes nothing; path
   await writeFile(join(dir, '[ab].js'), 'glob\n');
   await writeFile(join(dir, 'a.js'), 'a changed\n');
   const out = await restoreFiles(dir, before, ['[ab].js']);
-  assert.deepEqual(out, { restored: [], deleted: ['[ab].js'] });
+  assert.deepEqual(out, { restored: [], deleted: ['[ab].js'], skipped: [] });
   assert.equal(await readFile(join(dir, 'a.js'), 'utf8'), 'a changed\n');
   assert.equal(await readFile(join(dir, 'b.js'), 'utf8'), 'b\n');
   // Many files at once go through stdin, not the command line.
@@ -101,6 +101,21 @@ test('restore points (from review): a tree git can\'t read deletes nothing; path
   assert.equal(back.restored.length, 600);
   assert.equal(await readFile(join(dir, many[599]), 'utf8'), 'v1\n');
   git('status'); // the repository is fine
+});
+
+test('restore points (from review): a folder that became a link out of the repository is left alone', async (t) => {
+  const { symlink } = await import('node:fs/promises');
+  const { dir } = await repo();
+  const outside = await mkdtemp(join(tmpdir(), 'dotpals-outside-'));
+  dirs.push(outside);
+  const before = await checkpoint(dir); // docs/x.md is in it
+  await rm(join(dir, 'docs'), { recursive: true, force: true });
+  try { await symlink(outside, join(dir, 'docs'), 'junction'); } catch { t.skip('no links on this system'); return; }
+  const out = await restoreFiles(dir, before, ['docs/x.md', 'a.js']);
+  assert.deepEqual(out.skipped, ['docs/x.md']);
+  assert.deepEqual(out.restored, ['a.js']);
+  assert.equal(existsSync(join(outside, 'x.md')), false); // nothing written through the link
+  assert.ok((await lstat(join(dir, 'docs'))).isSymbolicLink()); // and the link is still a link
 });
 
 test('restore points: none for a folder that isn\'t a repository, or with new files too big to keep', async () => {
