@@ -17,14 +17,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Your apps, through Claude.** “What’s on my calendar today?”, “any email from Sam?”: Blu asks Claude Code with only that app’s tools and says what it found. A change (“add lunch with Sam tomorrow at 1”) waits for your “yes”, and an email or a message is only ever drafted. Dashboard → Settings → *Connected apps* shows the apps Claude can reach (your claude.ai connectors and MCP servers) and the ones waiting for you to sign in; connects Google Calendar, Gmail and Drive at claude.ai, adds Notion, Linear or Sentry in one click, or any app of your own by its address or command (`claude mcp add`, your user settings), and removes your own. For an app that isn’t connected (“post this to Slack”), Blu says so. Also in the notch’s gear. `GET /api/apps`, `POST /api/apps/add`, `/api/apps/remove`, `/api/talk/apps`.
 - **Stop.** A ■ Stop button on the Talk card while Blu listens, thinks or talks, and “stop”, “be quiet” or “that’s all” said out loud: it stops listening and talking, an answer still on its way is dropped, and the conversation ends. Blu doesn’t listen on by itself while music plays (it heard the song as you), at most three times in a row, and says nothing to what wasn’t meant for it. Music that’s playing goes quieter while Blu listens, and back after.
 
-### Fixed (Talk)
+### Fixed
 
 - **“Cannot read properties of null (reading 'said')”**: after a plan failed, whatever you said next crashed Talk. And with a plan waiting for “send it”, anything you said was added to that plan; now only “also…”, “but…” and the like add to it, and anything else is a new request. Adding to a plan for your apps (an email) said “dotpals doesn’t know that project folder”.
 
+## [0.11.0] - 2026-10-14
+
+Your agents, graded: a report card, replay and rewind for any request, a morning brief, and a ping when an agent goes in circles. Most of it from @agusumri.
+
+### Added
+
+- **The agent report card** (#35, #37, @agusumri). Dashboard → *Report card*: your agents side by side for today or the last 7 days. Code they changed that was tested after the last change and passed, changes never tested, how many tries a failure took to fix, tests changed to make them pass, things a summary claimed that didn't happen, requests that went in circles, and what the tokens bought: new tokens per change that held up, on changes that didn't, and on retries. Read from what the agents did, not what they said. **Copy as Markdown** for a standup or a post; any assistant can ask for it too (MCP: `report_card`).
+- **Replay a request** (#38, @agusumri). **Replay** on any request in the dashboard steps through what the agent did: play it, drag the timeline, or jump between the marks on every failure, retry, fix, risky step and the test run that counts.
+- **Rewind a request** (#39, @agusumri). Off unless you turn it on: Settings → *Save restore points so you can rewind a request*. When a request starts and ends, dotpals saves your project's files in git's own object store (no branch, no commit, your index untouched). **Rewind…** on a request then shows the files it changed and the diff, and puts the ones you pick back as they were; **Undo** puts them back again. Only the request's own files, only if nothing changed since the preview, never while an agent is still working in that project, and never outside the repository.
+- **The morning brief and the weekly recap** (#36, @agusumri). The first time the pal opens each day it says what your agents did since yesterday, what's unfinished and what's failing, per project (Settings → *Morning brief*, on by default). Any assistant can ask for the day or the week (MCP: `brief`).
+- **"It's stuck" alerts** (#33, #34, @agusumri). A gentle ping, any agent: when the same test, command or edit fails 3 times, when one file keeps being changed back and forth, or when nothing has worked for 10 minutes while it keeps trying. Once per request; a step still running (a long build) never counts. Settings → *Tell me when an agent seems stuck*.
+- **Token use per request** (#32, @agusumri), from Claude Code's and Codex's own logs: "✓ Done in 2m 14s · 52k tokens in · 3.1k out · 1.2M cached" on each request in the pal, the notch and the dashboard, in copied recaps and in the MCP `recap` and `today`.
+- **Catches the claim that didn't happen** (#31, @agusumri). *Ready to merge?* now checks what the agent's summary says it did: "Said it added tests, but no test file changed", a file it says it fixed that nothing changed, a commit or push that never ran.
+- **VS Code's Copilot Chat** (#30, @agusumri). Its agent mode runs the same hooks file as Copilot CLI, so connecting Copilot now follows Copilot Chat in VS Code too.
 - **Webby, a pal that hangs on a thread.** A fuzzy spider that dangles on its silk and swings while it waits. When an agent finishes or needs you, or you click it, it zips up the thread and bungee-drops back down. Pick it in setup, Dashboard → Settings, or `<dot-pal character="webby">`. In the notch it hangs from the bottom of the island: it drops out when the notch shows, acts out the agent in front (the one you opened, or else the most urgent), and drops again when one finishes or needs you; clicks go through it. In the notch's small avatars the thread is hidden. For your own characters: `hang: true` (with a `.dp-thread`) swings from the top of the thread, and `moves: { hello, done, error, waiting }` swaps the action played for each; the new `drop` action works on any pal.
 
 ### Fixed
 
+- **An oversized request to the bridge is refused (400/413), never read as empty** (#39).
 - **The small pal's pill ran off both sides of the window** with two sessions with long names ("spider-pal", "plane"): the first name lost its start and the hide button was cut off. The pill now stays inside the window: with two or more chips each gets an equal share (names end in "…", the ring keeps the number in its tooltip), and the buttons never shrink.
 
 ### Changed
@@ -379,7 +394,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/rikinshah787/dotpals/compare/v0.9.4...v0.9.5

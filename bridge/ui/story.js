@@ -5,7 +5,7 @@
 //
 // Plain rules, no AI: instant, free and the same every time. Shared by the pal
 // (bridge/index.html) and the dashboard (bridge/dashboard.html); runs in Node too.
-import { baseName, facts, harnessName, plural, secs, turnTime } from './recap.js';
+import { baseName, facts, harnessName, plural, secs, tokenLine, tokens, turnTime } from './recap.js';
 import { failureReason, parseTestOutput } from './testout.js';
 
 // -- what a command is for ---------------------------------------------------------
@@ -1282,7 +1282,8 @@ export function turnMarkdown(t, { live } = {}) {
   if (f.skills.size) lines.push(`- Skills: ${[...f.skills].join(', ')}`);
   if (f.mcp.size) lines.push(`- Tools: ${[...f.mcp].join(', ')}`);
   const took = turnTime(t);
-  lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}_`);
+  const used = tokenLine(tokens(t.usage));
+  lines.push('', `_${harnessName(t.harness)} · ${t.label ?? ''}${took > 0 ? ` · ${secs(took)}` : ''}${used ? ` · ${used}` : ''}_`);
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -1311,6 +1312,65 @@ const leftFailing = (steps) => [...retries(steps).chains.values()].filter((c) =>
 const HARMLESS = /^(?:git\s+(?:status|log|diff|show|branch|fetch|ls-remote|rev-parse|remote|tag|add|commit|push|stash\s+list)\b|gh\s|ls\b|dir\b|cat\b|type\b|grep\b|rg\b|find\b|echo\b|printf\b|head\b|tail\b|wc\b|pwd\b|which\b|where\b|sleep\b|true\b|exit\b|cd\b|npm\s+(?:test|run\s+test)\b|node\s+--test\b|pytest\b|jest\b|vitest\b|go\s+test\b|cargo\s+test\b)/i;
 export const changedCode = (steps) => steps.some((e) => (stepType(e) === 'change' && !outside(e) && e.status !== 'failed'
   && (e.files ?? []).some((f) => f.change !== 'read' && !NOT_CODE.test(String(f.path)))) || commandEdits(e).length > 0);
+
+/**
+ * The file a request keeps changing back and forth: { path, undos, step } for the one
+ * with the most edits that exactly undo an earlier edit of it (at least `times`), or null.
+ * Only finished, successful edits with a patch count; a change of whitespace alone isn't
+ * one, and a Write (the whole file, no "before") can't be told apart, so it doesn't count.
+ */
+function backAndForth(list, times = 2) {
+  const same = (a, b) => a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n');
+  const reverts = (later, earlier) => later.gone.length + later.added.length > 0 && same(later.gone, earlier.added) && same(later.added, earlier.gone);
+  const files = new Map(); // path → { edits, undos, step }
+  let worst = null;
+  for (const e of list) {
+    if (e.kind !== 'edit' || e.status !== 'ok' || !e.body?.patch || outside(e)) continue;
+    // One edit of one file: a patch over several files (apply_patch) mixes their lines together.
+    const changed = e.files ?? [];
+    if (changed.length !== 1 || changed[0].change !== 'edit') continue;
+    const path = String(changed[0].path).replace(/\\/g, '/');
+    const file = files.get(path.toLowerCase()) ?? { path, edits: [], undos: 0 };
+    files.set(path.toLowerCase(), file);
+    const edit = lineChanges(e.body.patch);
+    if (file.edits.some((x) => reverts(edit, x))) { file.undos++; file.step = e; }
+    file.edits.push(edit);
+    if (file.undos >= times && file.undos > (worst?.undos ?? 0)) worst = file;
+  }
+  return worst && { path: worst.path, undos: worst.undos, step: worst.step };
+}
+
+/**
+ * Is a request that's still going round in circles? While it works, not after it ends:
+ *   'repeat': the same thing (a test, a command, an edit to one file) failed `times` times
+ *             and its last try failed too ("`npm test` still fails after 3 tries");
+ *   'flip':   one file changed back and forth: an edit that puts back exactly what an
+ *             earlier edit of it took out, and takes out what it put in, `flips` times;
+ *   'quiet':  nothing has worked for `quiet` ms, though it keeps trying (2+ steps failed
+ *             since). Reads count as working, and a step still running (a long build, a
+ *             question for you) means it isn't stuck.
+ * → { kind, key, text, step }, or null. `from`: when the request started.
+ */
+export function stuck(steps, { now = Date.now(), from, quiet = 10 * 60_000, times = 3, flips = 2 } = {}) {
+  const list = [...steps].filter((e) => !['prompt', 'plan', 'compact'].includes(e.kind)).sort((a, b) => a.at - b.at);
+  if (!list.length || ['done', 'error'].includes(list.at(-1).kind)) return null;
+  let worst = null;
+  for (const [id, c] of retries(list).chains) {
+    const failed = c.attempts.filter(failedStep).length;
+    if (c.outcome !== 'fixed' && failed >= times && failedStep(c.attempts.at(-1)) && failed > (worst?.failed ?? 0)) worst = { id, c, failed };
+  }
+  if (worst) return { kind: 'repeat', key: worst.id, text: `${whatOf(worst.c.attempts[0])} still fails after ${worst.failed} tries`, step: worst.c.attempts.at(-1) };
+  // A step still running (a build after the edits) may settle it: wait for it.
+  if (list.some(running)) return null;
+  const flip = backAndForth(list, flips);
+  // One key for the reason, whichever file: told once per request, not once per file.
+  if (flip) return { kind: 'flip', key: 'flip', text: `${code(baseName(flip.path))} keeps changing back and forth: an edit undone ${flip.undos} times`, step: flip.step };
+  const lastOk = list.findLast((e) => !failedStep(e) && e.status !== 'stopped' && !['done', 'error'].includes(e.kind));
+  const start = lastOk?.at ?? from ?? list[0].at;
+  const failedSince = list.filter((e) => e.at > start && failedStep(e));
+  if (now - start < quiet || failedSince.length < 2 || now - list.at(-1).at > quiet) return null;
+  return { kind: 'quiet', key: `quiet:${start}`, text: `Nothing has worked for ${Math.round((now - start) / 60_000)} minutes: ${plural(failedSince.length, 'step')} failed since`, step: list.at(-1) };
+}
 
 /**
  * Why a request ended, in plain words: { kind, text }, or null while the agent is still

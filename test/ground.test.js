@@ -4,7 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { changesBetween, createGround, parseStatus, snapshot } from '../bridge/ground.js';
+import { lstat, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { changesBetween, checkpoint, createGround, parseStatus, restoreFiles, rewindPlan, snapshot, treeChanges } from '../bridge/ground.js';
 import { gitLine, gitTruth, readiness, turnMarkdown } from '../bridge/ui/story.js';
 
 const dirs = [];
@@ -25,6 +27,120 @@ async function repo() {
   git('commit', '-q', '-m', 'start');
   return { dir, git };
 }
+
+test('restore points: a request rewound file by file, without touching the index, and undone', async () => {
+  const { dir, git } = await repo();
+  // Something already staged before the request: the user's index must stay as it is.
+  await writeFile(join(dir, 'd.js'), 'd staged\n');
+  git('add', 'd.js');
+  const index = () => git('diff', '--cached', '--name-only').toString().trim();
+  const staged = index();
+
+  const before = await checkpoint(dir);
+  assert.match(before, /^[0-9a-f]{40,64}$/);
+  // The request: edits a.js, creates new.js, deletes docs/x.md.
+  await writeFile(join(dir, 'a.js'), 'a changed\n');
+  await writeFile(join(dir, 'new.js'), 'new\n');
+  await unlink(join(dir, 'docs', 'x.md'));
+  const after = await checkpoint(dir);
+  assert.deepEqual(await treeChanges(dir, before, after), ['a.js', 'docs/x.md', 'new.js']);
+  assert.equal(index(), staged); // saving restore points left the index alone
+
+  // You change a.js again after the request: the preview says so.
+  await writeFile(join(dir, 'a.js'), 'a changed, then by you\n');
+  const now = await checkpoint(dir);
+  const plan = await rewindPlan(dir, { before, after, now, paths: ['a.js', 'docs/x.md', 'new.js'] });
+  assert.deepEqual(plan.files, [
+    { path: 'a.js', change: 'restore', since: true },
+    { path: 'docs/x.md', change: 'recreate', since: false },
+    { path: 'new.js', change: 'delete', since: false },
+  ]);
+  assert.match(plan.patch, /-a changed, then by you\n\+a\n/);
+
+  // Rewind two of them; a.js stays as you left it.
+  const out = await restoreFiles(dir, before, ['docs/x.md', 'new.js']);
+  assert.deepEqual(out, { restored: ['docs/x.md'], deleted: ['new.js'], skipped: [] });
+  assert.equal(await readFile(join(dir, 'docs', 'x.md'), 'utf8'), 'x\n');
+  assert.equal(existsSync(join(dir, 'new.js')), false);
+  assert.equal(await readFile(join(dir, 'a.js'), 'utf8'), 'a changed, then by you\n');
+  assert.equal(index(), staged);
+
+  // Undo: back to how things were just before the rewind.
+  assert.deepEqual(await restoreFiles(dir, now, ['docs/x.md', 'new.js']), { restored: ['new.js'], deleted: ['docs/x.md'], skipped: [] });
+  assert.equal(await readFile(join(dir, 'new.js'), 'utf8'), 'new\n');
+  assert.equal(existsSync(join(dir, 'docs', 'x.md')), false);
+
+  // Paths that leave the repository are refused.
+  assert.deepEqual(await restoreFiles(dir, before, ['../outside.js', '/etc/passwd']), { restored: [], deleted: [], skipped: ['../outside.js', '/etc/passwd'] });
+});
+
+test('restore points (from review): a tree git can\'t read deletes nothing; paths are names, not patterns', async () => {
+  const { dir, git } = await repo();
+  await writeFile(join(dir, 'b.js'), 'b\n');
+  // Not a tree, or one git cleaned up: null, and every file is still there.
+  assert.equal(await restoreFiles(dir, 'not-a-hash', ['a.js', 'd.js']), null);
+  assert.equal(await restoreFiles(dir, 'f'.repeat(40), ['a.js', 'd.js']), null);
+  assert.equal(await rewindPlan(dir, { before: 'f'.repeat(40), after: null, now: 'f'.repeat(40), paths: ['a.js'] }), null);
+  assert.equal(await readFile(join(dir, 'a.js'), 'utf8'), 'a\n');
+  assert.equal(await treeChanges(dir, '--output=x', 'HEAD'), null); // only hashes reach git
+  // A file named like a pattern is only itself: rewinding `[ab].js` doesn't touch a.js or b.js.
+  const before = await checkpoint(dir);
+  await writeFile(join(dir, '[ab].js'), 'glob\n');
+  await writeFile(join(dir, 'a.js'), 'a changed\n');
+  const out = await restoreFiles(dir, before, ['[ab].js']);
+  assert.deepEqual(out, { restored: [], deleted: ['[ab].js'], skipped: [] });
+  assert.equal(await readFile(join(dir, 'a.js'), 'utf8'), 'a changed\n');
+  assert.equal(await readFile(join(dir, 'b.js'), 'utf8'), 'b\n');
+  // Many files at once go through stdin, not the command line.
+  const many = Array.from({ length: 600 }, (_, i) => `src/some/fairly/long/folder/name/file-${String(i).padStart(4, '0')}.js`);
+  await mkdir(join(dir, 'src', 'some', 'fairly', 'long', 'folder', 'name'), { recursive: true });
+  await Promise.all(many.map((p) => writeFile(join(dir, p), 'v1\n')));
+  const v1 = await checkpoint(dir);
+  await Promise.all(many.map((p) => writeFile(join(dir, p), 'v2\n')));
+  const back = await restoreFiles(dir, v1, many);
+  assert.equal(back.restored.length, 600);
+  assert.equal(await readFile(join(dir, many[599]), 'utf8'), 'v1\n');
+  git('status'); // the repository is fine
+});
+
+test('restore points (from review): a folder that became a link out of the repository is left alone', async (t) => {
+  const { symlink } = await import('node:fs/promises');
+  const { dir } = await repo();
+  const outside = await mkdtemp(join(tmpdir(), 'dotpals-outside-'));
+  dirs.push(outside);
+  const before = await checkpoint(dir); // docs/x.md is in it
+  await rm(join(dir, 'docs'), { recursive: true, force: true });
+  try { await symlink(outside, join(dir, 'docs'), 'junction'); } catch { t.skip('no links on this system'); return; }
+  const out = await restoreFiles(dir, before, ['docs/x.md', 'a.js']);
+  assert.deepEqual(out.skipped, ['docs/x.md']);
+  assert.deepEqual(out.restored, ['a.js']);
+  assert.equal(existsSync(join(outside, 'x.md')), false); // nothing written through the link
+  assert.ok((await lstat(join(dir, 'docs'))).isSymbolicLink()); // and the link is still a link
+});
+
+test('restore points: none for a folder that isn\'t a repository, or with new files too big to keep', async () => {
+  const plain = await mkdtemp(join(tmpdir(), 'dotpals-plain-'));
+  dirs.push(plain);
+  assert.equal(await checkpoint(plain), null);
+  const { dir } = await repo();
+  assert.equal(await checkpoint(dir, { snap: { files: { 'dump.bin': { code: '??', sig: `${20 * 1024 * 1024}:1` } } } }), null);
+  assert.equal(await checkpoint(dir, { snap: { tooMany: true } }), null);
+});
+
+test('createGround: restore points only when the setting is on, before and after the request', async () => {
+  const { dir } = await repo();
+  let on = false;
+  const ground = createGround({ restorePoints: () => on });
+  await ground.start('s1', dir, Date.now());
+  await writeFile(join(dir, 'a.js'), 'off\n');
+  assert.equal((await ground.finish('s1', dir)).trees, undefined);
+  on = true;
+  await ground.start('s2', dir, Date.now());
+  await writeFile(join(dir, 'a.js'), 'on\n');
+  const { trees } = await ground.finish('s2', dir);
+  assert.match(trees.before, /^[0-9a-f]{40,64}$/);
+  assert.deepEqual(await treeChanges(dir, trees.before, trees.after), ['a.js']);
+});
 
 test('parseStatus reads git status -z, renames included', () => {
   assert.deepEqual(parseStatus(' M a.js\0?? new file.js\0R  b.js\0old.js\0'), [

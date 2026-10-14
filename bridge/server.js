@@ -25,6 +25,8 @@
 //                            conflict: an agent is changing a file another active session just changed (see guard.js)
 //                            loop:     Claude was told its tests failed, or sent back to fix them (see "the fix loop"):
 //                                      { id, at, session, harness, label, kind: 'told' | 'sent-back' | 'blocked-ship' | 'gave-up' | 'fixed', text }
+//                            stuck:    a request going round in circles (Settings: stuckAlerts), once per request and reason:
+//                                      { id, at, session, harness, label, kind: 'repeat' | 'flip' | 'quiet', text, step }
 //   GET  /               → the pal page
 //   GET  /dashboard      → sessions, logs, stats and settings
 //   GET  /api/activity   → { entries }
@@ -97,7 +99,7 @@ import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
 import { failureReason } from './ui/testout.js';
-import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, testEvidence, testState, testVerdict } from './ui/story.js';
+import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, stuck as findStuck, testEvidence, testState, testVerdict } from './ui/story.js';
 import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
@@ -110,7 +112,7 @@ import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, gu
 import { HANDOFF_AGENTS, findOnPath, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
-import { createGround, snapshot, testDiff } from './ground.js';
+import { checkpoint, createGround, restoreFiles, rewindPlan, runGit, snapshot, testDiff, treeChanges } from './ground.js';
 import { createChat } from './chat.js';
 import { agentEnv, askPlanner, claudeTaskArgs, createTaskList, evaluate, fixRequest, knownProjects, makePlan, newSessionId, openPr, prPlan, receiptMarkdown, run, saveTask, taskMarkdown, taskPrompt, tidyPath, verdictWords } from './tasks.js';
 
@@ -353,6 +355,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       maybeCheck(entry);
       snapTests(entry);
       checkConflicts(entry);
+      if (entry.status === 'failed' || entry.kind === 'run' || (entry.kind === 'edit' && entry.status === 'ok')) checkStuck(entry.session);
       groundTruth(entry);
       taskNews(entry);
       any = true;
@@ -386,6 +389,29 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       text: alertText(by, conflict), ...(guard ? { guard } : {}),
     });
   }
+  // -- "It's stuck" (Settings: stuckAlerts, on by default) ---------------------------
+  // A request that keeps failing at the same thing, or where nothing has worked for a
+  // while: a `stuck` event, once per request and reason. Any agent. Checked when a step
+  // comes in, and every minute (for "nothing has worked for 10 minutes").
+  const stuckSent = new Map(); // session → Set of reasons already told for its current request
+  function checkStuck(session, now = Date.now()) {
+    if (!config.stuckAlerts || !session || asleep.has(session)) return;
+    const prompt = activity.findLast(session, (e) => e.kind === 'prompt');
+    const steps = [];
+    for (const e of activity.each()) if (e.session === session && (!prompt || e.at >= prompt.at) && e !== prompt) steps.push(e);
+    const s = findStuck(steps, { now, from: prompt?.at });
+    if (!s || now - (s.step?.at ?? 0) > 15 * 60_000) return; // not history read at startup
+    const told = stuckSent.get(session) ?? new Set();
+    const key = `${prompt?.id ?? ''}|${s.kind === 'quiet' ? 'quiet' : s.key}`;
+    if (told.has(key)) return;
+    told.add(key);
+    stuckSent.set(session, told);
+    const e = s.step ?? {};
+    send('stuck', { id: randomUUID(), at: now, session, harness: e.harness, label: e.label, kind: s.kind, text: s.text, step: e.id });
+  }
+  const stuckTimer = setInterval(() => { for (const session of sessions.keys()) checkStuck(session); }, 60_000);
+  stuckTimer.unref?.();
+
   /** Any agent's change that's happening now: alert if another active session just changed the same file. */
   function checkConflicts(entry) {
     if (config.conflictGuard === 'off' || !entry.session || entry.guard || entry.status === 'failed' || entry.status === 'stopped') return;
@@ -683,7 +709,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // other sessions that were active in the same repository meanwhile (their changes show too),
   // `branch` and `head` (short) where the request ended (for "is branch X ready?").
   // Only live requests: there's no "before" for one read from a transcript later.
-  const ground = createGround();
+  const ground = createGround({ restorePoints: () => !!config.restorePoints });
   const groundPrompt = new Map(); // session → the prompt its snapshot is for
   const normDir = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
   function othersIn(root, session, since) {
@@ -712,6 +738,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (changes.tooMany) git.tooMany = true;
         if (changes.branch) git.branch = changes.branch;
         if (changes.head) git.head = changes.head.slice(0, 7);
+        if (changes.trees) git.trees = changes.trees; // restore points: the request can be rewound
         publish([activity.upsert({ id: entry.id, git })]);
       }, () => {});
     }
@@ -1183,6 +1210,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         files,
         check: undefined, // only the bridge's own checker says this
         git: undefined, // and only the bridge says what git saw
+        rewound: undefined, // or that a request was rewound
 
         id, session,
         harness: harness ?? known?.harness,
@@ -1245,7 +1273,26 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
   // -- API --------------------------------------------------------------------------
   const json = (res, status, data) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(data));
-  const readBody = (req) => new Promise((ok) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => ok(b)); });
+  // A request body, up to `max` (API calls are small JSON: 1 MB; agents' hook events carry
+  // whole files and outputs: 64 MB). More is refused, never cut to nothing: the promise rejects
+  // with `tooLarge`, so a caller answers 400/413 instead of acting on an empty body.
+  const BODY_MAX = 1024 * 1024;
+  const HOOK_MAX = 64 * 1024 * 1024;
+  // Counted in bytes, and decoded once at the end (a character split across two chunks stays whole).
+  const readBody = (req, max = BODY_MAX) => new Promise((ok, fail) => {
+    const chunks = [];
+    let size = 0;
+    let over = false;
+    req.on('data', (c) => {
+      if (over) return;
+      const buf = typeof c === 'string' ? Buffer.from(c) : c;
+      size += buf.length;
+      if (size > max) { over = true; chunks.length = 0; fail(Object.assign(new Error('request too large'), { tooLarge: true })); req.resume(); return; }
+      chunks.push(buf);
+    });
+    req.on('end', () => { if (!over) ok(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', (err) => { if (!over) fail(err); });
+  });
 
   /** Every integration, for the dashboard's Agents page. */
   function agents() {
@@ -1327,6 +1374,90 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       agents: agents(),
       desktop: { pal: [...windows.values()].includes('pal'), notch: [...windows.values()].includes('notch') },
     };
+  }
+
+  // -- Rewind a request (bridge/ground.js restore points) ------------------------------------
+  const rewinding = new Set(); // repositories being rewound right now: one at a time
+  // What each rewind did, kept here only (never read back from an entry, which events can
+  // write to): entry id → { at, paths, backup (the tree just before it), after (just after it), undone }.
+  const rewinds = new Map();
+  const BUSY_STATES = new Set(['thinking', 'working', 'speaking']);
+  // A folder's real path, so "C:\Users\ADES-1~1" (Windows' short name) and git's long one match.
+  const realDir = (p) => { try { return normDir(realpathSync.native(p)); } catch { return normDir(p); } };
+  /** Another session busy in this repository right now: its files may still be changing. */
+  function busyIn(root) {
+    const r = realDir(root);
+    for (const [id, u] of sessions) {
+      if (!BUSY_STATES.has(u.state) || asleep.has(id)) continue;
+      const cwd = sessionMeta.get(id)?.cwd;
+      const d = cwd ? realDir(cwd) : '';
+      if (d && (d === r || d.startsWith(`${r}/`) || r.startsWith(`${d}/`))) return u;
+    }
+    return null;
+  }
+  async function rewind(res, path, body) {
+    const entry = typeof body.id === 'string' ? activity.get(body.id) : null;
+    const trees = entry?.git?.trees;
+    if (!trees?.before || !trees?.after) return json(res, 404, { error: 'This request has no restore point. Turn on Settings → Restore points; requests from then on can be rewound.' });
+    const cwd = sessionMeta.get(entry.session)?.cwd;
+    const root = cwd ? (await runGit(['rev-parse', '--show-toplevel'], cwd))?.trim() : null;
+    if (!root) return json(res, 409, { error: 'The project’s git repository isn’t there any more.' });
+    const changed = await treeChanges(root, trees.before, trees.after);
+    if (!changed) return json(res, 409, { error: 'Git couldn’t read the restore point (it may have been cleaned up).' });
+    if (path === '/api/rewind/preview') {
+      const now = await checkpoint(root);
+      if (!now) return json(res, 409, { error: 'Git couldn’t read the project right now.' });
+      const plan = await rewindPlan(root, { before: trees.before, after: trees.after, now, paths: changed });
+      if (!plan) return json(res, 409, { error: 'Git couldn’t read the restore point (it may have been cleaned up).' });
+      const busy = busyIn(root);
+      const done = rewinds.get(entry.id);
+      return json(res, 200, { ...plan, now, ...(busy ? { busy: `${busy.label ?? 'Another agent'} is still working here` } : {}), ...(done && !done.undone && done.after ? { canUndo: true } : {}) });
+    }
+    // Writing: one at a time per repository, the lock taken before reading how things are now,
+    // and never while an agent is still working there.
+    if (rewinding.has(root)) return json(res, 409, { error: 'Already rewinding in this project.' });
+    const busy = busyIn(root);
+    if (busy) return json(res, 409, { error: `${busy.label ?? 'An agent'} is still working in this project. Wait until it’s done.` });
+    rewinding.add(root);
+    try {
+      const now = await checkpoint(root);
+      if (!now) return json(res, 409, { error: 'Git couldn’t read the project right now.' });
+      if (path === '/api/rewind/undo') {
+        const done = rewinds.get(entry.id);
+        if (!done || done.undone || !done.after) return json(res, 409, { error: 'There’s no rewind to undo.' });
+        // Changed again since the rewind: undoing it would lose that.
+        const since = await treeChanges(root, done.after, now);
+        if (!since) return json(res, 409, { error: 'Git couldn’t read the restore point (it may have been cleaned up).' });
+        const touched = done.paths.filter((p) => since.includes(p));
+        if (touched.length) return json(res, 409, { error: `Changed again since the rewind: ${touched.slice(0, 5).join(', ')}${touched.length > 5 ? ` +${touched.length - 5}` : ''}. Undo would lose that.` });
+        const out = await restoreFiles(root, done.backup, done.paths);
+        if (!out) return json(res, 500, { error: 'Git couldn’t put the files back. Nothing was deleted.' });
+        // Only what was really put back: anything skipped stays rewound, and Undo stays on offer for it.
+        const back = new Set([...out.restored, ...out.deleted]);
+        done.paths = done.paths.filter((p) => !back.has(p));
+        if (!done.paths.length) done.undone = Date.now();
+        else done.after = await checkpoint(root) ?? done.after;
+        publish([activity.upsert({ id: entry.id, rewound: { at: done.at, paths: done.paths.length ? done.paths : [...back], ...(done.undone ? { undone: done.undone } : {}) } })]);
+        return json(res, out.skipped.length ? 207 : 200, { ok: !out.skipped.length, ...out, ...(out.skipped.length ? { error: `Couldn’t put back: ${out.skipped.slice(0, 5).join(', ')}${out.skipped.length > 5 ? ` +${out.skipped.length - 5}` : ''}` } : {}) });
+      }
+      // Only the request's own files, and only if nothing changed since the preview you saw.
+      const paths = Array.isArray(body.paths) ? [...new Set(body.paths.filter((p) => typeof p === 'string' && changed.includes(p)))] : [];
+      if (!paths.length) return json(res, 400, { error: 'Pick at least one of the request’s files.' });
+      if (body.now !== now) return json(res, 409, { error: 'The files changed since the preview. Look again before rewinding.', code: 'stale' });
+      const out = await restoreFiles(root, trees.before, paths);
+      if (!out) return json(res, 500, { error: 'Git couldn’t put the files back. Nothing was deleted.' });
+      // Only the files really put back count as rewound (and are what Undo puts back).
+      const done = [...out.restored, ...out.deleted];
+      const skippedNote = out.skipped.length ? { error: `Couldn’t put back: ${out.skipped.slice(0, 5).join(', ')}${out.skipped.length > 5 ? ` +${out.skipped.length - 5}` : ''}` } : {};
+      if (!done.length) return json(res, 409, { ok: false, ...out, ...skippedNote });
+      // How things were just before (for Undo) and just after (to tell if they changed again).
+      const after = await checkpoint(root);
+      const at = Date.now();
+      rewinds.set(entry.id, { at, paths: done, backup: now, after });
+      if (rewinds.size > 200) rewinds.delete(rewinds.keys().next().value);
+      publish([activity.upsert({ id: entry.id, rewound: { at, paths: done } })]);
+      return json(res, out.skipped.length ? 207 : 200, { ok: !out.skipped.length, ...out, undo: !!after, ...skippedNote });
+    } finally { rewinding.delete(root); }
   }
 
   async function api(req, res, path) {
@@ -1496,6 +1627,17 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { ok: true, laya: removed });
     }
     if (path === '/api/handoff') return handoff(req, res);
+    // Rewind a request (Settings → Restore points): put the files it changed back as they were
+    // before it. `preview` { id } → what would change, and the diff; `rewind` { id, paths, now }
+    // does it, only if nothing changed since the preview, and keeps a restore point of how things
+    // were, so `rewind/undo` { id } puts them back. `id`: the request's done entry.
+    if (path === '/api/rewind/preview' || path === '/api/rewind' || path === '/api/rewind/undo') {
+      const origin = req.headers.origin;
+      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+      return rewind(res, path, body ?? {});
+    }
     if (path.startsWith('/api/talk/')) return talk(req, res, path);
     if (path.startsWith('/api/brain/')) return brainApi(req, res, path);
     if (path.startsWith('/api/apps/')) return appsApi(req, res, path);
@@ -1625,7 +1767,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       // computer's own pages may post, so another site can't fake activity or approvals.
       const origin = req.headers.origin;
       if (!allowedHost(req.headers.host) || (origin && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin))) return res.writeHead(403).end();
-      const body = await readBody(req);
+      let body;
+      try { body = await readBody(req, HOOK_MAX); } catch (err) { return res.writeHead(err.tooLarge ? 413 : 400).end(); }
       let reply = null;
       try {
         const event = JSON.parse(body || '{}');
@@ -1691,10 +1834,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
+  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
-    server.once('error', (err) => { stopWatchers(); clearInterval(reaper); fail(err); });
+    server.once('error', (err) => { stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); fail(err); });
     server.listen(port, '127.0.0.1', () => {
       print(`dotpals bridge → http://localhost:${port}`);
       print(`dashboard      → http://localhost:${port}/dashboard`);

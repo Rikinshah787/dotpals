@@ -18,9 +18,11 @@ import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { clip, folderName } from './activity.js';
 import { handoffNote } from './ui/handoff.js';
-import { baseName, facts, harnessName, plural, sentence, shortTime, startOfDay, summarizeSessions } from './ui/recap.js';
+import { baseName, facts, harnessName, plural, sentence, shortTime, startOfDay, summarizeSessions, tokenLine, tokens } from './ui/recap.js';
 import { flags, list as nameList, onlyOldFailures, readiness, simple, stepType, testLine, testState, testVerdict, weakenedTests, whyStopped } from './ui/story.js';
 import { failureReason } from './ui/testout.js';
+import { reportCard, reportMarkdown } from './ui/report.js';
+import { brief, briefMarkdown } from './ui/brief.js';
 
 const version = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; } catch { return '0.0.0'; } })();
 // Like the hooks (guard-hook.js): not PORT, which the assistant's own environment may set for an app.
@@ -28,7 +30,7 @@ const bridge = process.env.DOTPALS_BRIDGE || `http://127.0.0.1:${Number(process.
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05']; // the first is the one we answer with when the client's is unknown
 const MIN = 60_000;
 const NOT_RUNNING = 'dotpals isn’t running. Start it with `npx dotpals start` (or open the pal).';
-const INSTRUCTIONS = 'dotpals watches the coding agents on this computer (Claude Code, Codex, Cursor and others) and checks what they really did: files changed, commands run, and test results read from the test output, not from what the agent said. Before you tell the user your work is done, call check_my_work. Use agents_now, recap, today, test_status, ready_to_merge and risky_steps to answer questions about what agents did, and handoff_note to pass a session\'s work to another agent.';
+const INSTRUCTIONS = 'dotpals watches the coding agents on this computer (Claude Code, Codex, Cursor and others) and checks what they really did: files changed, commands run, and test results read from the test output, not from what the agent said. Before you tell the user your work is done, call check_my_work. Use agents_now, recap, today, test_status, ready_to_merge and risky_steps to answer questions about what agents did, report_card to compare the agents, brief for a morning brief or weekly recap, and handoff_note to pass a session\'s work to another agent.';
 
 // -- reading the bridge's activity ---------------------------------------------------
 
@@ -244,6 +246,7 @@ const TOOLS = {
           `${when(t.at)} · ${named(s)}: ${asked(t)}`,
           ...result(t, s.live && t === s.turn).map((l) => `  ${l}`),
           ...(files.length ? [`  Files: ${files.slice(0, 8).join(', ')}${files.length > 8 ? ` +${files.length - 8} more` : ''}`] : []),
+          ...(tokens(t.usage) ? [`  Tokens: ${tokenLine(tokens(t.usage))}`] : []),
         ].join('\n');
       })].join('\n\n');
     },
@@ -264,11 +267,36 @@ const TOOLS = {
         const steps = turns.flatMap(({ t }) => t.steps);
         const tests = steps.filter((e) => e.kind === 'run' && stepType(e) === 'test' && !running(e)).length;
         const shown = turns.slice(-20);
+        const used = tokenLine(tokens(...turns.map(({ t }) => t.usage)));
         return [
-          `${agentName(harness)}: ${plural(turns.filter(({ t }) => t.prompt).length, 'request')} · ${plural(facts(steps).touched, 'file')} changed · ${plural(tests, 'test run')}${shown.length < turns.length ? ` (the last ${shown.length} below)` : ''}`,
+          `${agentName(harness)}: ${plural(turns.filter(({ t }) => t.prompt).length, 'request')} · ${plural(facts(steps).touched, 'file')} changed · ${plural(tests, 'test run')}${used ? ` · ${used}` : ''}${shown.length < turns.length ? ` (the last ${shown.length} below)` : ''}`,
           ...shown.map(({ s, t }) => [`  ${shortTime(t.at)} ${asked(t)}`, ...result(t, s.live && t === s.turn).map((l) => `    ${l}`)].join('\n')),
         ].join('\n');
       })].join('\n\n');
+    },
+  },
+  report_card: {
+    description: 'A report card comparing the agents side by side over a period (default: the last 7 days, every project): requests, how many that changed code were tested after the last change and passed, how many weren\'t tested, how many tries a failure took to fix, tests changed to make them pass, things a summary claimed that didn\'t happen, requests that went in circles, tokens per request and time spent. Read from what the agents did, not what they said. A Markdown table. Pass `project` for one project.',
+    inputSchema: { type: 'object', properties: { project: { ...PROJECT, description: 'Only this project: its folder\'s path or its name. Default: every project.' }, since: { ...SINCE, description: 'Since then: minutes ago ("1440") or a time ("2026-10-04T09:00"). Default: the last 7 days.' } } },
+    run(args, all) {
+      const from = args.since ? sinceOf(args.since) : startOfDay() - 6 * 24 * 60 * MIN;
+      const list = args.project ? pick(all, args) : all;
+      if (!list.length) return none(all, args);
+      const turns = list.flatMap((s) => s.turns.filter((t) => t.at >= from));
+      const title = `Agent report card${args.project ? ` · ${titleOf(list, args)}` : ''} · since ${when(from)}`;
+      return reportMarkdown(title, reportCard(turns));
+    },
+  },
+  brief: {
+    description: 'The morning brief or the weekly recap, per project: what the agents did (requests, files changed, tokens), what\'s unfinished (a request cut off, given up, left with failing tests or a question for you), what\'s failing now (tests failing, or code changed and not tested since), and what\'s worth a check (tests changed to pass, claims that didn\'t happen). `period`: "day" (since the start of yesterday, the default) or "week" (the last 7 days). Every project by default; pass `project` for one.',
+    inputSchema: { type: 'object', properties: { period: { type: 'string', enum: ['day', 'week'], description: '"day": since the start of yesterday (default). "week": the last 7 days.' }, project: { ...PROJECT, description: 'Only this project: its folder\'s path or its name. Default: every project.' } } },
+    run(args, all) {
+      if (args.period != null && !['day', 'week'].includes(args.period)) throw bad('period: "day" or "week"');
+      const week = args.period === 'week';
+      const from = startOfDay() - (week ? 6 : 1) * 24 * 60 * MIN;
+      const list = args.project ? pick(all, args) : all;
+      if (!list.length) return none(all, args);
+      return briefMarkdown(`${week ? 'The last 7 days' : 'Since yesterday'}${args.project ? ` · ${titleOf(list, args)}` : ''}`, brief(list, { since: from }));
     },
   },
   risky_steps: {

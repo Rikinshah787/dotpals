@@ -61,11 +61,13 @@ export function buildTurns(entries) {
   for (const e of list) {
     let t = current.get(e.session);
     if (e.kind === 'prompt' || !t) {
-      t = { id: e.id, session: e.session, harness: e.harness, label: e.label, at: e.at, prompt: e.kind === 'prompt' ? e : null, steps: [], end: null };
+      t = { id: e.id, session: e.session, harness: e.harness, label: e.label, at: e.at, prompt: e.kind === 'prompt' ? e : null, steps: [], end: null, usage: null };
       turns.push(t);
       current.set(e.session, t);
-      if (e.kind === 'prompt') continue;
     }
+    // Tokens, from every entry of the request (a second "done" can take the first one's place as its end).
+    if (e.usage) t.usage = { ...t.usage, ...e.usage };
+    if (e.kind === 'prompt') continue;
     if (e.kind === 'done' || e.kind === 'error') {
       if (!t.end || e.summary || !t.end.summary) t.end = e;
       continue;
@@ -74,6 +76,34 @@ export function buildTurns(entries) {
     t.steps.push(e);
   }
   return turns;
+}
+
+/**
+ * The tokens a request (or several) used, from its replies' usage:
+ * { input, output, cacheRead, cacheWrite, replies }, or null when the agent's logs don't say
+ * (Claude Code and Codex do; hook-only agents don't). `usages`: turns' `usage` maps.
+ */
+export function tokens(...usages) {
+  const k = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, replies: 0 };
+  for (const u of usages) {
+    for (const [input = 0, output = 0, cacheRead = 0, cacheWrite = 0] of Object.values(u ?? {})) {
+      k.input += input; k.output += output; k.cacheRead += cacheRead; k.cacheWrite += cacheWrite; k.replies++;
+    }
+  }
+  return k.replies ? k : null;
+}
+
+export const short = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
+
+/**
+ * "52k tokens in · 3.1k out · 1.2M cached", or ''. In: what the model read new (cache writes
+ * are new input too); cached: what it read again from the cache, which costs much less.
+ */
+export function tokenLine(k) {
+  if (!k) return '';
+  const parts = [`${short(k.input + k.cacheWrite)} tokens in`, `${short(k.output)} out`];
+  if (k.cacheRead) parts.push(`${short(k.cacheRead)} cached`);
+  return parts.join(' · ');
 }
 
 /** How long a finished turn took. */

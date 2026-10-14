@@ -22,21 +22,24 @@ npx dotpals@latest setup
 
 <sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
-**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](#new-in-010)**
+**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](#new-in-011)**
 
 **[⭐ Star dotpals](https://github.com/Rikinshah787/dotpals/stargazers)** if your agent ever said "Done!" and you weren't sure · **[Tell us what's confusing](https://github.com/Rikinshah787/dotpals/issues/new)**
 
 </div>
 
-## New in 0.10
+## New in 0.11
 
-dotpals used to show you what your agent did. Now it checks the work, and every AI tool can ask it.
+Your agents, graded.
 
-- **[Make agents fix failing tests](#features).** When Claude Code's tests fail, it's told at once, with why ("expected 3, got -1 (test/math.test.js:5)"), and sent back if it tries to finish, commit or push anyway. On by default; one switch in Settings, or the gear in the notch, turns it off.
-- **Catches the faked pass.** Green only because a test lost an assertion, got a skip or now expects the wrong thing? Claude is sent back to put the test back and fix the code, and you're told.
-- **[Ask dotpals from any agent (MCP)](#ask-dotpals-from-any-agent-mcp).** Claude Code, Codex, Cursor and other assistants ask `check_my_work`, `ready_to_merge`, `today` and more, and get the evidence instead of the agent's word.
+- **Report card.** Dashboard → *Report card*: your agents side by side. Code changed, tested and passed; changes never tested; tests changed to pass; claims that didn't happen; requests that went in circles; and what the tokens bought. Copy it as Markdown.
+- **Replay a request.** Step through what the agent did, with marks on every failure, retry and fix.
+- **Rewind a request.** Turn on restore points in Settings, then put a request's files back as they were: a preview first, Undo after. Your branches and staging area are never touched.
+- **Morning brief.** The first time the pal opens each day: what your agents did since yesterday, what's unfinished and what's failing.
+- **"It's stuck."** A ping when an agent keeps failing at the same thing, changes a file back and forth, or nothing has worked for 10 minutes.
+- **Tokens per request**, from Claude Code's and Codex's own logs.
 
-All of it in the [changelog](CHANGELOG.md).
+0.10 brought [the fix loop](#features) and [MCP](#ask-dotpals-from-any-agent-mcp). All of it in the [changelog](CHANGELOG.md).
 
 ## Why
 
@@ -54,6 +57,10 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 <p align="center"><img src="docs/summary.png" width="340" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills"></p>
 
 - **Make agents fix failing tests** (Claude Code, on by default): when a test run fails, Claude is told right away. When it tries to finish, commit or push while the tests fail or weren't run after its last change, it's sent back to fix them, at most twice per request; then it may stop and the pal tells you. A request that changed no code ("run the tests and tell me") just reports the failure, and a test that was already failing before Claude changed anything is reported, not forced on it. A result nobody can read (output cut by `| tail`): Claude runs the tests again; if it still can't be read, the pal asks you to look. And if the tests only went green because Claude changed them (took out an assertion, added a skip, changed what one expects), dotpals catches it: Claude is sent back and you're told. Projects without tests are never held up. Turn it off in Settings, or from the gear in the notch.
+- **Report card**: Dashboard → *Report card* puts your agents side by side for today or the last 7 days: code changed, tested after the last change and passed; changes never tested; tries to fix a failure; tests changed to pass; claims in a summary that didn't happen ("said it added tests, but no test file changed"); requests that went in circles; and what the tokens bought (new tokens per change that held up, on changes that didn't, on retries). **Copy as Markdown** for a standup or a post.
+- **Replay and rewind**: **Replay** steps through any request: play it, drag the timeline, jump between failures, retries and fixes. With restore points on (Settings, off by default), **Rewind…** puts a request's files back as they were before it, after a preview of the diff, with **Undo**. Saved in git's own object store: no branch, no commit, your index untouched.
+- **Morning brief and "It's stuck"**: the first time the pal opens each day it says what your agents did since yesterday, what's unfinished and what's failing. And when an agent keeps failing at the same thing, changes a file back and forth, or nothing has worked for 10 minutes, a gentle ping tells you. Both can be turned off in Settings.
+- **Tokens per request**: "✓ Done in 2m 14s · 52k tokens in · 3.1k out · 1.2M cached", read from Claude Code's and Codex's own logs.
 - **Ask dotpals from any agent**: `dotpals mcp` lets Claude Code, Codex, Cursor and other assistants ask what your agents really did, with the evidence: `check_my_work` before an agent says "done", `ready_to_merge`, `today`, `recap`, `risky_steps` and more. See [below](#ask-dotpals-from-any-agent-mcp).
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
 - **Two agents, one file**: when an agent is about to change a file another agent changed in the last few minutes, Claude Code asks you first ("Codex (api) changed billing.ts 2 minutes ago. Edit anyway?"), or tells Claude to re-read it. Other agents can't be stopped beforehand: the notch and the pal tell you as it happens.
@@ -228,6 +235,8 @@ Cursor and others: command `npx`, arguments `dotpals mcp`.
 | `ready_to_merge` | The checks a reviewer would make: tests ran after the last change and passed (not because the tests were changed), nothing left failing, nothing risky, and the work is committed. Mid-request too, as it stands now. Pass `branch` to ask about a git branch |
 | `recap` | What each agent was asked and did, request by request, with the files it changed, why its tests failed, and tests that passed only after they were changed (a project or a session, `since` a time) |
 | `today` | Today's work per agent, for a standup: requests, files changed and test runs, then each request in a sentence |
+| `report_card` | The agents side by side over the last 7 days (or `since` a time, for one `project`): code changes tested and passed, untested changes, tries to fix a failure, tests changed to pass, claims that didn't happen, going in circles, tokens per request, and what the tokens bought: new tokens per change that held up, on changes that didn't, and on retries. A Markdown table |
+| `brief` | The morning brief (since yesterday) or the weekly recap (`period: "week"`), per project: what was done, what's unfinished, what's failing now, and what's worth a check (tests changed to pass, claims that didn't happen) |
 | `risky_steps` | Force pushes, recursive deletes, changes to `.env` and other risky steps, each with when, which agent and the command |
 | `handoff_note` | A note for another agent to pick up a session's work: the ask, what was done, the files, how the tests stand, what's left |
 | `check_my_work` | For the agent itself, before it says "done": "Looks done", or what to fix first (with why the tests fail, or "put the test back and fix the code"). Tests that were failing before the session changed anything are its to report, not to fix |
@@ -618,9 +627,6 @@ For contributors, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the 
 
 ## Roadmap
 
-- **"It's stuck" alerts**: a gentle ping when an agent goes in circles (no progress, the same file back and forth, a test that won't pass).
-- **Morning brief and weekly recap**: what your agents did, what's unfinished and what's failing, per project.
-- **Token use per request**, from the agents' own logs.
 - **More agents**: Windsurf, Cline, Aider and others, as each gets a documented way in.
 - Signed installers for Windows and macOS, so Node isn't needed.
 

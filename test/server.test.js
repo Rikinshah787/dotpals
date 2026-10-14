@@ -396,6 +396,31 @@ test('an unclear test run is double-checked once by the local checker (a fake La
   assert.ok(!JSON.stringify(asked[0].body).includes('me@example.com'));
 });
 
+test('an agent failing at the same thing 3 times gets one `stuck` event, for any agent', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const base = { session: 'loopy', harness: 'my-agent', label: 'shop' };
+  const fail = (id) => post(port, '/event', { ...base, state: 'working', activity: { id, kind: 'run', tool: 'shell', title: 'npm test', status: 'failed', at: Date.now(), body: { command: 'npm test', output: 'Tests: 1 failed, 3 passed' } } });
+  await post(port, '/event', { ...base, activity: { id: 'p1', kind: 'prompt', title: 'Fix the cart', status: 'info', at: Date.now() - 1000 } });
+  const watching = readEvents(port, 800);
+  await new Promise((r) => setTimeout(r, 50));
+  await fail('r1');
+  await fail('r2');
+  await fail('r3');
+  await fail('r4'); // still stuck: told once per request
+  const stuck = (await watching).events.filter((e) => e.event === 'stuck');
+  assert.equal(stuck.length, 1);
+  assert.deepEqual([stuck[0].data.session, stuck[0].data.kind, stuck[0].data.text], ['loopy', 'repeat', '`npm test` still fails after 3 tries']);
+  // Off in Settings: nothing.
+  await api(port, '/api/config', { stuckAlerts: false });
+  await post(port, '/event', { ...base, activity: { id: 'p2', kind: 'prompt', title: 'Try again', status: 'info', at: Date.now() } });
+  const quiet = readEvents(port, 500);
+  await new Promise((r) => setTimeout(r, 50));
+  for (const id of ['r5', 'r6', 'r7']) await fail(id);
+  assert.equal((await quiet).events.filter((e) => e.event === 'stuck').length, 0);
+  await api(port, '/api/config', { stuckAlerts: true });
+});
+
 /**
  * Laya set up by dotpals, with a pretend install and server: `spawn` starts nothing real,
  * `fetch` answers Laya's /health while the pretend server runs.
@@ -609,6 +634,124 @@ test('a live request gets what git saw changed, also by commands, on its done en
   // Where each session works, for dotpals mcp. Read-only: a GET, no header needed.
   const { sessions } = await (await fetch(`http://127.0.0.1:${port}/api/sessions`)).json();
   assert.deepEqual(sessions, [{ id: 'git-session', cwd: repo, parent: null, label: basename(repo), harness: 'my-agent' }]);
+});
+
+test('rewind: with restore points on, a request is previewed, rewound and undone through the API', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const { readFileSync, existsSync } = await import('node:fs');
+  const repo = await mkdtemp(join(tmpdir(), 'dotpals-rewind-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'test');
+  writeFileSync(join(repo, 'a.js'), 'a\n');
+  git('add', '.');
+  git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start');
+  const { port, server } = await start();
+  t.after(async () => {
+    await api(port, '/api/config', { restorePoints: false });
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+    await rm(repo, { recursive: true, force: true });
+  });
+  // Off by default: no restore point, and rewinding says how to turn it on.
+  const base = { session: 'rw', harness: 'my-agent', cwd: repo };
+  const request = async (p, d, change) => {
+    await post(port, '/event', { ...base, activity: { id: p, kind: 'prompt', title: 'Change a', status: 'info', at: Date.now() } });
+    // The "before" restore point (git add -A in a private index) can take a while when many tests run at once.
+    await new Promise((r) => setTimeout(r, 2500));
+    change();
+    await post(port, '/event', { ...base, activity: { id: d, kind: 'done', title: 'Finished', status: 'ok', at: Date.now() } });
+    for (let i = 0; i < 60; i++) {
+      const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
+      const e = entries.find((x) => x.id === `rw:${d}` || x.id === d);
+      if (e?.git) return e;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  };
+  const off = await request('p0', 'd0', () => writeFileSync(join(repo, 'a.js'), 'off\n'));
+  assert.equal(off.git.trees, undefined);
+  const none = await api(port, '/api/rewind/preview', { id: off.id });
+  assert.equal(none.status, 404);
+  assert.match(JSON.parse(none.text).error, /Restore points/);
+
+  await api(port, '/api/config', { restorePoints: true });
+  writeFileSync(join(repo, 'a.js'), 'a\n');
+  const done = await request('p1', 'd1', () => { writeFileSync(join(repo, 'a.js'), 'changed\n'); writeFileSync(join(repo, 'new.js'), 'new\n'); });
+  assert.ok(done.git.trees?.before && done.git.trees?.after, 'restore points saved');
+
+  const preview = JSON.parse((await api(port, '/api/rewind/preview', { id: done.id })).text);
+  assert.deepEqual(preview.files, [{ path: 'a.js', change: 'restore', since: false }, { path: 'new.js', change: 'delete', since: false }]);
+  assert.match(preview.patch, /-changed\n\+a\n/);
+  // Something changed since the preview: refused, look again.
+  writeFileSync(join(repo, 'a.js'), 'changed, then by you\n');
+  const stale = await api(port, '/api/rewind', { id: done.id, paths: ['a.js'], now: preview.now });
+  assert.equal(stale.status, 409);
+  assert.equal(JSON.parse(stale.text).code, 'stale'); // the dashboard previews again on this
+  const again = JSON.parse((await api(port, '/api/rewind/preview', { id: done.id })).text);
+  assert.equal(again.files[0].since, true);
+  // Only the request's own files; then it's done, and can be undone.
+  assert.equal((await api(port, '/api/rewind', { id: done.id, paths: ['../x', 'package.json'], now: again.now })).status, 400);
+  const ok = await api(port, '/api/rewind', { id: done.id, paths: ['a.js', 'new.js'], now: again.now });
+  assert.equal(ok.status, 200, ok.text);
+  assert.equal(readFileSync(join(repo, 'a.js'), 'utf8'), 'a\n');
+  assert.equal(existsSync(join(repo, 'new.js')), false);
+  assert.equal((await api(port, '/api/rewind/undo', { id: done.id })).status, 200);
+  assert.equal(readFileSync(join(repo, 'a.js'), 'utf8'), 'changed, then by you\n');
+  assert.equal(readFileSync(join(repo, 'new.js'), 'utf8'), 'new\n');
+  assert.equal((await api(port, '/api/rewind/undo', { id: done.id })).status, 409); // once
+  // Without the header, or from another site: refused.
+  assert.equal((await post(port, '/api/rewind', { id: done.id, paths: ['a.js'] })).status, 403);
+
+  // From review: an event can't plant a rewind for Undo to act on.
+  const short = done.id.replace(/^rw:/, '');
+  await post(port, '/event', { ...base, activity: { id: short, rewound: { backup: 'f'.repeat(40), paths: ['a.js'] }, git: { trees: { before: 'x', after: 'y' } } } });
+  const planted = (await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json()).entries.find((e) => e.id === done.id);
+  assert.notEqual(planted.rewound?.backup, 'f'.repeat(40));
+  assert.equal(planted.git.trees.before, done.git.trees.before);
+  // Undo refuses when a file changed again after the rewind.
+  const fresh = JSON.parse((await api(port, '/api/rewind/preview', { id: done.id })).text);
+  assert.equal((await api(port, '/api/rewind', { id: done.id, paths: ['a.js'], now: fresh.now })).status, 200);
+  writeFileSync(join(repo, 'a.js'), 'edited after the rewind\n');
+  const refused = await api(port, '/api/rewind/undo', { id: done.id });
+  assert.equal(refused.status, 409);
+  assert.match(JSON.parse(refused.text).error, /Changed again since the rewind: a\.js/);
+  assert.equal(readFileSync(join(repo, 'a.js'), 'utf8'), 'edited after the rewind\n');
+  // An agent still working in the project: no rewind until it's done.
+  await post(port, '/event', { session: 'busy', harness: 'my-agent', cwd: repo, state: 'working' });
+  const blocked = await api(port, '/api/rewind', { id: done.id, paths: ['a.js'], now: fresh.now });
+  assert.equal(blocked.status, 409);
+  assert.match(JSON.parse(blocked.text).error, /still working/);
+});
+
+test('request bodies: a big hook event still arrives; an oversized API call is refused, not read as empty (from review)', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  // A 2 MB event (a big file write's output) is an agent's normal business.
+  const output = 'x'.repeat(2 * 1024 * 1024);
+  const ok = await post(port, '/event', { session: 'big', activity: { id: 'w1', kind: 'run', title: 'cat big.log', status: 'ok', body: { command: 'cat big.log', output } } });
+  assert.equal(ok.status, 200);
+  const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
+  assert.ok(entries.some((e) => e.id === 'big:w1'));
+  // A 2 MB settings call isn't: refused, and nothing changes.
+  const before = await (await fetch(`http://127.0.0.1:${port}/api/config`)).json();
+  const big = await api(port, '/api/config', { sounds: !before.sounds, pad: 'x'.repeat(2 * 1024 * 1024) });
+  assert.equal(big.status, 400);
+  assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/config`)).json()).sounds, before.sounds);
+  // Counted in bytes: 600k three-byte characters is 1.8 MB, though the string is 600k long.
+  const wide = await api(port, '/api/config', { sounds: !before.sounds, pad: '€'.repeat(600 * 1024) });
+  assert.equal(wide.status, 400);
+  // And a character split across two chunks arrives whole.
+  const text = await new Promise((ok, fail) => {
+    const req = request({ host: '127.0.0.1', port, path: '/event', method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => { res.resume(); res.on('end', ok); });
+    req.on('error', fail);
+    const buf = Buffer.from(JSON.stringify({ session: 'utf', activity: { id: 'u1', kind: 'tool', title: 'héllo €', status: 'ok' } }));
+    const cut = buf.indexOf(Buffer.from('€')) + 1; // inside the € sign
+    req.write(buf.subarray(0, cut));
+    setTimeout(() => req.end(buf.subarray(cut)), 30);
+  }).then(async () => (await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json()).entries.find((e) => e.id === 'utf:u1')?.title);
+  assert.equal(text, 'héllo €');
 });
 
 test('generic /event: malformed files are dropped, so a trimmed session never throws (from review)', async (t) => {

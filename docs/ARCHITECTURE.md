@@ -209,7 +209,14 @@ The bridge alone decides when a session is over. Viewers never end a session on 
 - **`compactNote(entries)`** writes a `/compact <instructions>` from the session's own record: bounded excerpts of the original and recent requests (including multiline constraints), the current goal, unfinished plan items, changed file paths, and whether tests passed, failed, are unclear, are still running, or became stale after edits. Newer instructions take precedence over older ones. Claude Code and Codex both accept `/compact` with instructions. Neither lets another program compact a running session, so the views copy the command for you to paste. Unrecorded decisions and older instructions outside the retained prompts cannot be recovered; review the note before using it.
 - **`story(turn, sessionSteps)`** bundles chapters, de-duplicated flags and the plan.
 
-`bridge/ui/recap.js` has the rest: `buildTurns`, `facts` (tallies), `sentence` (one step as a short sentence), `turnMarkdown`/`recapMarkdown` (Copy and Export), `summarizeSessions`, agent names and colors.
+`bridge/ui/recap.js` has the rest: `buildTurns`, `facts` (tallies), `sentence` (one step as a short sentence), `turnMarkdown`/`recapMarkdown` (Copy and Export), `summarizeSessions`, agent names and colors, and `tokens`/`tokenLine` (a request's token use, from the `usage` its replies left on its entries).
+
+Built on the same requests, and the same in every view and in the MCP tools:
+
+- `bridge/ui/report.js`: the report card (`reportCard`, `reportRows`, `reportMarkdown`): per agent, code changes tested and passed, untested changes, tries to fix a failure, tests changed to pass, claims that didn't happen (`claimCheck` in story.js), requests that went in circles, tokens per request and what they bought.
+- `bridge/ui/brief.js`: the morning brief and weekly recap (`brief`, `briefLine`, `briefMarkdown`): per project, what was done, what's unfinished, what's failing and what's worth a check.
+- `bridge/ui/replay.js`: a request as frames for the dashboard's Replay (`replay`), with marks on failures, retries, fixes, risky steps, the test run that counts and claims that didn't happen.
+- `stuck()` in story.js: a request still going round in circles (the same thing failing 3 times, one file changed back and forth, nothing working for 10 minutes); the bridge sends a `stuck` event once per request and reason.
 
 ## Usage limits and context windows
 
@@ -255,13 +262,21 @@ On unless `fixLoop` is off. It makes Claude Code fix the tests it broke, and cat
 - On `Stop`, a request that changed code and whose tests fail, are stale, or were never run (in a session that has run them before) gets `{ decision: "block", reason }`, at most `LOOP_MAX` (2) times per request; a faked pass is sent back once. Before a commit or push with failing or stale tests, `PreToolUse` gets `permissionDecision: "deny"`.
 - Each step is a `loop` event (`told`, `retry`, `sent-back`, `blocked-ship`, `gave-up`, `ask-you`, `bluff`, `fixed`) for the pal and the notch, kept in the history (the last 500, `GET /api/loop`).
 
+## Restore points and rewind
+
+Off unless `restorePoints` is on. In `bridge/ground.js`:
+
+- When a request starts and ends, `checkpoint` saves the working tree (tracked and new files, not ignored ones) as a git tree object, built in a private copy of the index (`GIT_INDEX_FILE`), so your index, branches and files are never touched, and nothing points at the trees (git's own clean-up removes them). Big new files (over 10 MB, or 100 MB in all) mean no restore point. Repository settings that would run a program (hooks, fsmonitor) are switched off for these git commands.
+- The trees go on the request's done entry (`git.trees`), which only the bridge writes: events can't set `git` or `rewound`.
+- `POST /api/rewind/preview` shows the request's own files (`treeChanges` between its two trees) and the diff back to before; `POST /api/rewind` puts back the ones you picked (`restoreFiles`: `checkout-index` from the tree, through a private index, paths on stdin), only if nothing changed since the preview, one rewind at a time per repository, never while an agent is working there, and never outside the repository (links are followed to check). `POST /api/rewind/undo` puts back how things were just before the rewind.
+
 ## The MCP server
 
 `dotpals mcp` (`bridge/mcp.js`) lets any assistant ask dotpals what the agents on this computer really did.
 
 - MCP over stdio, without an SDK: one JSON-RPC 2.0 message per line on stdin and stdout. Logs go to stderr, so stdout carries nothing else.
 - Read-only. Each tool call fetches `GET /api/activity` and `GET /api/sessions` (and `GET /api/git?session=` for what isn't committed yet) from `DOTPALS_BRIDGE`, and reads them with the same story engine as the pal, so the answers match what it shows. With no bridge running, every tool says how to start it.
-- Tools: `agents_now`, `test_status`, `ready_to_merge`, `recap`, `today`, `risky_steps`, `handoff_note` and `check_my_work`. A project is matched by the folder each session works in (`cwd`), so same-named folders and worktrees stay apart.
+- Tools: `agents_now`, `test_status`, `ready_to_merge`, `recap`, `today`, `report_card`, `brief`, `risky_steps`, `handoff_note` and `check_my_work`. A project is matched by the folder each session works in (`cwd`), so same-named folders and worktrees stay apart.
 
 ## Approve from the pal
 

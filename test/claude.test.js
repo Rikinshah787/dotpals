@@ -256,6 +256,60 @@ test('watchClaude follows sessions that have no hooks, and skips ones that do', 
   assert.equal(states.at(-1).state, 'thinking');
 });
 
+test('watchClaude puts each reply’s tokens on its request, once, hooks or not', async (t) => {
+  const { mkdir } = await import('node:fs/promises');
+  const { watchClaude, usageOf } = await import('../bridge/adapters/claude.js');
+  const { buildTurns, tokens } = await import('../bridge/ui/recap.js');
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-claude-usage-'));
+  let stop = () => {};
+  t.after(async () => {
+    stop();
+    await new Promise((r) => setTimeout(r, 150));
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  await mkdir(join(dir, 'C--work-proj'));
+  const ts = (s) => new Date(Date.now() - 10_000 + s * 1000).toISOString();
+  const cwd = '/work/proj';
+  const usage = (input, output, read, write) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: read, cache_creation_input_tokens: write });
+  const lines = [
+    { type: 'user', uuid: 'u1', timestamp: ts(0), cwd, message: { role: 'user', content: 'rename the helper' } },
+    // One reply, logged once per content block: the same message id, its usage so far.
+    { type: 'assistant', uuid: 'a1', timestamp: ts(1), cwd, message: { id: 'msg_1', content: [{ type: 'text', text: 'Looking.' }], usage: usage(10, 5, 1000, 200) } },
+    { type: 'assistant', uuid: 'a2', timestamp: ts(1), cwd, message: { id: 'msg_1', content: [{ type: 'tool_use', id: 'tu1', name: 'Edit', input: { file_path: `${cwd}/src/a.js`, old_string: 'a', new_string: 'b' } }], usage: usage(10, 40, 1000, 200) } },
+    { type: 'user', uuid: 'u2', timestamp: ts(2), cwd, message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }] } },
+    { type: 'assistant', uuid: 'a3', timestamp: ts(3), cwd, message: { id: 'msg_2', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Renamed it.' }], usage: usage(20, 60, 1300, 0) } },
+    // A helper's reply isn't this session's.
+    { type: 'assistant', uuid: 'a4', timestamp: ts(3), cwd, isSidechain: true, message: { id: 'msg_3', content: [], usage: usage(999, 999, 0, 0) } },
+    // The next request.
+    { type: 'user', uuid: 'u3', timestamp: ts(4), cwd, message: { role: 'user', content: 'now the tests' } },
+    { type: 'assistant', uuid: 'a5', timestamp: ts(5), cwd, message: { id: 'msg_4', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }], usage: usage(3, 7, 2000, 0) } },
+  ];
+  await writeFile(join(dir, 'C--work-proj', 'free.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+
+  // A hooked session: its steps come from the hooks; only its tokens come from here.
+  const log = createActivityLog();
+  const hookAt = Date.now() - 10_000;
+  log.upsert({ id: 'hooked:p:1', session: 'hooked', harness: 'claude', kind: 'prompt', title: 'rename the helper', status: 'info', at: hookAt - 500 });
+  await writeFile(join(dir, 'C--work-proj', 'hooked.jsonl'), JSON.stringify(lines[2]) + '\n');
+
+  stop = watchClaude(log, { dir, interval: 50, emit: () => {}, state: () => {}, skip: (s) => s === 'hooked' });
+  await new Promise((r) => setTimeout(r, 300));
+
+  const [first, second] = buildTurns(log.all().filter((e) => e.session === 'free'));
+  assert.deepEqual(tokens(first.usage), { input: 30, output: 100, cacheRead: 2300, cacheWrite: 200, replies: 2 });
+  assert.deepEqual(tokens(second.usage), { input: 3, output: 7, cacheRead: 2000, cacheWrite: 0, replies: 1 });
+  const hooked = buildTurns(log.all().filter((e) => e.session === 'hooked'));
+  assert.equal(hooked.length, 1);
+  assert.deepEqual(tokens(hooked[0].usage), { input: 10, output: 40, cacheRead: 1000, cacheWrite: 200, replies: 1 });
+  // Reading the transcript again (a restart) doesn't count a reply twice.
+  const again = createActivityLog();
+  for (const e of log.all()) again.upsert(structuredClone(e));
+  const { addUsage } = await import('../bridge/activity.js');
+  const u = usageOf(lines[4]);
+  assert.equal(addUsage(again, 'free', u.at, u.key, u.tokens), null);
+  assert.equal(usageOf({ type: 'user', message: { usage: usage(1, 1, 0, 0) } }), null);
+});
+
 test('contextOf: tokens in the window, and when its size is known', async () => {
   const { contextOf } = await import('../bridge/adapters/claude.js');
   const reply = (input, cacheRead) => ({ type: 'assistant', sessionId: 's1', timestamp: '2026-09-30T10:00:00Z', message: { usage: { input_tokens: input, cache_creation_input_tokens: 1000, cache_read_input_tokens: cacheRead, output_tokens: 50 } } });
