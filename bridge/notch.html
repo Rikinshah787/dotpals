@@ -275,6 +275,9 @@
     .btn kbd { padding: 0 5px; border-radius: 5px; font: 600 9.5px/1.6 var(--mono); color: inherit; opacity: .75; box-shadow: inset 0 0 0 1px currentColor; }
     .btn.allow { background: var(--ok); border-color: var(--ok); color: #06140a; }
     .btn.stop { background: var(--bad); border-color: var(--bad); color: #fff; }
+    /* A change in one of your apps, waiting for your yes. */
+    .card .confirm { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgb(255 255 255 / .05); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .08); }
+    .card .confirm b { font-size: 11px; color: var(--muted); font-weight: 600; } .card .confirm span { font-size: 12.5px; color: var(--text); }
     .btn.allow:hover { background: #55b867; }
     .risky .btn.allow { background: var(--warn); border-color: var(--warn); }
     .gone { opacity: .5; pointer-events: none; }
@@ -711,12 +714,10 @@
         if (YES.test(t)) return talk.mode === 'pr-offer' ? preparePr() : openPr();
         if (NO.test(t) && few(t)) { talk.mode = 'idle'; talk.pr = null; keepOpen(); return speak(choose(['Okay, no PR for now.', 'Sure, I’ll leave it.'])); }
       }
-      if (talk.mode === 'apps' && talk.appsAsk) { // "Shall I add it to your calendar?"
-        const ask = talk.appsAsk;
-        talk.mode = 'idle'; talk.appsAsk = null;
-        // With what they added ("yes, call it Launch notes").
-        if (YES.test(t) && !MORE.test(t)) return askApps({ ...ask, ask: `${ask.ask}. They answered: ${t}`.slice(0, 500), confirmed: true });
-        if (NO.test(t) && few(t)) { keepOpen(); return speak(choose(['Okay, I won’t.', 'Sure, left it.'])); }
+      if (talk.mode === 'apps' && talk.appsAsk) { // "Create a page called Launch notes in Notion?"
+        if (YES.test(t) && !MORE.test(t)) return answerApps(true, t); // with what they added ("yes, call it Launch notes")
+        if (NO.test(t) && few(t)) return answerApps(false);
+        talk.mode = 'idle'; talk.appsAsk = null; // something else: a new request
       }
       if (STOP.test(t)) return stopTalk('Okay, I stopped.');
       talk.mode = 'idle';
@@ -790,7 +791,7 @@
         // One of your apps: a look goes ahead now; a change waits for your "yes".
         if (r.apps) {
           if (!r.apps.change || r.apps.confirmed) return askApps(r.apps); // a look, or the change you just said yes to
-          Object.assign(talk, { mode: 'apps', appsAsk: r.apps, note: `Say “yes” and I’ll do it in ${r.apps.app}, or “no”.` });
+          Object.assign(talk, { mode: 'apps', appsAsk: r.apps, appsAt: Date.now(), note: '' });
           keepOpen();
           return voice.listen();
         }
@@ -798,6 +799,20 @@
         if (r.task) return makePlan(r.task, undefined, shot);
         followUp(r.say);
       });
+    }
+    /**
+     * Your answer to a change Blu asked about ("Create a page called Launch notes in Notion?"):
+     * the Yes/No card's buttons, Ctrl+Alt+Y / N, or your voice. `said`: your words with the yes.
+     */
+    function answerApps(yes, said = '') {
+      const ask = talk.appsAsk;
+      if (!ask) return;
+      Object.assign(talk, { mode: 'idle', appsAsk: null });
+      if (voice.listening()) voice.stop({ discard: true, quiet: true });
+      if (yes) return askApps({ ...ask, ...(said && !/^\s*(yes|yeah|yep|yup|sure|ok|okay)[.!]?\s*$/i.test(said) ? { ask: `${ask.ask}. They answered: ${said}`.slice(0, 500) } : {}), confirmed: true });
+      Object.assign(talk, { note: 'Okay, not done.', acts: null });
+      keepOpen();
+      return speak(choose(['Okay, I won’t.', 'Sure, left it.']));
     }
     /** Claude looks (or, once you said yes, does one thing) in one of your apps; Blu says what it found. */
     function askApps(ask) {
@@ -1823,7 +1838,7 @@
     const DONE_ICONS = { tests: '🧪', command: '▶', untouched: '🚫', only: '📁', 'tests-added': '➕', 'no-deps': '📦', committed: '✔', pushed: '⬆' };
     function fillTalk(main) {
       const t = talk.task, p = talk.plan;
-      const key = JSON.stringify([voice.listening(), talk.pal, talk.mode, talk.note, talk.bad, talk.said, talk.answer, talk.link, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url, talk.acts, talk.drawing, settings?.blu?.mode]);
+      const key = JSON.stringify([voice.listening(), talk.pal, talk.mode, talk.appsAsk?.ask, keysGot.allow, talk.note, talk.bad, talk.said, talk.answer, talk.link, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url, talk.acts, talk.drawing, settings?.blu?.mode]);
       keyed(main, [{ key: `talk|${key}`, make: () => {
         const card = el('div', `card ${talk.bad ? 'tone-error' : 'tone-work'}`);
         const head = el('div', 'card-head');
@@ -1842,6 +1857,13 @@
         // What Blu did on your computer, each with how it went: the receipts.
         if (talk.acts?.length) card.append(checks(talk.acts.map((a) => [a.ok === true ? '✓' : a.ok === false ? '✗' : '…', a.ok === true ? 'y' : a.ok === false ? 'n' : 'm', a.ok === false && a.error ? `${a.words}: ${a.error}` : a.words])));
         if (talk.drawing) actions.append(button('btn', 'Clear drawing', () => desktop?.bluClear?.()));
+        // A change in one of your apps waits for your yes: here, by key, or by voice.
+        if (talk.mode === 'apps' && talk.appsAsk) {
+          const q = el('div', 'confirm');
+          q.append(el('b', '', talk.appsAsk.app), el('span', '', talk.appsAsk.ask));
+          card.append(q);
+          actions.append(button('btn allow', `Yes${keysGot.allow ? ` · ${desktop?.platform === 'darwin' ? '⌘⌥Y' : 'Ctrl+Alt+Y'}` : ''}`, () => answerApps(true)), button('btn', `No${keysGot.deny ? ` · ${desktop?.platform === 'darwin' ? '⌘⌥N' : 'Ctrl+Alt+N'}` : ''}`, () => answerApps(false)));
+        }
         if (talk.link) actions.append(button('btn', 'Open ↗', () => window.open(talk.link, '_blank'), talk.link)); // what Blu made in your app
         if (p) {
           card.append(el('p', '', `${p.title} · ${p.project.name}${p.guessedProject ? ' (where you worked last)' : ''}`));
@@ -2224,7 +2246,7 @@
       const now = Date.now();
       const escape = v.mode === 'open' && machine.hover && now - lastMoveAt < 8000;
       const a = kind === 'approval' && tab === 'now' ? pendingAsk(shown.focus?.id) : null;
-      const approval = v.mode === 'open' && !!a && !answering.has(a.id);
+      const approval = v.mode === 'open' && ((!!a && !answering.has(a.id)) || (tab === 'talk' && talk.mode === 'apps' && !!talk.appsAsk));
       clearTimeout(escTimer);
       if (escape) escTimer = setTimeout(() => syncKeys(shown.v, shown.kind, shown.tab), lastMoveAt + 8000 - now + 20);
       const k = `${escape}|${approval}`;
@@ -2245,6 +2267,7 @@
       if (key === 'talk-release') { voice.release(); return; }
       if (key === 'escape') { send({ type: 'close' }); return; }
       if (key !== 'allow' && key !== 'deny') return;
+      if (talk.mode === 'apps' && talk.appsAsk && shown.tab === 'talk') { answerApps(key === 'allow'); return; }
       const { v, kind, tab, focus } = shown;
       const a = v?.mode === 'open' && kind === 'approval' && tab === 'now' ? pendingAsk(focus?.id) : null;
       if (a) answer(a, key, view.node?.querySelector('.card.tone-need'));
