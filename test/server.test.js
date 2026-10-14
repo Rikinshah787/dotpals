@@ -725,6 +725,22 @@ test('rewind: with restore points on, a request is previewed, rewound and undone
   assert.match(JSON.parse(blocked.text).error, /still working/);
 });
 
+test('request bodies: a big hook event still arrives; an oversized API call is refused, not read as empty (from review)', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  // A 2 MB event (a big file write's output) is an agent's normal business.
+  const output = 'x'.repeat(2 * 1024 * 1024);
+  const ok = await post(port, '/event', { session: 'big', activity: { id: 'w1', kind: 'run', title: 'cat big.log', status: 'ok', body: { command: 'cat big.log', output } } });
+  assert.equal(ok.status, 200);
+  const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
+  assert.ok(entries.some((e) => e.id === 'big:w1'));
+  // A 2 MB settings call isn't: refused, and nothing changes.
+  const before = await (await fetch(`http://127.0.0.1:${port}/api/config`)).json();
+  const big = await api(port, '/api/config', { sounds: !before.sounds, pad: 'x'.repeat(2 * 1024 * 1024) });
+  assert.equal(big.status, 400);
+  assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/config`)).json()).sounds, before.sounds);
+});
+
 test('generic /event: malformed files are dropped, so a trimmed session never throws (from review)', async (t) => {
   const { port, server } = await start();
   t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });

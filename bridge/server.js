@@ -958,12 +958,21 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
   // -- API --------------------------------------------------------------------------
   const json = (res, status, data) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(data));
-  // A request body, up to 1 MB (more: cut off, so a runaway client can't fill the memory).
+  // A request body, up to `max` (API calls are small JSON: 1 MB; agents' hook events carry
+  // whole files and outputs: 64 MB). More is refused, never cut to nothing: the promise rejects
+  // with `tooLarge`, so a caller answers 400/413 instead of acting on an empty body.
   const BODY_MAX = 1024 * 1024;
-  const readBody = (req) => new Promise((ok) => {
+  const HOOK_MAX = 64 * 1024 * 1024;
+  const readBody = (req, max = BODY_MAX) => new Promise((ok, fail) => {
     let b = '';
-    req.on('data', (c) => { b += c; if (b.length > BODY_MAX) { b = ''; req.destroy(); ok(''); } });
-    req.on('end', () => ok(b));
+    let over = false;
+    req.on('data', (c) => {
+      if (over) return;
+      b += c;
+      if (b.length > max) { over = true; b = ''; fail(Object.assign(new Error('request too large'), { tooLarge: true })); req.resume(); }
+    });
+    req.on('end', () => { if (!over) ok(b); });
+    req.on('error', (err) => { if (!over) fail(err); });
   });
 
   /** Every integration, for the dashboard's Agents page. */
@@ -1411,7 +1420,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       // computer's own pages may post, so another site can't fake activity or approvals.
       const origin = req.headers.origin;
       if (!allowedHost(req.headers.host) || (origin && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin))) return res.writeHead(403).end();
-      const body = await readBody(req);
+      let body;
+      try { body = await readBody(req, HOOK_MAX); } catch (err) { return res.writeHead(err.tooLarge ? 413 : 400).end(); }
       let reply = null;
       try {
         const event = JSON.parse(body || '{}');
