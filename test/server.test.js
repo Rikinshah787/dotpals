@@ -636,6 +636,95 @@ test('a live request gets what git saw changed, also by commands, on its done en
   assert.deepEqual(sessions, [{ id: 'git-session', cwd: repo, parent: null, label: basename(repo), harness: 'my-agent' }]);
 });
 
+test('rewind: with restore points on, a request is previewed, rewound and undone through the API', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const { readFileSync, existsSync } = await import('node:fs');
+  const repo = await mkdtemp(join(tmpdir(), 'dotpals-rewind-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'test');
+  writeFileSync(join(repo, 'a.js'), 'a\n');
+  git('add', '.');
+  git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start');
+  const { port, server } = await start();
+  t.after(async () => {
+    await api(port, '/api/config', { restorePoints: false });
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+    await rm(repo, { recursive: true, force: true });
+  });
+  // Off by default: no restore point, and rewinding says how to turn it on.
+  const base = { session: 'rw', harness: 'my-agent', cwd: repo };
+  const request = async (p, d, change) => {
+    await post(port, '/event', { ...base, activity: { id: p, kind: 'prompt', title: 'Change a', status: 'info', at: Date.now() } });
+    // The "before" restore point (git add -A in a private index) can take a while when many tests run at once.
+    await new Promise((r) => setTimeout(r, 2500));
+    change();
+    await post(port, '/event', { ...base, activity: { id: d, kind: 'done', title: 'Finished', status: 'ok', at: Date.now() } });
+    for (let i = 0; i < 60; i++) {
+      const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();
+      const e = entries.find((x) => x.id === `rw:${d}` || x.id === d);
+      if (e?.git) return e;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  };
+  const off = await request('p0', 'd0', () => writeFileSync(join(repo, 'a.js'), 'off\n'));
+  assert.equal(off.git.trees, undefined);
+  const none = await api(port, '/api/rewind/preview', { id: off.id });
+  assert.equal(none.status, 404);
+  assert.match(JSON.parse(none.text).error, /Restore points/);
+
+  await api(port, '/api/config', { restorePoints: true });
+  writeFileSync(join(repo, 'a.js'), 'a\n');
+  const done = await request('p1', 'd1', () => { writeFileSync(join(repo, 'a.js'), 'changed\n'); writeFileSync(join(repo, 'new.js'), 'new\n'); });
+  assert.ok(done.git.trees?.before && done.git.trees?.after, 'restore points saved');
+
+  const preview = JSON.parse((await api(port, '/api/rewind/preview', { id: done.id })).text);
+  assert.deepEqual(preview.files, [{ path: 'a.js', change: 'restore', since: false }, { path: 'new.js', change: 'delete', since: false }]);
+  assert.match(preview.patch, /-changed\n\+a\n/);
+  // Something changed since the preview: refused, look again.
+  writeFileSync(join(repo, 'a.js'), 'changed, then by you\n');
+  const stale = await api(port, '/api/rewind', { id: done.id, paths: ['a.js'], now: preview.now });
+  assert.equal(stale.status, 409);
+  assert.equal(JSON.parse(stale.text).code, 'stale'); // the dashboard previews again on this
+  const again = JSON.parse((await api(port, '/api/rewind/preview', { id: done.id })).text);
+  assert.equal(again.files[0].since, true);
+  // Only the request's own files; then it's done, and can be undone.
+  assert.equal((await api(port, '/api/rewind', { id: done.id, paths: ['../x', 'package.json'], now: again.now })).status, 400);
+  const ok = await api(port, '/api/rewind', { id: done.id, paths: ['a.js', 'new.js'], now: again.now });
+  assert.equal(ok.status, 200, ok.text);
+  assert.equal(readFileSync(join(repo, 'a.js'), 'utf8'), 'a\n');
+  assert.equal(existsSync(join(repo, 'new.js')), false);
+  assert.equal((await api(port, '/api/rewind/undo', { id: done.id })).status, 200);
+  assert.equal(readFileSync(join(repo, 'a.js'), 'utf8'), 'changed, then by you\n');
+  assert.equal(readFileSync(join(repo, 'new.js'), 'utf8'), 'new\n');
+  assert.equal((await api(port, '/api/rewind/undo', { id: done.id })).status, 409); // once
+  // Without the header, or from another site: refused.
+  assert.equal((await post(port, '/api/rewind', { id: done.id, paths: ['a.js'] })).status, 403);
+
+  // From review: an event can't plant a rewind for Undo to act on.
+  const short = done.id.replace(/^rw:/, '');
+  await post(port, '/event', { ...base, activity: { id: short, rewound: { backup: 'f'.repeat(40), paths: ['a.js'] }, git: { trees: { before: 'x', after: 'y' } } } });
+  const planted = (await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json()).entries.find((e) => e.id === done.id);
+  assert.notEqual(planted.rewound?.backup, 'f'.repeat(40));
+  assert.equal(planted.git.trees.before, done.git.trees.before);
+  // Undo refuses when a file changed again after the rewind.
+  const fresh = JSON.parse((await api(port, '/api/rewind/preview', { id: done.id })).text);
+  assert.equal((await api(port, '/api/rewind', { id: done.id, paths: ['a.js'], now: fresh.now })).status, 200);
+  writeFileSync(join(repo, 'a.js'), 'edited after the rewind\n');
+  const refused = await api(port, '/api/rewind/undo', { id: done.id });
+  assert.equal(refused.status, 409);
+  assert.match(JSON.parse(refused.text).error, /Changed again since the rewind: a\.js/);
+  assert.equal(readFileSync(join(repo, 'a.js'), 'utf8'), 'edited after the rewind\n');
+  // An agent still working in the project: no rewind until it's done.
+  await post(port, '/event', { session: 'busy', harness: 'my-agent', cwd: repo, state: 'working' });
+  const blocked = await api(port, '/api/rewind', { id: done.id, paths: ['a.js'], now: fresh.now });
+  assert.equal(blocked.status, 409);
+  assert.match(JSON.parse(blocked.text).error, /still working/);
+});
+
 test('generic /event: malformed files are dropped, so a trimmed session never throws (from review)', async (t) => {
   const { port, server } = await start();
   t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });

@@ -89,7 +89,7 @@ import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, gu
 import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
-import { createGround, snapshot, testDiff } from './ground.js';
+import { checkpoint, createGround, restoreFiles, rewindPlan, runGit, snapshot, testDiff, treeChanges } from './ground.js';
 import { createChat } from './chat.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -684,7 +684,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // other sessions that were active in the same repository meanwhile (their changes show too),
   // `branch` and `head` (short) where the request ended (for "is branch X ready?").
   // Only live requests: there's no "before" for one read from a transcript later.
-  const ground = createGround();
+  const ground = createGround({ restorePoints: () => !!config.restorePoints });
   const groundPrompt = new Map(); // session → the prompt its snapshot is for
   const normDir = (p) => String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
   function othersIn(root, session, since) {
@@ -713,6 +713,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (changes.tooMany) git.tooMany = true;
         if (changes.branch) git.branch = changes.branch;
         if (changes.head) git.head = changes.head.slice(0, 7);
+        if (changes.trees) git.trees = changes.trees; // restore points: the request can be rewound
         publish([activity.upsert({ id: entry.id, git })]);
       }, () => {});
     }
@@ -894,6 +895,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         files,
         check: undefined, // only the bridge's own checker says this
         git: undefined, // and only the bridge says what git saw
+        rewound: undefined, // or that a request was rewound
 
         id, session,
         harness: harness ?? known?.harness,
@@ -956,7 +958,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
   // -- API --------------------------------------------------------------------------
   const json = (res, status, data) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(data));
-  const readBody = (req) => new Promise((ok) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => ok(b)); });
+  // A request body, up to 1 MB (more: cut off, so a runaway client can't fill the memory).
+  const BODY_MAX = 1024 * 1024;
+  const readBody = (req) => new Promise((ok) => {
+    let b = '';
+    req.on('data', (c) => { b += c; if (b.length > BODY_MAX) { b = ''; req.destroy(); ok(''); } });
+    req.on('end', () => ok(b));
+  });
 
   /** Every integration, for the dashboard's Agents page. */
   function agents() {
@@ -1038,6 +1046,82 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       agents: agents(),
       desktop: { pal: [...windows.values()].includes('pal'), notch: [...windows.values()].includes('notch') },
     };
+  }
+
+  // -- Rewind a request (bridge/ground.js restore points) ------------------------------------
+  const rewinding = new Set(); // repositories being rewound right now: one at a time
+  // What each rewind did, kept here only (never read back from an entry, which events can
+  // write to): entry id → { at, paths, backup (the tree just before it), after (just after it), undone }.
+  const rewinds = new Map();
+  const BUSY_STATES = new Set(['thinking', 'working', 'speaking']);
+  // A folder's real path, so "C:\Users\ADES-1~1" (Windows' short name) and git's long one match.
+  const realDir = (p) => { try { return normDir(realpathSync.native(p)); } catch { return normDir(p); } };
+  /** Another session busy in this repository right now: its files may still be changing. */
+  function busyIn(root) {
+    const r = realDir(root);
+    for (const [id, u] of sessions) {
+      if (!BUSY_STATES.has(u.state) || asleep.has(id)) continue;
+      const cwd = sessionMeta.get(id)?.cwd;
+      const d = cwd ? realDir(cwd) : '';
+      if (d && (d === r || d.startsWith(`${r}/`) || r.startsWith(`${d}/`))) return u;
+    }
+    return null;
+  }
+  async function rewind(res, path, body) {
+    const entry = typeof body.id === 'string' ? activity.get(body.id) : null;
+    const trees = entry?.git?.trees;
+    if (!trees?.before || !trees?.after) return json(res, 404, { error: 'This request has no restore point. Turn on Settings → Restore points; requests from then on can be rewound.' });
+    const cwd = sessionMeta.get(entry.session)?.cwd;
+    const root = cwd ? (await runGit(['rev-parse', '--show-toplevel'], cwd))?.trim() : null;
+    if (!root) return json(res, 409, { error: 'The project’s git repository isn’t there any more.' });
+    const changed = await treeChanges(root, trees.before, trees.after);
+    if (!changed) return json(res, 409, { error: 'Git couldn’t read the restore point (it may have been cleaned up).' });
+    if (path === '/api/rewind/preview') {
+      const now = await checkpoint(root);
+      if (!now) return json(res, 409, { error: 'Git couldn’t read the project right now.' });
+      const plan = await rewindPlan(root, { before: trees.before, after: trees.after, now, paths: changed });
+      if (!plan) return json(res, 409, { error: 'Git couldn’t read the restore point (it may have been cleaned up).' });
+      const busy = busyIn(root);
+      const done = rewinds.get(entry.id);
+      return json(res, 200, { ...plan, now, ...(busy ? { busy: `${busy.label ?? 'Another agent'} is still working here` } : {}), ...(done && !done.undone && done.after ? { canUndo: true } : {}) });
+    }
+    // Writing: one at a time per repository, the lock taken before reading how things are now,
+    // and never while an agent is still working there.
+    if (rewinding.has(root)) return json(res, 409, { error: 'Already rewinding in this project.' });
+    const busy = busyIn(root);
+    if (busy) return json(res, 409, { error: `${busy.label ?? 'An agent'} is still working in this project. Wait until it’s done.` });
+    rewinding.add(root);
+    try {
+      const now = await checkpoint(root);
+      if (!now) return json(res, 409, { error: 'Git couldn’t read the project right now.' });
+      if (path === '/api/rewind/undo') {
+        const done = rewinds.get(entry.id);
+        if (!done || done.undone || !done.after) return json(res, 409, { error: 'There’s no rewind to undo.' });
+        // Changed again since the rewind: undoing it would lose that.
+        const since = await treeChanges(root, done.after, now);
+        if (!since) return json(res, 409, { error: 'Git couldn’t read the restore point (it may have been cleaned up).' });
+        const touched = done.paths.filter((p) => since.includes(p));
+        if (touched.length) return json(res, 409, { error: `Changed again since the rewind: ${touched.slice(0, 5).join(', ')}${touched.length > 5 ? ` +${touched.length - 5}` : ''}. Undo would lose that.` });
+        const out = await restoreFiles(root, done.backup, done.paths);
+        if (!out) return json(res, 500, { error: 'Git couldn’t put the files back. Nothing was deleted.' });
+        done.undone = Date.now();
+        publish([activity.upsert({ id: entry.id, rewound: { at: done.at, paths: done.paths, undone: done.undone } })]);
+        return json(res, 200, { ok: true, ...out });
+      }
+      // Only the request's own files, and only if nothing changed since the preview you saw.
+      const paths = Array.isArray(body.paths) ? [...new Set(body.paths.filter((p) => typeof p === 'string' && changed.includes(p)))] : [];
+      if (!paths.length) return json(res, 400, { error: 'Pick at least one of the request’s files.' });
+      if (body.now !== now) return json(res, 409, { error: 'The files changed since the preview. Look again before rewinding.', code: 'stale' });
+      const out = await restoreFiles(root, trees.before, paths);
+      if (!out) return json(res, 500, { error: 'Git couldn’t put the files back. Nothing was deleted.' });
+      // How things were just before (for Undo) and just after (to tell if they changed again).
+      const after = await checkpoint(root);
+      const at = Date.now();
+      rewinds.set(entry.id, { at, paths, backup: now, after });
+      if (rewinds.size > 200) rewinds.delete(rewinds.keys().next().value);
+      publish([activity.upsert({ id: entry.id, rewound: { at, paths } })]);
+      return json(res, 200, { ok: true, ...out, undo: !!after });
+    } finally { rewinding.delete(root); }
   }
 
   async function api(req, res, path) {
@@ -1190,6 +1274,17 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { ok: true, laya: removed });
     }
     if (path === '/api/handoff') return handoff(req, res);
+    // Rewind a request (Settings → Restore points): put the files it changed back as they were
+    // before it. `preview` { id } → what would change, and the diff; `rewind` { id, paths, now }
+    // does it, only if nothing changed since the preview, and keeps a restore point of how things
+    // were, so `rewind/undo` { id } puts them back. `id`: the request's done entry.
+    if (path === '/api/rewind/preview' || path === '/api/rewind' || path === '/api/rewind/undo') {
+      const origin = req.headers.origin;
+      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+      return rewind(res, path, body ?? {});
+    }
     // Chat (bridge/chat.js): a prompt typed in the pal goes to OpenCode.
     // { text, session? ('opencode:ses_…' to continue it), directory? (for a new one) }
     // Answer an OpenCode permission request or question from the pal.
