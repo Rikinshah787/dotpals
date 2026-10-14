@@ -33,18 +33,21 @@ export function agentStats(turns) {
   for (const t of turns) {
     if (t.prompt) s.requests++;
     s.time += turnTime(t);
-    if (t.usage) used.push(t.usage);
     const spent = fresh(t.usage);
+    if (spent != null) used.push(t.usage); // only requests whose agent logged tokens
     cost.total += spent ?? 0;
     const chains = [...retries(t.steps).chains.values()];
     for (const c of chains) if (c.outcome === 'fixed') fixes.push(c.attempts.length);
-    // The tokens of the replies that came after a failure, while the agent tried again.
+    // The tokens of the replies that came after a failure, while the agent tried again. A
+    // reply's tokens go on the newest step before it (activity.js addUsage), so the reply that
+    // read the failure and made the next try sits on the failed step itself: it counts, and
+    // the reply on the last try doesn't (that one came after it).
     const retrying = new Set();
     for (const c of chains) {
       if (c.attempts.length < 2) continue;
       const from = c.attempts[0].at;
       const to = c.attempts.at(-1).at;
-      for (const e of t.steps) if (e.at > from && e.at <= to) retrying.add(e);
+      for (const e of t.steps) if (e.at >= from && e.at < to) retrying.add(e);
     }
     for (const e of retrying) cost.retries += fresh(e.usage) ?? 0;
     const last = Math.max(t.at, ...t.steps.map((e) => e.at ?? 0));
