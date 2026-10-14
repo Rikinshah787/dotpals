@@ -36,6 +36,10 @@ const joined = (chunks) => { const out = new Float32Array(chunks.reduce((n, c) =
 const heardText = (r) => String(r?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 
 export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, hearing = () => 'quick', voiceId = 'af_heart', pause = 1000, longest = 60_000, speaks = true, level = () => {}, liveSeconds = 0 } = {}) {
+  // A graphics card to run the models on: WebGPU with an adapter. Trying WebGPU without one fails, and
+  // can leave the processor fallback broken too (Linux with no graphics card).
+  const gpu = (navigator.gpu?.requestAdapter() ?? Promise.resolve(null)).then((a) => !!a, () => false);
+
   // -- speaking ----------------------------------------------------------------------------
   let kokoro = null, kokoroLoading = null, kokoroBroken = false;
   function loadVoice() {
@@ -44,7 +48,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       const { KokoroTTS } = await import(KOKORO_JS);
       const progress_callback = (p) => { if (p.status === 'progress' && p.total) status(`Getting Blu’s voice ready (once, about 330 MB)… ${Math.round((p.loaded / p.total) * 100)}%`); };
       // Full precision on the graphics card: half precision comes out silent on some cards.
-      try { if (!navigator.gpu) throw new Error('no WebGPU'); kokoro = await KokoroTTS.from_pretrained(KOKORO, { dtype: 'fp32', device: 'webgpu', progress_callback }); }
+      try { if (!(await gpu)) throw new Error('no graphics card'); kokoro = await KokoroTTS.from_pretrained(KOKORO, { dtype: 'fp32', device: 'webgpu', progress_callback }); }
       catch { kokoro = await KokoroTTS.from_pretrained(KOKORO, { dtype: 'q8', device: 'wasm', progress_callback }); }
       return kokoro;
     })().catch(() => { kokoroBroken = true; return null; });
@@ -112,14 +116,16 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       const load = async (kind) => {
         const h = HEARING[kind];
         const progress_callback = (p) => { if (p.status === 'progress' && p.total) status(`Getting the speech model ready (once, ${h.size})… ${Math.round((p.loaded / p.total) * 100)}%`); };
-        if (navigator.gpu) {
+        if (await gpu) {
           try { const a = await pipeline('automatic-speech-recognition', h.model, { device: 'webgpu', dtype: h.gpu, progress_callback }); console.log(`[voice] speech model (${kind}) on the graphics card`); return a; }
           catch (err) { console.log(`[voice] graphics card didn’t work for ${kind} (${err.message})`); }
         }
         if (!h.cpu) return null; // too big for the processor
-        const a = await pipeline('automatic-speech-recognition', h.model, { device: 'wasm', dtype: h.cpu, progress_callback });
-        console.log(`[voice] speech model (${kind}) on the processor`);
-        return a;
+        try {
+          const a = await pipeline('automatic-speech-recognition', h.model, { device: 'wasm', dtype: h.cpu, progress_callback });
+          console.log(`[voice] speech model (${kind}) on the processor`);
+          return a;
+        } catch (err) { console.log(`[voice] the processor didn’t work for ${kind} (${err.message})`); throw err; }
       };
       let kind = want, a = await load(want);
       if (!a) { kind = 'quick'; a = await load('quick'); }
