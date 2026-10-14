@@ -36,6 +36,28 @@ test('agentStats: tested and passed, untested, fixed after tries, faked, false c
   assert.ok(s.time > 0);
 });
 
+test('agentStats: what the tokens bought: per change that held up, on changes that didn’t, on retries', () => {
+  const c = 'claude';
+  const u = (input, output, read = 0, write = 0) => ({ [`m${n++}`]: [input, output, read, write] });
+  const entries = [
+    // Held up: 1000 new tokens, 2000 cache reads (not counted).
+    prompt('a', c, 1000), edit('a', c, 1100, 'src/a.js', '-a\n+b'), { ...test_('a', c, 1200, true), usage: u(800, 200, 2000) }, done('a', c, 1300),
+    // Didn't: failed, tried again (the retry's reply: 300), still failing. 500 + 300 = 800 new tokens.
+    prompt('a', c, 2000), { ...edit('a', c, 2100), usage: u(400, 100) }, test_('a', c, 2200, false),
+    { ...edit('a', c, 2300), usage: u(250, 50) }, test_('a', c, 2400, false), done('a', c, 2500),
+  ];
+  const s = agentStats(buildTurns(entries));
+  assert.deepEqual(s.cost, { perPass: 1000, wasted: 800, retries: 300, total: 1800 });
+  const rows = reportRows(reportCard(buildTurns(entries)));
+  const cell = (key) => rows.find((r) => r.key === key).cells[0];
+  assert.equal(cell('perPass').text, '1k');
+  assert.deepEqual(cell('wasted'), { text: '800 (44%)', warn: true });
+  assert.equal(cell('retries').text, '300 (17%)');
+  // An agent that logs no tokens: nothing, not zero.
+  const none = agentStats(buildTurns([prompt('x', 'cursor', 1000), edit('x', 'cursor', 1100), done('x', 'cursor', 1200)]));
+  assert.equal(none.cost, null);
+});
+
 test('agentStats: an agent with nothing to say says nothing', () => {
   const s = agentStats(buildTurns([prompt('x', 'cursor', 1000), done('x', 'cursor', 1100)]));
   assert.deepEqual([s.requests, s.changed, s.fixTries, s.tokens], [1, 0, null, null]);
