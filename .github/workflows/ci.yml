@@ -40,3 +40,127 @@ jobs:
 
       - name: Test
         run: npm test
+
+  app:
+    name: Desktop app on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # Starts the real app (Electron) and checks it works: test/smoke/app.mjs.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # Linux: a pretend screen (Xvfb) and the libraries Electron needs.
+      - name: Install Xvfb
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth libgtk-3-0t64 libnss3 libgbm1 libasound2t64
+
+      # The version in package.json; its binary is downloaded by install.js (npm doesn't any more).
+      - name: Install Electron
+        shell: bash
+        run: |
+          npm install --no-save --no-audit --no-fund "electron@$(node -p "require('./package.json').devDependencies.electron")"
+          node node_modules/electron/install.js
+
+      - name: Start the app and check it works
+        shell: bash
+        env:
+          DOTPALS_SMOKE: '1'
+          SMOKE_OUT: ${{ runner.temp }}/smoke
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1280x800x24" node test/smoke/app.mjs
+          else
+            node test/smoke/app.mjs
+          fi
+
+      # macOS: the dotpals.app that desktop/mac-app.js builds is named dotpals and signed properly,
+      # so macOS asks for permissions as dotpals, not as your terminal.
+      - name: Build dotpals.app and check it
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/dotpals.app"; PL="$APP/Contents/Info.plist"; DIST=node_modules/electron/dist
+          out=$(node desktop/mac-app.js "$APP"); echo "$out"
+          test "$(tail -n1 <<< "$out")" = "$APP"
+          plutil -p "$PL"
+          get() { plutil -extract "$1" raw -o - "$PL"; }
+          test "$(get CFBundleName)" = dotpals
+          test "$(get CFBundleDisplayName)" = dotpals
+          test "$(get CFBundleIdentifier)" = dev.dotpals.desktop
+          test "$(get LSUIElement)" = true
+          get NSAppleEventsUsageDescription | grep -q dotpals
+          get NSMicrophoneUsageDescription | grep -q dotpals
+          test "$(get CFBundleVersion)" = "$(cat $DIST/version)"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          sig=$(codesign -dv --verbose=4 "$APP" 2>&1); echo "$sig"
+          grep -qx 'Identifier=dev.dotpals.desktop' <<< "$sig"
+          grep -qx 'Signature=adhoc' <<< "$sig"
+          for h in "" " (GPU)" " (Renderer)" " (Plugin)"; do codesign --verify --strict "$APP/Contents/Frameworks/Electron Helper$h.app"; done
+          if xattr -r "$APP" | grep -q com.apple.quarantine; then echo "quarantined"; exit 1; fi
+          test "$("$APP/Contents/MacOS/Electron" --version)" = "v$(cat $DIST/version)"
+
+      - name: Start dotpals.app the way setup does, and open it at login
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/dotpals.app"; LOG="$RUNNER_TEMP/dotpals-app.log"; PORT=5199
+          : > "$LOG"
+          open -n -g --env DOTPALS_HOME="$RUNNER_TEMP/dotpals-home" --env DOTPALS_PORT=$PORT --stdout "$LOG" --stderr "$LOG" -a "$APP" --args "$PWD/desktop/main.js" --open-at-login
+          s=''
+          for i in $(seq 1 60); do s=$(curl -fs "http://127.0.0.1:$PORT/api/status" || true); grep -q '"pal":true' <<< "$s" && break; sleep 1; done
+          echo "$s"; cat "$LOG"
+          grep -q '"pal":true' <<< "$s"
+          A="$HOME/Library/LaunchAgents/dev.dotpals.desktop.plist"
+          plutil -lint "$A"; plutil -p "$A"
+          test "$(plutil -extract ProgramArguments.0 raw -o - "$A")" = "$APP/Contents/MacOS/Electron"
+          test "$(plutil -extract ProgramArguments.1 raw -o - "$A")" = "$PWD/desktop/main.js"
+          test "$(plutil -extract RunAtLoad raw -o - "$A")" = true
+          curl -fs -X POST -H 'x-dotpals: 1' "http://127.0.0.1:$PORT/api/app/quit" || pkill -f 'dotpals.app/Contents/MacOS/Electron' || true
+          rm -f "$A"
+
+      - name: Setup makes dotpals.app once, and keeps it while Electron's version stays
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        env:
+          DOTPALS_HOME: ${{ runner.temp }}/setup-home
+        run: |
+          set -euo pipefail
+          node bin/dotpals.js setup --yes --no-claude --no-path --no-start --no-login | tee "$RUNNER_TEMP/setup1.txt"
+          grep -q "Made $DOTPALS_HOME/dotpals.app" "$RUNNER_TEMP/setup1.txt"
+          codesign --verify --deep --strict "$DOTPALS_HOME/dotpals.app"
+          node bin/dotpals.js setup --yes --no-claude --no-path --no-start --no-login | tee "$RUNNER_TEMP/setup2.txt"
+          grep -q 'dotpals.app is ready' "$RUNNER_TEMP/setup2.txt"
+
+      - name: Keep the screenshots and the app's log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-${{ matrix.os }}
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+
+  linux-desktop:
+    name: Blu's hands on a Linux desktop
+    runs-on: ubuntu-latest
+    # test/linux: a pretend desktop in Docker (X, a window manager, sound, xdotool, playerctl…).
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the pretend desktop
+        run: docker build -t dotpals-hands-linux test/linux
+
+      - name: Try Blu's hands on it
+        run: docker run --rm -v "$PWD:/repo:ro" dotpals-hands-linux

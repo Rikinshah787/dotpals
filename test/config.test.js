@@ -84,3 +84,40 @@ test('checker: the key is write-only, an empty key keeps it, removeKey clears it
   assert.equal(saveConfig({ checker: { mode: 'everywhere' } }).checker.mode, 'local');
   saveConfig({ checker: { mode: 'off' } });
 });
+
+test('brain: a change to one part keeps the rest; its keys are write-only and can be removed', async () => {
+  const { brainKeys } = await import('../bridge/config.js');
+  saveConfig({ brain: { choice: 'claude', dictionary: ['dotpals', ' Blu ', 'dotpals', ''] } });
+  saveConfig({ brain: { polish: 'always', models: { anthropic: 'claude-haiku-5-5', openai: 'bad model name!' } } });
+  const { brain } = loadConfig();
+  assert.deepEqual(brain, { choice: 'claude', polish: 'always', dictionary: ['dotpals', 'Blu'], models: { anthropic: 'claude-haiku-5-5' } });
+  saveConfig({ brain: { choice: 'nonsense', polish: 'maybe' } }); // unknown values are ignored
+  assert.deepEqual([loadConfig().brain.choice, loadConfig().brain.polish], ['claude', 'always']);
+  const c = saveConfig({ brainKeys: { openai: 'sk-test-1234567890abcd', google: 'short', unknown: 'sk-xxxxxxxxxxxx' } });
+  assert.deepEqual(c.brainKeys, { openai: 'abcd' }); // the page sees the last 4 only
+  assert.deepEqual(brainKeys(), { openai: 'sk-test-1234567890abcd' });
+  saveConfig({ sounds: false }); // other changes keep the keys
+  assert.equal(brainKeys().openai, 'sk-test-1234567890abcd');
+  saveConfig({ brainKeys: { openai: null } });
+  assert.deepEqual(brainKeys(), {});
+});
+
+test('blu: sees and does things unless turned off, clicks only when turned on; a change to one part keeps the rest', async () => {
+  const { brainKeys } = await import('../bridge/config.js');
+  assert.deepEqual(loadConfig().blu, { see: true, hands: true, click: false, music: 'youtube', mode: 'both', hearing: 'quick', conversation: true });
+  saveConfig({ blu: { click: true, music: 'spotify', hearing: 'better' } });
+  saveConfig({ blu: { mode: 'everyday', see: 'yes', music: 'winamp', hearing: 'perfect', conversation: false } }); // not a switch, not a music app, not a Whisper: ignored
+  assert.deepEqual(loadConfig().blu, { see: true, hands: true, click: true, music: 'spotify', mode: 'everyday', hearing: 'better', conversation: false });
+  saveConfig({ circleShortcut: 'Control+Alt+K' });
+  assert.equal(loadConfig().circleShortcut, 'Control+Alt+K');
+  saveConfig({ circleShortcut: 'Control+Alt+Delete' }); // not one a shortcut can be: kept as it was
+  assert.equal(loadConfig().circleShortcut, 'Control+Alt+K');
+  saveConfig({ circleShortcut: '' }); // back to the usual one
+  assert.equal(loadConfig().circleShortcut, '');
+  // The Spotify key is kept like the brains' keys: write-only, the page sees its last 4.
+  const c = saveConfig({ brainKeys: { spotify: '0123456789abcdef:fedcba9876543210' } });
+  assert.equal(c.brainKeys.spotify, '3210');
+  assert.equal(brainKeys().spotify, '0123456789abcdef:fedcba9876543210');
+  saveConfig({ brainKeys: { spotify: null } });
+  assert.equal(brainKeys().spotify, undefined);
+});

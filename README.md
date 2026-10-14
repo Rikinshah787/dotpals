@@ -12,7 +12,7 @@ A small floating pal that watches Claude Code, Codex or any agent and checks its
 npx dotpals@latest setup
 ```
 
-<sub>One command on Windows, macOS or Linux. Free, open source, and everything stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
+<sub>One command on Windows, macOS or Linux. Free, open source, and your agents’ work stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
 
 [![CI](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml/badge.svg)](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -22,24 +22,24 @@ npx dotpals@latest setup
 
 <sub>🔊 <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-1080p.mp4">Watch the launch video with sound (47 s, 1080p)</a> · <a href="https://github.com/Rikinshah787/dotpals/releases/download/v0.9.0/dotpals-launch-square.mp4">square cut</a></sub>
 
-**[Install](#install)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](#new-in-011)**
+**[Install](#install)** · **[Talk to Blu](#talk-to-blu)** · **[Make your own pal](#make-your-own-pal)** · **[Plug in any agent](#plug-in-any-agent)** · **[What's new](#new-in-012)**
 
 **[⭐ Star dotpals](https://github.com/Rikinshah787/dotpals/stargazers)** if your agent ever said "Done!" and you weren't sure · **[Tell us what's confusing](https://github.com/Rikinshah787/dotpals/issues/new)**
 
 </div>
 
-## New in 0.11
+## New in 0.12
 
-Your agents, graded.
+Talk to Blu.
 
-- **Report card.** Dashboard → *Report card*: your agents side by side. Code changed, tested and passed; changes never tested; tests changed to pass; claims that didn't happen; requests that went in circles; and what the tokens bought. Copy it as Markdown.
-- **Replay a request.** Step through what the agent did, with marks on every failure, retry and fix.
-- **Rewind a request.** Turn on restore points in Settings, then put a request's files back as they were: a preview first, Undo after. Your branches and staging area are never touched.
-- **Morning brief.** The first time the pal opens each day: what your agents did since yesterday, what's unfinished and what's failing.
-- **"It's stuck."** A ping when an agent keeps failing at the same thing, changes a file back and forth, or nothing has worked for 10 minutes.
-- **Tokens per request**, from Claude Code's and Codex's own logs.
+- **Ask about your screen.** Press **Ctrl+Shift+Space** and say "what's this error?" or "explain this chart simply". Blu answers out loud and circles, boxes and points at what it's talking about, right on your screen. Or circle something yourself (**Ctrl+Alt+C**) and ask about it.
+- **Have it do things.** "Play some jazz", "turn it down a bit", "make this window smaller". Each thing it did shows on the Talk card, ✓ or ✗.
+- **Your apps.** Connect Notion, Linear, Sentry, Google Calendar or any MCP server in Settings → *Apps*, then ask "what's on my calendar today?". A change waits for your yes, and nothing is ever sent, deleted or paid for.
+- **Coding work, handed over and checked.** "Have Claude fix the failing checkout test": Blu writes down what done means, Claude Code does it, and Blu checks the result against what really happened.
+- **The AI you already have.** Claude Code or Codex on your subscription, an API key, or Ollama. Blu hears you and talks back on your own computer.
+- **Dictate** (**Ctrl+Alt+D**): say it, and it's typed where your cursor is.
 
-0.10 brought [the fix loop](#features) and [MCP](#ask-dotpals-from-any-agent-mcp). All of it in the [changelog](CHANGELOG.md).
+See [Talk to Blu](#talk-to-blu). 0.11 brought the [report card, replay and rewind](#features), the morning brief and "It's stuck". All of it in the [changelog](CHANGELOG.md).
 
 ## Why
 
@@ -62,6 +62,7 @@ Coding agents do a lot in a single request. They read dozens of files, edit a ha
 - **Morning brief and "It's stuck"**: the first time the pal opens each day it says what your agents did since yesterday, what's unfinished and what's failing. And when an agent keeps failing at the same thing, changes a file back and forth, or nothing has worked for 10 minutes, a gentle ping tells you. Both can be turned off in Settings.
 - **Tokens per request**: "✓ Done in 2m 14s · 52k tokens in · 3.1k out · 1.2M cached", read from Claude Code's and Codex's own logs.
 - **Ask dotpals from any agent**: `dotpals mcp` lets Claude Code, Codex, Cursor and other assistants ask what your agents really did, with the evidence: `check_my_work` before an agent says "done", `ready_to_merge`, `today`, `recap`, `risky_steps` and more. See [below](#ask-dotpals-from-any-agent-mcp).
+- **Talk to Blu**: say it to the pal in your notch. Blu looks at your screen when you ask about it, draws on it as it explains, plays music, sets the volume, opens apps and moves windows, uses your apps (Notion, Linear, Google Calendar…) with your yes for any change, and hands coding work to Claude Code and checks it. It thinks with the AI you already have. See [below](#talk-to-blu).
 - **The story, not the log**: each request reads as a few chapters, such as *Changed 5 files +42 −7 · Tests failed twice, then passed · Committed and pushed*, instead of hundreds of tool calls. Anything worth a second look is flagged: `.env` changed, a force-push, the same command failing 3 times, two agents editing the same file, or code changed without testing it.
 - **Two agents, one file**: when an agent is about to change a file another agent changed in the last few minutes, Claude Code asks you first ("Codex (api) changed billing.ts 2 minutes ago. Edit anyway?"), or tells Claude to re-read it. Other agents can't be stopped beforehand: the notch and the pal tell you as it happens.
 - **Hand-off**: **Continue in ▾** hands a session to Codex, Claude Code or Gemini CLI, in a new terminal in the same project, with a note on what was asked, what was done, how the tests stand and what's left. Or copy the note and paste it anywhere.
@@ -117,6 +118,93 @@ Alerts open it by themselves, one at a time. One that needs you shows even if yo
 By default it appears when you hide the pal. You can keep it on always or never show it, from the tray or with `dotpals notch --auto | --off`.
 
 Claude Code shares its usage limits only with a status line command, so run `dotpals statusline` once to see them. If you already have a status line, it keeps showing yours; `dotpals statusline --off` puts everything back. Codex's limits come straight from its logs.
+
+The notch also has a **Talk** tab, where you talk to Blu (next).
+
+## Talk to Blu
+
+Blu is the pal in your notch, and you can talk to it. It looks at your screen when you ask about it, draws on it while it explains, does things on your computer, uses your apps, and hands coding work to Claude and checks it. It thinks with the AI you already have.
+
+### Start
+
+| Keys | What happens |
+| --- | --- |
+| **Ctrl+Shift+Space** (⌘⇧Space on macOS) | **Talk.** The notch opens on its Talk tab and Blu listens. Hold the keys while you talk and let go when you're done (Windows), or tap them and Blu listens until you pause |
+| **Ctrl+Alt+C** (⌃⌥C) | **Circle and ask.** Draw around anything on screen, then say what you want to know about it. Press it again, or Esc, to cancel |
+| **Ctrl+Alt+D** (⌃⌥D) | **Dictate.** Say it, and it's typed where your cursor is. Start with "Blu, …" to ask Blu instead |
+
+Or click the microphone in the notch. To use other keys: Dashboard → Settings → *Blu* → *Shortcuts*, click a box and press the keys you want. They work at once; if another app already has them, a notification says so and the usual ones stay.
+
+The first time you talk, dotpals downloads a speech model (about 80 MB) and Blu's voice (about 330 MB), once. Both then run on your computer. Until the voice is ready, Blu speaks with your system's voice.
+
+### Things to say
+
+- "What's this error?" · "Explain this chart simply" · "Circle the button I need"
+- "Play some jazz" · "Next song" · "Turn it down a bit" · "Open Chrome and play some lo-fi"
+- "Make this window smaller and nudge it up" · "Put Spotify on the left half"
+- "What's on my calendar today?" · "Find my notes on the launch" · "Add lunch with Sam tomorrow at 1"
+- "Have Claude fix the failing checkout test in shop" · "What are my agents doing?"
+- "Clear that" · "Stop"
+
+Two things at once are fine: "circle it and turn the music down". After Blu answers, it listens for what you say next, so you can just keep talking; say nothing and it stops (Settings → *Keep listening*). **■ Stop** on the Talk card, or "stop", "be quiet" or "that's all", stops it at once. Music that's playing goes quieter while Blu listens, and the notch shows what's playing with ⏮ ⏯ ⏭ and the volume.
+
+### What Blu can do
+
+- **Look and explain.** Blu answers out loud and draws as it talks: marker circles, boxes, underlines and arrows, a highlighter and green labels, in a see-through window that clicks go through. The drawings fade after a minute, or go with **Clear drawing** or "clear that".
+- **Teach it step by step.** "Explain this step by step": Blu works through a problem, a chart or code like a teacher at a whiteboard, saying each step while it writes the working on your screen in its own handwriting, line by line in empty space, and circles what it means.
+- **Do things on your computer.** Play, pause and skip whatever's playing; the volume (Windows reads it back: "Volume 40% → 30%"); open apps, web pages and songs ("play some jazz" plays YouTube's first video in your browser with nothing to set up; or YouTube Music, Spotify, or Apple Music on macOS); move and size windows (halves of the screen, smaller, bigger, maximize). Each thing it did shows on the Talk card, ✓ or ✗.
+- **Use your apps.** See [Your apps](#your-apps).
+- **Hand coding work to Claude.** Name an agent or ask for coding work, and Blu writes a plan with a definition of done: the tests pass after the last change, plus what you asked for in your own words (only change files in this folder, `npm run build` must pass, add tests, no new dependencies, commit, push). Say "send it" and Claude Code starts in a new terminal in that project. When it finishes, Blu checks each item against what really happened (✓, ✗ or ?), and offers to open a pull request (you see exactly what it will commit and push first). If something's left, **Fix it…** copies a note for Claude to paste into its terminal, and Blu checks again when it's done.
+
+Settings → *Blu* → *What Blu is for* picks the mix: **Coding** (what you say goes to your coding agents), **Everyday** (your computer; work goes to Claude only when you name it) or **Both** (the default).
+
+### Your apps
+
+Dashboard → Settings → **Apps** (or *Connect apps…* under the notch's gear):
+
+- **Notion, Linear and Sentry**: one click, then sign in once in your browser.
+- **Google Calendar**: Google doesn't let an app register itself for sign-in, so it needs a sign-in client of your own. At [console.cloud.google.com](https://console.cloud.google.com), make a project, turn on the Calendar API, then *Credentials → Create OAuth client (Desktop app)*. In dotpals, click *Google Calendar*, paste the client id and secret into the form that opens, then **Add** and **Sign in**.
+- **Any MCP server**: its address (`https://…/mcp`) or the command that starts it (`npx -y some-mcp-server`), with a client id only if the app asks for one.
+
+Signing in uses MCP's own sign-in: dotpals registers itself with the app (or uses your client), you sign in in your browser, and the sign-in renews by itself. The tokens are kept in `~/.dotpals/apps.json` (readable only by you on macOS and Linux) and never shown to a page.
+
+Then ask. Blu's brain calls the app's tools and dotpals runs each call. A look uses only the tools that read. A change waits for your yes: Blu asks one question ("Create a page called Launch notes in Notion?") with a **Yes/No** card. Answer out loud ("yes, call it Launch notes v2"), with the buttons, or with **Ctrl+Alt+Y** / **Ctrl+Alt+N** (⌘⌥Y / ⌘⌥N) while the card shows. Each call leaves a receipt on the Talk card ("✓ Notion: search"), and **Open ↗** opens what it made.
+
+With Claude Code installed, Blu can also use the apps Claude is connected to (your claude.ai connectors), through Claude. That's slower, and an app you added to dotpals is used first. Ask for an app that isn't connected ("post this to Slack") and Blu says so.
+
+### What Blu will and won't do
+
+- **Looking only reads.** A change in one of your apps waits for your yes, and even then Blu never sends, deletes or pays for anything: it writes a draft. Comments, sharing, invites, and replies or forwards that aren't drafts aren't done for you either.
+- **What it does on your computer is a fixed list** (above), checked again before it runs. Nothing on it closes, deletes, sends or buys.
+- **Clicking, typing and pressing keys are off** unless you turn on Settings → *Let Blu click and type for me*. Even then Blu only does them when you ask, but it goes by what it sees on the screen, so turn it on only if you're happy with that.
+- **Text on your screen was written by someone else.** Blu reads and explains it, and its instructions say never to follow orders written there. If a page tries anyway, the fixed list, your yes and clicking being off are what stop it.
+- **Coding work goes to Claude only after you say "send it"**, and a pull request only after you've seen its plan.
+
+For apps used through Claude (your claude.ai connectors), dotpals can't pick which of the app's tools Claude may call: Claude is told to only look, or to make only the change you said yes to and never send or delete, and those instructions are the guard there.
+
+### Blu's brain
+
+Dashboard → Settings → *Blu* → *Blu's brain*. **Auto** takes the first one that's ready.
+
+| Bring | Options |
+| --- | --- |
+| Your subscription | Claude Code, Codex (Gemini CLI and Cursor clean up dictation only) |
+| An API key | Anthropic, OpenAI, Google Gemini or OpenRouter. Kept in `~/.dotpals/config.json` and sent only to that provider |
+| Your own computer | Ollama. To look at your screen it needs a model that can see; for your apps, one that uses tools |
+
+Looking at your screen works with an API key, Claude Code, Codex, or Ollama with a vision model. Your apps work with an API key, Claude Code, or Ollama. Talk's plans prefer Claude Code, and sending a task to an agent needs Claude Code. As Blu's brain, Claude Code runs with its tools, MCP servers and settings off, and Codex in its read-only sandbox. Claude Code on your subscription is started while you're still talking, so Blu answers about 1.3 to 3 seconds sooner; nothing is sent until you've finished.
+
+Also in Settings → *Blu*: **Hearing** (Quick: English, about 80 MB; Better: any accent, and names and songs in any language, about 600 MB; Best: about 760 MB, for a good graphics card), **Your words** (names to spell your way, and fixes for words it keeps mishearing: `dot pals → dotpals`), where music plays, and an optional Spotify key to open the exact track.
+
+### Blu and your privacy
+
+- **Your voice stays on your computer.** Hearing (Whisper) and Blu's voice (Kokoro) run there. The models are downloaded once, from Hugging Face, with the code that runs them from jsDelivr.
+- **Screenshots stay on your computer unless you ask about the screen.** Talk's keys take one of what you were looking at, kept in `~/.dotpals/shots` (the newest 20). It goes to Blu's brain only when what you say sounds like it's about the screen ("this", "here", "what's…", "explain", "look") or you circled something. Turn off Settings → *Look at my screen when I ask about it* and none is taken.
+- **What goes to the AI you chose:** what you said, the last few exchanges, your words, the screenshot when it's about the screen, the names of your connected apps, what your coding agents are doing (not in Everyday mode), and, when you ask about an app, what its tools answered. A plan also gets your project folders' names. With *Clean up dictation* on, what you dictate goes there too. With Ollama, none of it leaves your computer.
+- **"Play …"** looks the song up on YouTube (or Spotify, with your key) to find the link.
+- **Keys and tokens stay local.** API keys are in `~/.dotpals/config.json` and app tokens in `~/.dotpals/apps.json`, both readable only by you on macOS and Linux, and each is only sent to the provider or app it's for.
+
+**Platforms.** Blu is tested on Windows. macOS and Linux are being readied for this release: on macOS, dotpals.app asks for the microphone, Screen Recording and Accessibility in its own name; on Linux, Blu's hands need `playerctl`, `wpctl` or `pactl`, and `xdotool` on X11, since Wayland doesn't let one app move another's windows or press its keys. Holding the Talk keys while you talk works on Windows; elsewhere, tap them and Blu listens until you pause.
 
 ## Make your own pal
 
@@ -193,6 +281,9 @@ Send JSON to the local bridge from your agent loop, a hook script or a wrapper. 
 | | |
 | --- | --- |
 | **Ctrl+Alt+P** (⌘⌥P on macOS) | Show or hide the pal from anywhere |
+| **Ctrl+Shift+Space** (⌘⇧Space) | [Talk to Blu](#talk-to-blu) |
+| **Ctrl+Alt+C** (⌃⌥C) | Circle something on screen and ask Blu about it |
+| **Ctrl+Alt+D** (⌃⌥D) | Dictate: say it, and it's typed where your cursor is |
 | Drag the pal | Move the window; it remembers where you put it |
 | **▦** | Open the dashboard: sessions, logs, stats and settings |
 | **⤡** | Switch between just the pal and the full view |
@@ -245,7 +336,7 @@ Ask things like "What are my agents doing?", "Is this really tested?", "Is feat/
 
 ## Privacy
 
-Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. The one exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. *Make agents fix failing tests* (on by default) adds short notes about Claude's own test runs to its context, which Claude Code sends to its model like anything else there; turn it off in Settings. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
+Everything stays on your machine. The bridge listens only on `127.0.0.1`. It reads Claude Code hook events and transcripts and Codex's session logs locally, and it sends nothing anywhere. Talking to Blu is the exception you choose each time you use it: what you say goes to the AI you picked for Blu's brain (nowhere, with Ollama), along with a screenshot only when you ask about the screen, and your app's answers when you ask about an app (see [Blu and your privacy](#blu-and-your-privacy)). The other exception is opt-in: if you choose **Cloud (Jev)** under *Settings → Double-check unclear test results*, the end of an unclear test run's output is sent to TypeSafe, after removing anything that looks like a password, key, email or IP address. *Make agents fix failing tests* (on by default) adds short notes about Claude's own test runs to its context, which Claude Code sends to its model like anything else there; turn it off in Settings. History is a plain JSON file in `~/.dotpals`. Set `DOTPALS_HISTORY=0` to turn it off, or `DOTPALS_CODEX=0` to stop following Codex. See [SECURITY.md](SECURITY.md).
 
 ## How accurate is it?
 
@@ -276,7 +367,7 @@ your agent ─── POST /event ────────┘         one activit
 ```
 
 1. **Your agents report what they do.** Claude Code sends hook events as it works, and dotpals also reads each session's transcript in `~/.claude/projects`, so every session shows up, including ones that started before dotpals was installed. Codex writes session logs to `~/.codex/sessions`, which dotpals follows. Nothing to set up on the Codex side. Any other agent can POST JSON.
-2. **A small local server (the bridge) turns that into one activity feed.** It runs on `127.0.0.1:5175`, only answers your own computer, and keeps history in `~/.dotpals`. Nothing is sent anywhere.
+2. **A small local server (the bridge) turns that into one activity feed.** It runs on `127.0.0.1:5175`, only answers your own computer, and keeps history in `~/.dotpals`. Nothing is sent anywhere, unless you turn on the cloud test check or give Blu a cloud AI.
 3. **The pal shows it.** The desktop app (Electron, always on top) and the dashboard read the feed live: the pal's mood, the Summary, Tools and Files tabs, stats and history.
 
 Each agent connects through an adapter in [`bridge/adapters/`](bridge/adapters), and every adapter produces the same activity entries ([`bridge/activity.js`](bridge/activity.js)). The pal itself is a dependency-free Web Component that you can also drop into your own app (see [below](#use-the-pal-in-your-own-app)).
@@ -623,7 +714,7 @@ You can add actions too, with `registerAction('pop', { keyframes, duration, part
 
 The full guide is at **[rikinshah787.github.io/dotpals/guide](https://rikinshah787.github.io/dotpals/guide/)**: getting started, every feature, each agent integration, the CLI, configuration and environment variables, the bridge's HTTP API, the `<dot-pal>` component, privacy and security, and troubleshooting. Its source is in [`site/guide/`](site/guide) in this repository, so it's also published wherever the site is hosted.
 
-For contributors, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together: adapters, the bridge, the activity model, the story engine, the desktop app, and how to add an adapter.
+For contributors, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together: adapters, the bridge, the activity model, the story engine, the desktop app, Blu (Talk, its brain, your apps and its hands), and how to add an adapter.
 
 ## Roadmap
 

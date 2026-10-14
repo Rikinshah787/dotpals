@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>dotpals draw</title>
+  <!-- Blu draws on your screen (bridge/buddy.js): a see-through window over the whole screen that
+       clicks go through. Marks come in the screenshot's pixels and are drawn like a marker, one
+       after another, as Blu talks. Circle mode: you draw around something, and Blu gets the
+       screenshot with your circle on it. -->
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; }
+    svg { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+    .ink { fill: none; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+    .label { position: fixed; padding: 3px 9px; border-radius: 7px; font: 600 13px/1.3 system-ui, "Segoe UI", -apple-system, sans-serif; color: #052e12; background: #34c759; box-shadow: 0 2px 10px rgba(0, 0, 0, .3); white-space: nowrap; opacity: 0; transform: translateY(4px) scale(.96); transition: opacity .25s, transform .25s; }
+    .label.on { opacity: 1; transform: none; }
+    .label.yellow { background: #ffd60a; color: #2e2600; }
+    .gone { transition: opacity .45s; opacity: 0 !important; }
+    /* Blu's handwriting: the working, written next to what it explains. */
+    .hand { font-family: "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", cursive; font-weight: 700; paint-order: stroke; stroke: rgba(255, 255, 255, .85); stroke-width: 3px; stroke-linejoin: round; }
+    body.circling { cursor: crosshair; background: rgba(10, 12, 20, .16); }
+    #hint { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); padding: 7px 14px; border-radius: 999px; background: rgba(14, 14, 18, .88); color: #f2f2f5; font: 600 13px/1.2 system-ui, "Segoe UI", -apple-system, sans-serif; box-shadow: 0 4px 18px rgba(0, 0, 0, .35); }
+    @media (prefers-reduced-motion: reduce) { .label { transition: none; } }
+  </style>
+</head>
+<body>
+  <svg id="ink" xmlns="http://www.w3.org/2000/svg"><defs id="clips"></defs></svg>
+  <div id="hint" hidden>Circle what you mean · Esc to cancel</div>
+  <script type="module">
+    const desktop = window.dotpalsDesktop;
+    const svg = document.getElementById('ink');
+    const hint = document.getElementById('hint');
+    const NS = 'http://www.w3.org/2000/svg';
+    const INK = { red: '#ff3b30', green: '#30d158', yellow: '#ffd60a', blue: '#0a84ff' };
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const marks = []; // { nodes: [elements], at }
+    let writes = 0;   // handwriting clips made so far (their ids)
+    let fade = 0;
+
+    // A little wobble, the same each time for the same mark (so a redraw doesn't jump).
+    function rng(seed) { let s = Math.abs(Math.floor(seed)) % 2147483647 || 1; return () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646; }
+    /** A smooth path through points (Catmull-Rom as cubic Béziers). */
+    function smooth(pts) {
+      let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [p0, p1, p2, p3] = [pts[i - 1] ?? pts[i], pts[i], pts[i + 1], pts[i + 2] ?? pts[i + 1]];
+        d += ` C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+      }
+      return d;
+    }
+    // Each shape as a marker would draw it: a loop and a bit around, a box that overshoots its corner…
+    const SHAPES = {
+      circle(b, r) {
+        const pad = Math.max(10, Math.min(b.w, b.h) * 0.14);
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2, rx = b.w / 2 + pad, ry = b.h / 2 + pad;
+        const start = r() * Math.PI * 2, turns = 1.12, n = 40, phase = r() * 6;
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const t = i / n, a = start + t * turns * Math.PI * 2, k = 1 + 0.035 * Math.sin(3 * a + phase) + 0.05 * t;
+          pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+        }
+        return [smooth(pts)];
+      },
+      box(b, r) {
+        const pad = 6, j = () => (r() - 0.5) * 5;
+        const [l, t, rr, bb] = [b.x - pad, b.y - pad, b.x + b.w + pad, b.y + b.h + pad];
+        return [`M${l + j()} ${t + j()} L${rr + j()} ${t + j()} L${rr + j()} ${bb + j()} L${l + j()} ${bb + j()} L${l + j()} ${t + 8 + j()}`];
+      },
+      underline(b, r) {
+        const y = b.y + b.h + 5, pts = [];
+        for (let i = 0; i <= 12; i++) pts.push([b.x - 4 + (b.w + 8) * (i / 12), y + Math.sin(i * 1.3 + r() * 2) * 2.2]);
+        return [smooth(pts)];
+      },
+      arrow(b, r) {
+        const [x1, y1, x2, y2] = [b.x, b.y, b.x + b.w, b.y + b.h];
+        const len = Math.hypot(x2 - x1, y2 - y1) || 1, nx = -(y2 - y1) / len, ny = (x2 - x1) / len, bend = (r() - 0.5) * len * 0.18;
+        const mx = (x1 + x2) / 2 + nx * bend, my = (y1 + y2) / 2 + ny * bend;
+        const a = Math.atan2(y2 - my, x2 - mx), head = Math.min(22, len * 0.3);
+        return [`M${x1} ${y1} Q${mx} ${my} ${x2} ${y2}`, `M${x2 - head * Math.cos(a - 0.45)} ${y2 - head * Math.sin(a - 0.45)} L${x2} ${y2} L${x2 - head * Math.cos(a + 0.45)} ${y2 - head * Math.sin(a + 0.45)}`];
+      },
+    };
+    const width = () => Math.max(3.5, Math.min(6, innerWidth / 380));
+
+    /** Draw one mark (screenshot pixels → this window's px), `delay` ms from now. */
+    function drawMark(m, size, delay) {
+      const sx = innerWidth / size.w, sy = innerHeight / size.h;
+      const b = { x: m.x * sx, y: m.y * sy, w: m.w * sx, h: m.h * sy };
+      const color = INK[m.color] ?? INK.red;
+      const nodes = [];
+      if (m.shape === 'write') {
+        // Written left to right, at about the speed of a hand: a clip that widens over the text.
+        const size = Math.max(14, m.h * sy);
+        const text = document.createElementNS(NS, 'text');
+        Object.entries({ x: b.x, y: b.y + size * 0.85, 'font-size': size, fill: color, class: 'hand' }).forEach(([k, v]) => text.setAttribute(k, v));
+        text.textContent = m.text;
+        const clip = document.createElementNS(NS, 'clipPath');
+        clip.id = `w${++writes}`;
+        const reveal = document.createElementNS(NS, 'rect');
+        Object.entries({ x: b.x - 6, y: b.y - size * 0.4, height: size * 1.9, width: 1 }).forEach(([k, v]) => reveal.setAttribute(k, v));
+        reveal.style.width = '0px';
+        clip.append(reveal);
+        document.getElementById('clips').append(clip);
+        text.setAttribute('clip-path', `url(#${clip.id})`);
+        svg.append(text);
+        nodes.push(text, clip);
+        const ms = reduced ? 0 : Math.min(1800, Math.max(350, m.text.length * 55));
+        const wide = text.getComputedTextLength() + 14;
+        setTimeout(() => { reveal.style.transition = `width ${ms}ms linear`; reveal.style.width = `${wide}px`; }, delay);
+        marks.push({ nodes, at: Date.now() });
+        return;
+      }
+      if (m.shape === 'highlight') {
+        const rect = document.createElementNS(NS, 'rect');
+        Object.entries({ x: b.x - 3, y: b.y - 2, width: b.w + 6, height: b.h + 4, rx: 3, fill: color, 'fill-opacity': 0.32 }).forEach(([k, v]) => rect.setAttribute(k, v));
+        rect.style.transformOrigin = `${b.x}px ${b.y}px`;
+        rect.style.transform = 'scaleX(0)';
+        svg.append(rect);
+        nodes.push(rect);
+        setTimeout(() => { rect.style.transition = reduced ? 'none' : 'transform .45s ease-out'; rect.style.transform = 'scaleX(1)'; }, delay);
+      } else {
+        const r = rng(m.x * 7919 + m.y * 104729 + m.w + m.h);
+        for (const d of SHAPES[m.shape]?.(b, r) ?? []) {
+          const path = document.createElementNS(NS, 'path');
+          path.setAttribute('d', d);
+          path.setAttribute('class', 'ink');
+          path.setAttribute('stroke', color);
+          path.setAttribute('stroke-width', String(width()));
+          svg.append(path);
+          const len = path.getTotalLength();
+          path.style.strokeDasharray = `${len}`;
+          path.style.strokeDashoffset = `${len}`;
+          nodes.push(path);
+          setTimeout(() => { path.style.transition = reduced ? 'none' : `stroke-dashoffset ${Math.min(0.9, 0.35 + len / 2200)}s ease-out`; path.style.strokeDashoffset = '0'; }, delay);
+          delay += m.shape === 'arrow' ? 380 : 0; // the arrow's head after its line
+        }
+      }
+      if (m.label) {
+        const tag = document.createElement('div');
+        tag.className = m.shape === 'highlight' ? 'label yellow' : 'label';
+        tag.textContent = m.label;
+        document.body.append(tag);
+        // Under the mark (above it near the bottom of the screen), kept on screen.
+        const tw = tag.offsetWidth, th = tag.offsetHeight;
+        const end = m.shape === 'arrow' ? { x: b.x + b.w, y: b.y + b.h } : null;
+        let x = end ? end.x + 10 : b.x + b.w / 2 - tw / 2, y = end ? end.y + 8 : b.y + b.h + (m.shape === 'circle' ? Math.max(14, Math.min(b.w, b.h) * 0.2) : 10);
+        if (y + th > innerHeight - 8) y = (end ? end.y : b.y) - th - 14;
+        x = Math.max(8, Math.min(innerWidth - tw - 8, x));
+        y = Math.max(8, y);
+        // Out of the way of the labels already there.
+        const hits = (yy) => [...document.querySelectorAll('.label:not(.gone)')].some((o) => o !== tag && o.style.top && !(x + tw < o.offsetLeft || x > o.offsetLeft + o.offsetWidth || yy + th < o.offsetTop || yy > o.offsetTop + o.offsetHeight));
+        for (let i = 0; i < 4 && hits(y); i++) y += th + 4;
+        tag.style.left = `${x}px`;
+        tag.style.top = `${y}px`;
+        nodes.push(tag);
+        setTimeout(() => tag.classList.add('on'), delay + 350);
+      }
+      marks.push({ nodes, at: Date.now() });
+    }
+
+    /** Take every mark away, fading; then tell the app the screen is clear (it hides this window). */
+    function clearAll(quiet = false) {
+      const old = marks.splice(0);
+      for (const m of old) for (const n of m.nodes) n.classList.add('gone');
+      setTimeout(() => { for (const m of old) for (const n of m.nodes) n.remove(); if (!marks.length && !circling && !quiet) desktop?.drawEvent?.('empty'); }, old.length ? 480 : 0);
+    }
+    // Marks fade by themselves a minute after the last one came.
+    function fadeLater() { clearTimeout(fade); fade = setTimeout(() => clearAll(), 60_000); }
+
+    // -- you circle ----------------------------------------------------------------------------
+    let circling = null; // { w, h, image, points: [[x, y]], path }
+    function startCircle({ w, h, image }) {
+      clearAll(true);
+      circling = { w, h, image, points: [], path: null };
+      document.body.classList.add('circling');
+      hint.hidden = false;
+    }
+    function stopCircle() {
+      circling?.path?.remove();
+      circling = null;
+      document.body.classList.remove('circling');
+      hint.hidden = true;
+    }
+    addEventListener('pointerdown', (e) => {
+      if (!circling) return;
+      circling.points = [[e.clientX, e.clientY]];
+      circling.path?.remove();
+      const path = circling.path = document.createElementNS(NS, 'path');
+      path.setAttribute('class', 'ink');
+      path.setAttribute('stroke', INK.red);
+      path.setAttribute('stroke-width', String(width()));
+      svg.append(path);
+      try { document.body.setPointerCapture(e.pointerId); } catch {}
+    });
+    addEventListener('pointermove', (e) => {
+      if (!circling?.path || !(e.buttons & 1)) return;
+      circling.points.push([e.clientX, e.clientY]);
+      circling.path.setAttribute('d', circling.points.length > 2 ? smooth(circling.points.filter((_, i, a) => i % 2 === 0 || i === a.length - 1)) : '');
+    });
+    addEventListener('pointerup', async () => {
+      if (!circling?.path) return;
+      const c = circling, pts = c.points;
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+      const box = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+      if (box.w < 12 && box.h < 12) { c.path.remove(); c.path = null; return; } // a click, not a circle
+      // The screenshot with your circle on it, in its own pixels.
+      const sx = c.w / innerWidth, sy = c.h / innerHeight;
+      let image = null;
+      try {
+        const img = new Image();
+        img.src = c.image;
+        await img.decode();
+        const canvas = Object.assign(document.createElement('canvas'), { width: c.w, height: c.h });
+        const g = canvas.getContext('2d');
+        g.drawImage(img, 0, 0, c.w, c.h);
+        g.strokeStyle = INK.red; g.lineWidth = Math.max(3, width() * sx); g.lineCap = g.lineJoin = 'round';
+        g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x * sx, y * sy) : g.moveTo(x * sx, y * sy))); g.stroke();
+        image = canvas.toDataURL('image/jpeg', 0.85);
+      } catch {}
+      // Your circle stays on screen while Blu answers, like its own marks.
+      marks.push({ nodes: [c.path], at: Date.now() });
+      c.path = null;
+      stopCircle();
+      fadeLater();
+      desktop?.drawEvent?.('circled', { box: { x: Math.round(box.x * sx), y: Math.round(box.y * sy), w: Math.round(box.w * sx), h: Math.round(box.h * sy) }, image });
+    });
+
+    desktop?.onDrawCmd?.((cmd = {}) => {
+      if (cmd.type === 'marks') {
+        if (!cmd.keep) clearAll(true);
+        const size = { w: cmd.w, h: cmd.h };
+        (cmd.marks ?? []).forEach((m, i) => drawMark(m, size, 120 + i * 650));
+        fadeLater();
+      } else if (cmd.type === 'clear') clearAll();
+      else if (cmd.type === 'circle') startCircle(cmd);
+      else if (cmd.type === 'cancel') { stopCircle(); if (!marks.length) desktop?.drawEvent?.('empty'); }
+    });
+  </script>
+</body>
+</html>

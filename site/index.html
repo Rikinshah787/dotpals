@@ -5,7 +5,7 @@
   <script>try{var t=localStorage.getItem('dotpals.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>dotpals · See what your coding agent actually did</title>
-  <meta name="description" content="A small floating pal that watches Claude Code, Codex or any coding agent, checks what it really did and makes it fix the tests it broke. Any AI tool can ask dotpals for the evidence over MCP. Free, open source, local.">
+  <meta name="description" content="A small floating pal that watches Claude Code, Codex or any coding agent, checks what it really did and makes it fix the tests it broke. New: talk to Blu, who sees your screen, draws on it, does things and uses your apps. Free, open source.">
   <meta name="theme-color" content="#0b0a0e" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f6f2ea" media="(prefers-color-scheme: light)">
   <meta name="color-scheme" content="dark light">
@@ -64,6 +64,7 @@
     </div>
 
     <nav class="nav" aria-label="Primary">
+      <a href="#new">Blu</a>
       <a href="#story">Story</a>
       <a href="#notch">Notch</a>
       <a href="#agents">Agents</a>
@@ -76,7 +77,7 @@
     <!-- ================= HERO ================= -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New in 0.11: your agents, graded →</a></p>
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New in 0.12: Talk to Blu →</a></p>
         <h1 id="hero-title">See what your coding agent <em>actually</em> did.</h1>
         <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and checks its work: what it changed, what it ran, and whether the tests really passed. When Claude breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.</p>
 
@@ -88,7 +89,7 @@
           </div>
           <a class="btn btn-star" href="https://github.com/Rikinshah787/dotpals"><span aria-hidden="true">⭐</span> Star on GitHub</a>
         </div>
-        <p class="fine">One command on Windows, macOS or Linux. Free, and everything stays on your computer. Or straight from GitHub: <code>npx --allow-git=all github:rikinshah787/dotpals setup</code></p>
+        <p class="fine">One command on Windows, macOS or Linux. Free, and your agents’ work stays on your computer. Or straight from GitHub: <code>npx --allow-git=all github:rikinshah787/dotpals setup</code></p>
         <p class="visitors" id="visitors" hidden><span class="pulse" aria-hidden="true"></span> <b id="visitors-n"></b> <span id="visitors-label">visitors so far</span></p>
       </div>
 
@@ -110,12 +111,51 @@
       </div>
     </section>
 
-    <!-- ================= NEW IN 0.11: YOUR AGENTS, GRADED ================= -->
+    <!-- ================= NEW IN 0.12: TALK TO BLU ================= -->
     <section class="section new-sec" id="new" aria-labelledby="new-title">
       <div class="wrap two">
         <div class="copy">
-          <p class="kicker"><span>New in 0.11</span> Your agents, graded</p>
-          <h2 id="new-title">Which agent’s work <em>actually held up?</em></h2>
+          <p class="kicker"><span>New in 0.12</span> Talk to Blu</p>
+          <h2 id="new-title">Ask about your screen. <em>Blu answers, and draws.</em></h2>
+          <p>Press <b>Ctrl+Shift+Space</b> and talk. Blu looks at your screen when you ask about it, answers out loud, draws on it as it explains, does things on your computer and works in your apps, with the AI you already have.</p>
+          <ul class="ticks">
+            <li><b>Explains what’s on your screen.</b> “What’s this error?” Blu answers out loud and circles what it means. Ask for it step by step and it writes the working on your screen, line by line, as it talks. Or circle something yourself (Ctrl+Alt+C) and ask.</li>
+            <li><b>Does things.</b> “Play some jazz”, “turn it down a bit”, “make this window smaller”: music, volume, apps, pages and windows, on Windows, macOS and Linux, each one ✓ or ✗.</li>
+            <li><b>Your apps.</b> Notion, Linear, Sentry, Google Calendar or any MCP server, connected to dotpals itself. A change waits for your yes, and nothing is ever sent, deleted or paid for.</li>
+            <li><b>Coding work, handed over and checked.</b> “Have Claude fix the failing test”: Blu writes down what done means, Claude Code does it, and dotpals checks what really happened.</li>
+            <li><b>The AI you already have.</b> Claude Code or Codex on your subscription, an API key, or Ollama. Blu hears you and speaks on your own computer, and <b>Dictate</b> (Ctrl+Alt+D) types what you say into any app.</li>
+          </ul>
+          <p class="fine"><a href="./guide/features.html#blu">Everything Blu can do →</a></p>
+        </div>
+
+        <div class="new-mock" role="img" aria-label="You say: explain this step by step. On the screen, a problem reads: solve 2x + 6 = 14. Blu circles it and writes the working next to it as it talks: 2x = 14 − 6, 2x = 8, x = 4. Then Blu asks: create a page called Weekly plan in Notion? Yes or No. Then: volume 40% to 30%, after you said turn the music down.">
+          <div class="nm-ask nm-ask-blu"><small>You said · Ctrl+Shift+Space</small>Explain this step by step</div>
+          <div class="nm-screen">
+            <svg viewBox="0 0 340 112" aria-hidden="true">
+              <text class="nm-doc" x="16" y="36">2x + 6 = 14</text>
+              <ellipse class="nm-circle" cx="76" cy="30" rx="70" ry="22"/>
+              <text class="nm-hand" x="178" y="32">2x = 14 − 6</text>
+              <text class="nm-hand" x="178" y="64">2x = 8</text>
+              <text class="nm-hand" x="178" y="96">x = 4</text>
+            </svg>
+          </div>
+          <p class="nm-line"><span class="ok" aria-hidden="true">✓</span> Explained in 3 steps <small>· writing as it talked</small></p>
+          <div class="nm-check">
+            <p class="nm-label">Blu · Notion</p>
+            <p class="nm-why">Create a page called Weekly plan in Notion?</p>
+            <p class="nm-verdict"><span class="badge badge-yes">Yes · Ctrl+Alt+Y</span> <span class="badge badge-no">No</span></p>
+          </div>
+          <p class="nm-line"><span class="ok" aria-hidden="true">✓</span> Volume 40% → 30% <small>· “turn the music down”</small></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= THE REPORT CARD ================= -->
+    <section class="section new-sec" id="report" aria-labelledby="report-title">
+      <div class="wrap two">
+        <div class="copy">
+          <p class="kicker"><span>Report card</span> Your agents, graded</p>
+          <h2 id="report-title">Which agent’s work <em>actually held up?</em></h2>
           <p>A report card for your coding agents, read from what they did, not what they said. And when a request goes wrong, replay it, or rewind it.</p>
           <ul class="ticks">
             <li><b>Report card.</b> Your agents side by side: code changed, tested and passed; changes never tested; tests changed to pass; claims that didn’t happen; and what the tokens bought.</li>
@@ -123,7 +163,6 @@
             <li><b>Morning brief.</b> The first time the pal opens each day: what your agents did since yesterday, what’s unfinished and what’s failing.</li>
             <li><b>“It’s stuck.”</b> A gentle ping when an agent keeps failing at the same thing, or changes a file back and forth.</li>
           </ul>
-          <p class="credit">Most of 0.11 is by <a href="https://github.com/agusumri">@agusumri</a>.</p>
         </div>
 
         <div class="new-mock" role="img" aria-label="The report card for the last 7 days. Changed code, tested and passed: Claude 11 of 12, Codex 6 of 9, flagged. Not tested after the change: Claude 1, Codex 3, flagged. Claims that didn’t happen: Claude 0, Codex 2, flagged. New tokens per change that held up: Claude 41k, Codex 88k. Every request has Replay and Rewind.">
@@ -142,11 +181,11 @@
       </div>
     </section>
 
-    <!-- ================= THE FIX LOOP (0.10) ================= -->
+    <!-- ================= THE FIX LOOP ================= -->
     <section class="section new-sec" id="fix-loop" aria-labelledby="fix-title">
       <div class="wrap two">
         <div class="copy">
-          <p class="kicker"><span>0.10</span> Make agents fix failing tests</p>
+          <p class="kicker"><span>Fix loop</span> Make agents fix failing tests</p>
           <h2 id="fix-title">“Done, all tests pass.” <em>Not so fast.</em></h2>
           <p>Agents say “done” in one fluent line. dotpals reads what the tests actually printed, and when Claude Code broke them, it sends Claude back to fix them before it finishes, commits or pushes.</p>
           <ul class="ticks">
@@ -175,11 +214,11 @@
       </div>
     </section>
 
-    <!-- ================= NEW: ASK DOTPALS (MCP) ================= -->
+    <!-- ================= ASK DOTPALS (MCP) ================= -->
     <section class="section new-sec" id="mcp" aria-labelledby="mcp-title">
       <div class="wrap two">
         <div class="copy">
-          <p class="kicker"><span>0.10</span> Ask dotpals from any agent</p>
+          <p class="kicker"><span>MCP</span> Ask dotpals from any agent</p>
           <h2 id="mcp-title">Every AI tool can ask <em>what really happened.</em></h2>
           <p><code>dotpals mcp</code> is an MCP server. Claude Code, Codex, Cursor and other assistants ask dotpals what your agents did, and get the evidence instead of the agent’s word.</p>
           <ul class="ticks">
@@ -466,13 +505,14 @@
       <div class="wrap two two-rev">
         <div class="copy">
           <p class="kicker"><span>06</span> Local and private</p>
-          <h2 id="private-title">Nothing leaves <em>your computer.</em></h2>
-          <p>A small local server, the bridge, turns what your agents report into one activity feed. It listens only on <code>127.0.0.1</code>, only answers your own computer, and sends nothing anywhere unless you turn on the cloud test check.</p>
+          <h2 id="private-title">Your agents’ work <em>stays on your computer.</em></h2>
+          <p>A small local server, the bridge, turns what your agents report into one activity feed. It listens only on <code>127.0.0.1</code>, only answers your own computer, and sends nothing anywhere unless you turn on the cloud test check or give Blu a cloud AI.</p>
           <ul class="ticks">
             <li>History is a plain JSON file in <code>~/.dotpals</code>, kept 7 days by default.</li>
             <li><code>DOTPALS_HISTORY=0</code> turns history off. Clear it any time in Settings.</li>
             <li>No account, no sign-up. MIT licensed, so you can read every line.</li>
             <li>The MCP server only reads, from the bridge on your computer. Your AI tool asks it locally.</li>
+            <li>Blu hears you and speaks on your computer. What you ask it, and your screen only when you ask about it, goes to the AI you chose for Blu; with Ollama, nothing leaves.</li>
             <li>The test double-check is off by default. Local (Laya) stays on your computer; Cloud (Jev) sends only an unclear run’s output, with passwords, keys and emails removed.</li>
           </ul>
           <ul class="os" aria-label="Platforms">

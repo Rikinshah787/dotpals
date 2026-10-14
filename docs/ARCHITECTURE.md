@@ -14,6 +14,15 @@ This document is for contributors. It explains how dotpals is put together: wher
 - [Approve from the pal](#approve-from-the-pal)
 - [The desktop app](#the-desktop-app)
   - [The notch](#the-notch)
+- [Blu](#blu)
+  - [A request, start to finish](#a-request-start-to-finish)
+  - [Blu's brain](#blus-brain)
+  - [Your apps](#your-apps)
+  - [Blu's hands](#blus-hands)
+  - [Drawing and circling](#drawing-and-circling)
+  - [Talk's tasks](#talks-tasks)
+  - [Dictate](#dictate)
+  - [Blu's routes and messages](#blus-routes-and-messages)
 - [The web component](#the-web-component)
 - [Persistence](#persistence)
 - [Security model](#security-model)
@@ -50,7 +59,7 @@ This document is for contributors. It explains how dotpals is put together: wher
 2. **The bridge keeps one feed.** It merges entries by id, tracks each session's live state, and streams everything to viewers over Server-Sent Events. It keeps a local history in `~/.dotpals`.
 3. **Viewers render it.** The pal, the notch and the dashboard are plain HTML pages. They group entries into requests and chapters in the browser, with the same rules (the story engine).
 
-Everything runs on your computer. Nothing is fetched from, or sent to, the internet.
+Everything runs on your computer. Nothing is fetched from, or sent to, the internet, with two exceptions you choose: the optional cloud test checker, and [Blu](#blu) when you talk to it (its speech models are downloaded once; what you say goes to the AI you picked, unless that's Ollama; "play …" looks the song up; your apps are called at their own addresses).
 
 ## Components
 
@@ -66,9 +75,18 @@ Everything runs on your computer. Nothing is fetched from, or sent to, the inter
 | Claude Code plugin | `hooks/hooks.json`, `commands/pals.md`, `.claude-plugin/` | Registers `hook.js` (and `context-hook.js` and `loop-hook.js`) for Claude Code's hook events, and the `/dotpals:pals` command. |
 | Usage | `bridge/usage.js`, `bridge/statusline.js` | Plan limits (5-hour and weekly) and Claude context-window sizes, read from local files. |
 | Story engine | `bridge/ui/story.js`, `bridge/ui/recap.js` | Pure functions shared by every view (and Node): requests, chapters, flags, plan, headline, toolkit, overlaps, compact note, Markdown recaps. |
-| Views | `bridge/index.html`, `bridge/notch.html`, `bridge/dashboard.html` | The pal (Summary, Tools, Files), the notch, and the dashboard (Overview, Sessions, Map, Agents, Settings). |
+| Views | `bridge/index.html`, `bridge/notch.html`, `bridge/dashboard.html` | The pal (Summary, Tools, Files), the notch (Now, Story and Talk), and the dashboard (Overview, Report card, Sessions, Map, Agents, Settings; Settings in five tabs: Pal, Agents, Blu, Apps, History & about, each reachable as `#settings/<tab>`). |
 | Notch logic | `bridge/ui/notch-state.js`, `bridge/ui/notch-diff.js` | Pure modules for the notch (they run in Node too): its state machine (when it hides, peeks, shows its bar or opens, and which alert it shows) and its live diff card (a patch as a few display lines, and a language chip for a file). |
-| Desktop app | `desktop/main.js`, `desktop/preload.cjs`, `desktop/launch.js` | Electron: the pal, notch and dashboard windows, tray, shortcut, click-through and drag. Runs the bridge in-process. |
+| Desktop app | `desktop/main.js`, `desktop/preload.cjs`, `desktop/launch.js` | Electron: the pal, notch, dashboard, drawing and Dictate windows, tray, global shortcuts, screenshots, click-through and drag. Runs the bridge in-process. |
+| Blu's ears and voice | `bridge/ui/voice.js` | In the notch's page (and Dictate's): the microphone on an AudioWorklet, Whisper through Transformers.js (`HEARING`), and Kokoro for speaking. See [Blu](#blu). |
+| Talk routing | `bridge/ui/buddy.js` | Pure: `route(text, { mode })` sends what you said to the screen buddy or to Talk's plan; `aboutScreen(text)` says whether the screenshot goes along. Word lists, no AI. |
+| Screen buddy | `bridge/buddy.js` | Blu's instructions for a look at your screen (`buddySystem`, `buddyInput`), its answer checked (`parseBuddyReply`, `action`: the fixed list of actions), and `resolvePlay` ("play some jazz" → a link). |
+| Blu's brain | `bridge/brain.js` | The AI Blu thinks with: subscriptions (coding agents' command lines), API keys or Ollama. `pickBrain` per job, `ask`, `warmUp`, `askWithTools`. |
+| Your apps | `bridge/connectors.js` | An MCP client (no SDK): apps by address (Streamable HTTP, with MCP's OAuth sign-in) or by command (stdio). `readOnly` and `never` decide which tools Blu may use. |
+| Blu's hands | `desktop/hands.js` | What Blu does on your computer, per OS: media, volume, opening apps and pages, windows, and (when allowed) clicks and keys. |
+| Drawing | `bridge/draw.html` | A see-through, click-through window over the screen: Blu's marks, and circle mode. |
+| Talk's tasks | `bridge/tasks.js` | A task with a definition of done, sent to Claude Code in a new terminal, checked when it finishes, and a PR on your OK. |
+| Dictate | `bridge/dictate.html`, `bridge/ui/dictation.js` | The Dictate pill, and the rules that tidy what you said before it's typed. |
 | MCP server | `bridge/mcp.js` | `dotpals mcp`: MCP over stdio for any assistant, read-only, from the running bridge. See [The MCP server](#the-mcp-server). |
 | CLI | `bin/dotpals.js` | `setup`, `start`, `dashboard`, `status`, `doctor`, `notch`, `statusline`, `bridge`, `mcp`. |
 | Web component | `src/*.js`, `src/index.d.ts` | `<dot-pal>`, the characters, custom pals, actions and agent-event helpers. Used by every view and published on its own. See [The web component](#the-web-component). |
@@ -386,6 +404,157 @@ The tab you pick is remembered separately for busy and idle agents (`dotpals.not
 
 **When it shows.** Mode `auto` (whenever the pal is hidden, the default), `always` or `off`, set from the tray or `dotpals notch`. It loads `/bridge/notch.html` from the bridge (or the file, if the bridge isn't up yet).
 
+## Blu
+
+Blu is the pal in the notch that you talk to: Talk (the notch's Talk tab), circle and ask, and Dictate. The work is split three ways. What Blu hears and says runs in the notch's page. What thinks runs in the bridge. What touches your computer (screenshots, drawing, keys, windows, the volume) runs in the desktop app's main process, which only takes those requests from the notch's own page.
+
+```
+ desktop/main.js                 bridge/notch.html (Talk tab)            bridge/server.js
+ ───────────────                 ────────────────────────────            ────────────────
+ Talk keys ─ screenshot ───────▶ voice.listen()  (ui/voice.js: Whisper)
+ Circle keys ─ draw.html ──────▶      │ heard(text)
+ Dictate "Blu, …" ─────────────▶      ▼
+                                 route(text)  (ui/buddy.js)
+                                   ├─ 'plan' ─────────────────────────▶ POST /api/talk/plan → /start   (tasks.js)
+                                   └─ 'buddy' (+ screenshot if it's ─▶ POST /api/talk/buddy
+                                       about the screen)                 buddySystem + buddyInput      (buddy.js)
+                                                                         brainFor('screen') → ask()    (brain.js)
+                                                                         parseBuddyReply → { say, draw, do, apps, task }
+                                 ◀───────────────────────────────────────┘
+ draw.html  ◀─ blu:draw ──────── marks          speak(say)  (Kokoro)
+ hands.run  ◀─ blu:do ────────── actions
+            ── receipts ✓ / ✗ ─▶ the Talk card
+                                 apps: a look at once, a change after your yes ─▶ POST /api/talk/apps
+                                                                         tools → readOnly / never      (connectors.js)
+                                                                         askWithTools(brain) → call()
+                                 task: on to Talk's plan, with the screenshot
+```
+
+### A request, start to finish
+
+1. **The keys.** `desktop/main.js` registers Talk (`CommandOrControl+Shift+Space`, or `…+Alt+T`, `…+Alt+Shift+T` when that's taken), Circle (`Control+Alt+C`) and Dictate (`Control+Alt+D`), or yours (`talkShortcut`, `circleShortcut`, `dictateShortcut` in `config.json`). It writes the ones it got to `~/.dotpals/shortcuts.json` (`GET /api/shortcuts`) and watches `config.json`, so a shortcut set in Settings works at once. On Windows a PowerShell helper (`keys.released`) says how long the key was held: past 300 ms it's hold-to-talk (`talk-hold`, then `talk-release` when you let go). Elsewhere every press is a tap.
+2. **The screenshot.** With `blu.see` on, Talk's keys first take a screenshot of the display under the pointer (`takeShot`): a JPEG of about 1.15 megapixels, at most 1568 px across, which is the size vision models look at, so the places they point at line up. It's saved in `~/.dotpals/shots` (the newest 20) and handed to the notch as `{ path, w, h, x, y }` (`notch:talk-shot`); main.js remembers which display it showed, for drawing and clicking. On macOS without Screen Recording it takes none, since the picture would be the wallpaper.
+3. **Hearing.** `createVoice` (`bridge/ui/voice.js`) records on an AudioWorklet at 16 kHz and transcribes with Whisper through Transformers.js, on the graphics card (WebGPU) when it can, else the processor: `HEARING.quick` (`whisper-base.en`), `better` (`whisper-small`) or `best` (`whisper-large-v3-turbo`, graphics card only; it falls back to quick). Live words come about once a second. A tap ends after a pause, 7 s of nothing, or a minute; a hold ends when you let go. While it listens, the notch asks for Blu's brain (`POST /api/brain/warm`) and hands (`blu:warm`) to get ready, and turns music down (`blu:duck`).
+4. **Routing.** `route(text, { mode })` (`bridge/ui/buddy.js`): an agent's name, or coding work when Blu isn't set to Everyday, goes to [Talk's plan](#talks-tasks); everything else to the screen buddy. Hello, thanks and bye are answered in the page, and `STOP` ("stop", "be quiet", "that's all") ends the conversation. `aboutScreen(text)` decides whether the screenshot goes along: the shortcut's while it's under 20 s old, else a fresh one (`blu:shot`). A circle always takes its screenshot along.
+5. **The brain.** `POST /api/talk/buddy` builds the instructions with `buddySystem()` (only the actions you allowed, where music plays, and the names of your connected apps) and the input with `buddyInput()` (what you said, your words, the screenshot's size and the pointer, what you circled, the last six exchanges, and your agents' states unless Blu is set to Everyday), takes the brain for the `screen` job and asks it, with the screenshot if there is one.
+6. **Checking the answer.** `parseBuddyReply()` keeps only what's valid. Marks are kept on the screenshot, with a cap on how many. Actions go through `action()`, the fixed list: media, volume, play, open, url (http and https only), window, and click, type and keys only with `blu.click` on; at most 6. An app counts only if it's connected under that name; otherwise Blu says it isn't. A change is `confirmed` only by `saidYesTo()`: what you said is a plain yes (no "no", "don't" or "wait" in it), right after Blu's question naming that app, and the change is the one it asked about (its words mostly from the question or your answer), so the brain can't confirm a change, or swap in another, on its own. A `play` is resolved here (`resolvePlay`: YouTube's first video from its results page, no key needed; YouTube Music; a Spotify track with your Spotify key, else a Spotify search; Apple Music's library on macOS).
+7. **Speaking, drawing, doing.** The notch speaks the answer (Kokoro, a sentence at a time, the next made while one plays; the system voice until Kokoro is ready), sends the marks with `blu:draw`, and the actions with `blu:do`. main.js checks every action again with `action()` and runs them with `hands.run()`, which checks your settings once more and returns a receipt for each (`{ act, ok, words, error }`) for the Talk card.
+8. **Apps and tasks.** If the answer names an app, a look goes straight to `POST /api/talk/apps`; a change waits for a yes (the Yes/No card, its Ctrl+Alt+Y and Ctrl+Alt+N held only while it shows, or a spoken yes) and goes with `confirmed: true`. If it carries a `task`, it goes on to Talk's plan with the same screenshot.
+9. **Keep listening.** After an answer, `followUp()` listens again with `listen({ quiet: true })`, which simply stops if you say nothing. A question is always waited for. Otherwise it doesn't listen with `blu.conversation` off, while music plays (it would hear the song), after a goodbye, or more than 3 times in a row. Stop (the button, or saying it) bumps `talk.turn`, so an answer for an older turn is dropped.
+
+### Blu's brain
+
+`bridge/brain.js`. Bring what you have:
+
+| Kind | Brains | How it's asked |
+| --- | --- | --- |
+| `local` | Ollama | `http://127.0.0.1:11434/api/chat`; the first model you pulled, unless you name one |
+| `key` | Anthropic, OpenAI, Google Gemini, OpenRouter | Their HTTP APIs, with the key from `config.json` (`brainKeys`, which pages only see as the last 4 characters) |
+| `cli` | Claude Code, Codex, Gemini CLI, Cursor | Their own command line, headless: what you said goes on stdin, never on the command line |
+
+- **Which brain for which job** (`pickBrain`): `quick` (cleaning up dictation), `plan` (Talk's plans), `screen` (a look at your screen) and `apps` (your apps' tools), each with its own order for Auto. A brain is `locked` when it can't run tools on your computer: the APIs and Ollama only write text, Claude Code runs with `--tools ''`, Codex in `--sandbox read-only`. Gemini CLI and Cursor run as agents with their tools, so they only get `quick` jobs, never a plan or a look, whose input holds text you didn't write. `sees()`: Gemini CLI and Cursor aren't given pictures. `usesTools()`: the APIs, Ollama and Claude Code.
+- **Claude Code, lean** (`claudeLean`): `claude -p --model haiku --tools '' --strict-mcp-config --setting-sources '' --disable-slash-commands --no-session-persistence --system-prompt-file …`, with `MAX_THINKING_TOKENS=0`. Pictures go in through `--input-format stream-json`. Codex: `codex exec --skip-git-repo-check --sandbox read-only`, pictures as `-i` files. Instructions and pictures are temporary files in `~/.dotpals/brain`, deleted after.
+- **Warm Claude Code** (`warmUp`, `POST /api/brain/warm`): starting Claude Code is about 3 s of a look on a subscription, so the notch starts one while you're still talking, with the same instructions and stdin left open. `takeWarm()` hands it your words when you're done. One at a time; with nothing to do after a minute it's given empty input and stops. Nothing goes to Anthropic until it's given your words.
+- **Tools** (`askWithTools`, the `apps` job): for the APIs and Ollama, dotpals runs the loop. The brain sees the tools dotpals allows now, up to 6 rounds of calls, then it must answer (`tool_choice: none`); every call goes through the `call(name, args)` the bridge passes in. Claude Code calls them itself (`claudeWithApps`): the app as its `--mcp-config` (a file readable only by you, deleted after), `--strict-mcp-config`, `--tools ''`, and `--allowedTools` listing only the tools dotpals allows now; the calls come back from its stream-json output for the receipts.
+- **Dictation cleanup** (`POST /api/brain/polish`): `polishSystem()` with your words; `polished()` throws away an answer that isn't your words (much longer than what you said, or mostly other words). In `auto`, a subscription brain is only asked when you corrected yourself (`correcting()`), since it takes seconds.
+- `GET /api/brain` lists the brains here, which one each job would use, your choice, the keys' last 4 characters and your apps. `POST /api/brain/test` sends one tiny request.
+
+### Your apps
+
+`bridge/connectors.js` is an MCP client without an SDK, as `bridge/mcp.js` is a server. An app is `{ id, name, kind: 'http' | 'stdio', url | command, auth? }` in `~/.dotpals/apps.json`, written with mode 0600, tokens included. Pages only ever get `view()`: the name, kind, address or command, whether it's signed in, its tool count and any error, never a token or a secret.
+
+- **By address** (Streamable HTTP): JSON-RPC posted to the URL, answered as JSON or as server-sent events (`sseMessages`), with its `mcp-session-id`. `https://` only, or `http://` on this computer (`127.0.0.1`, `localhost` or `[::1]`). `initialize` and `notifications/initialized` once per session; a 404 for a known session starts a new one.
+- **By command** (stdio): your command through the system's shell (`cmd /d /s /c` on Windows, `/bin/sh -c` elsewhere), a JSON-RPC message per line, stopped after 10 minutes unused. It runs as you, like anything you type in a terminal.
+- `tools(id)`: `tools/list`, all pages, kept for 5 minutes. `call(id, name, args)`: `tools/call`, the answer as text (`resultText`, at most 12,000 characters).
+- **Presets** (`PRESETS`): Notion, Linear, Sentry, and Google Calendar (`ownClient`).
+
+**Signing in** (MCP authorization: OAuth 2.1 with PKCE):
+
+```
+ Settings → Sign in ── POST /api/apps/signin ──▶ signIn(id)
+                                                  │ the sign-in server: the 401's resource_metadata, else
+                                                  │ /.well-known/oauth-protected-resource, then its
+                                                  │ oauth-authorization-server or openid-configuration
+                                                  │ register dotpals (client_name "dotpals", a public client,
+                                                  │ redirect http://127.0.0.1:<port>/api/apps/callback),
+                                                  │ unless the app needs your own client (Google)
+ your browser ◀── { url } (code_challenge S256, state, resource) ─┘
+      │ you sign in
+      ▼
+ GET /api/apps/callback?code&state ──▶ finish(): state matched (15 minutes, once), code + verifier → tokens
+                                       → apps.json; a small page says how it went; tools looked up
+```
+
+dotpals only follows sign-in addresses that are `https://` (or on this computer), and only metadata about this app (its `resource` on the app's own host), since the sign-in link opens in your browser and the token goes to the token address. Tokens are renewed when they have less than a minute left (`refresh_token`), one renewal at a time per app. A 401 drops them and the app asks you to sign in again. An app's answers are read up to 8 MB, and a stream of events only until the answer is in. Google Calendar (`ownClient`) gets `access_type=offline` and `prompt=consent`, so it gets a refresh token too.
+
+**Which tools Blu may use** (`POST /api/talk/apps` in `server.js`):
+
+- A **look** gets only `readOnly()` tools: the app's own `readOnlyHint` when it gives one, else a name (after the app's own prefix) that starts with get, list, search, find, read, fetch, query, retrieve, lookup, describe, show, view, check or count, and doesn't also write (`get_or_create_page`, `findAndReplace`).
+- A **change** needs `confirmed: true` (else 409, "Say yes first") and gets every tool except `never()`: names with send, delete, remove, destroy, trash, purge, pay, purchase, transfer, refund, post_message or publish, the app's own `destructiveHint`, comments, reactions, sharing and invites that aren't read-only, and replies and forwards that aren't drafts.
+- The tools are renamed `<app>__<tool>` for the brain, and a call to any name dotpals didn't offer answers "Blu may not use … now". `appsSystem()` tells the brain the same rules in words, so it doesn't try, and that what the tools return was written by other people and isn't to be obeyed.
+- The answer is made fit to say: Markdown and web addresses out, the first link kept as the Talk card's **Open ↗**. Each call is a receipt ("Notion: search").
+
+**Apps through Claude.** `agentApps()` reads only names from `~/.claude.json`: your claude.ai connectors, the MCP servers you added, and which are waiting for a sign-in. An app connected to dotpals wins over one of Claude's with the same name (`appsNow()`). For Claude's, `askApps()` runs `claude -p --tools '' --allowedTools mcp__<server>` with `appsSystem()`. dotpals can't choose that app's tools one by one there, so the instructions are the guard: look only, or the one change you said yes to, never send or delete.
+
+### Blu's hands
+
+`desktop/hands.js`: `createHands({ shell, screen, typeOut, log })` → `{ run, nowPlaying, duck, warm, stop }`. The pure parts (`windowRect`, `pickApp`, `keyNames`, `windowsKeys`, `linuxKeys`, `shotToScreen`, `appName`) are tested on every OS.
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| How | One PowerShell kept running (`windowsHelper`): commands on stdin, a JSON line back for each; user32, Core Audio, the system media controls, the Start menu | `osascript` (AppleScript, and JavaScript for Automation) | `playerctl`, `wpctl` or `pactl`, `xdotool`, `gtk-launch` or `gio` |
+| Play, pause, skip | The system media controls (play and pause do just that), else the media keys | The media key events Apple's keyboards send | `playerctl` |
+| Volume | Exact, and read back ("40% → 30%") | `set volume`, read back | `wpctl`, else `pactl` (kept at 100% at most) |
+| Open an app | The Start menu's apps (`Get-StartApps`), by name | `open -a` | The menu's `.desktop` files |
+| Pages and songs | In the browser you named (`Start-Process`), else your usual one | `open -a <browser>` | The browser's command |
+| Windows | `SetWindowPos`, `ShowWindow` | System Events | `xdotool` (X11 only) |
+| Click, keys | `SetCursorPos`, `mouse_event`, `keybd_event` | CoreGraphics events, System Events | `xdotool` (X11 only) |
+| Type | Pasted: your text on the clipboard, the paste keys, your clipboard text back after | The same, with ⌘V | The same, with `xdotool` |
+| What's playing | Any app in the system's media controls | Spotify or Music | Any MPRIS player |
+| Needs | Nothing | dotpals allowed under Accessibility (for keys, windows, clicks and media keys) and Screen Recording (for screenshots) | Those tools installed; an X11 session for windows, clicks and keys |
+
+- `run(actions, { shot, allow })` checks `allow` again (hands off, or clicking and typing off, is a ✗ receipt), runs at most 6 in order, and waits 1.2 s after opening something so the next step can work on it. A click is placed on the screen the screenshot showed (`shotToScreen`).
+- `duck(on)`: while Blu listens, music that's playing goes down to a third, and back after unless you changed the volume meanwhile. Linux doesn't read the volume back, so there it isn't turned down.
+- The notch's music card (`blu:media`) uses the same hands, with `allow: { hands: true }`: those buttons are yours, so they work with Blu's hands off.
+
+### Drawing and circling
+
+`bridge/draw.html`, in a frameless, transparent, unfocusable window over the display the screenshot showed (`drawWindow`), at the `screen-saver` level and ignoring the mouse, so clicks go through. Marks arrive in the screenshot's pixels and are scaled to the window. Each is drawn like a marker, one after another, with a little wobble that's the same every time. They fade a minute after the last one, or on `clear`; the page then sends `drawEvent('empty')` and main.js hides the window.
+
+Circle mode (`circleKey`): main.js takes a screenshot, and the window takes the mouse while you draw around something (`body.circling`; Esc is registered only meanwhile). A stroke smaller than 12 px is a click, not a circle. The page sends `drawEvent('circled', { box, image })`: the screenshot with your circle drawn on it, saved as a new shot, and the circle's box in the screenshot's pixels. The notch gets both (`notch:talk-circle`), listens, and `buddyInput()` tells the brain "this" means what's in the circle.
+
+### Talk's tasks
+
+`bridge/tasks.js`, for work handed to an agent:
+
+1. `POST /api/talk/plan`: the `plan` brain (Claude Code, lean, with `PLAN_SCHEMA`; or another brain asked for the same JSON) answers `chat` (said back) or `task`. `makePlan()` turns a task into a plan with a definition of done: the project's tests after the last change (`detectTestCommand`) plus what you asked for (only these folders, folders not to touch, commands that must pass, new tests, no new dependencies, commit, push, anything else as a note). The project is one your agents worked in, never a path from what you said. Work in your apps (`code: false`, an email or a note) runs in `~/.dotpals/blu`. Plans wait 30 minutes.
+2. `POST /api/talk/start`: the task file (`taskMarkdown`, saved in `~/.dotpals/tasks/` with mode 0600), then Claude Code in a new terminal in the project, with a session id of ours (`--session-id`), so its steps are known to be the task's. Its first prompt only names the file.
+3. As that session's steps come in, and again a moment after it finishes a request (once git's account of it is in), `evaluate()` checks the definition of done against what really happened (the "Ready to merge?" rules plus the plan's own items), and the notch shows the verdict.
+4. `POST /api/talk/pr/plan` shows what a PR would do (a branch, a commit of the task's files, a push, `gh pr create`); `POST /api/talk/pr/open` does it, only within 15 minutes of that plan. `POST /api/talk/fix` writes a note for what's left. Tasks are kept in `~/.dotpals/tasks.json` (the last 30).
+
+### Dictate
+
+`bridge/dictate.html`: a pill at the bottom of the screen that never takes focus or clicks. It uses the same `createVoice` (without speaking). `bridge/ui/dictation.js` drops filler words, acts on "new line", "new paragraph" and "scratch that", and applies your word fixes; then `POST /api/brain/polish` may clean it up. main.js types it with `typeOut()`: your text on the clipboard, the paste keys (on Windows, once you've let go of the shortcut's keys), and your clipboard's text put back. If the keys can't be sent, the words stay on the clipboard. "Blu, …" goes to Talk instead, with a screenshot (`notch:talk-text`). What happens is logged in `dictate.log`, in the desktop app's data folder.
+
+### Blu's routes and messages
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/talk/buddy` | `{ text, pal?, history?, shot?: { path, w, h, x, y }, circled? }` → `{ say, draw, do, words, apps, task, clear, keep, by, ms, saw }`. A `shot` counts only if it's a file under `~/.dotpals/shots`. |
+| `POST /api/talk/apps` | `{ app, ask, change?, confirmed? }` → `{ say, link?, app, by, ms, calls: [{ words, ok }] }`. 409 for a change without `confirmed`, or when the app needs you to sign in. |
+| `POST /api/talk/plan`, `/start`, `/fix`, `/pr/plan`, `/pr/open` | [Talk's tasks](#talks-tasks). |
+| `GET /api/talk/projects`, `GET /api/talk/tasks` | The project folders a task can go to, and the tasks so far. |
+| `GET /api/apps` | `{ connected, signIn, mine, claude, presets }`: names, and each of your apps' `view()`; never a token or a secret. |
+| `POST /api/apps/add` | `{ preset }`, or `{ name, url \| command, clientId?, clientSecret? }`. |
+| `POST /api/apps/signin`, `/check`, `/remove` | `{ id }`: the sign-in link; look up its tools; remove it. |
+| `GET /api/apps/callback` | Where your browser comes back after signing in. |
+| `GET /api/brain`, `POST /api/brain/warm`, `/polish`, `/test` | [Blu's brain](#blus-brain). |
+| `GET /api/shortcuts` | The shortcuts that work right now (`~/.dotpals/shortcuts.json`, written by the desktop app). |
+
+Every `POST` here needs `x-dotpals: 1`, and is refused when it carries an `Origin` other than this computer's. New events on `/events`: `apps` (after an app is added, signed in, checked or removed) and `task` (a task's state and verdict).
+
+The notch talks to the desktop app over IPC: `blu:shot`, `blu:draw`, `blu:clear`, `blu:do`, `blu:media`, `blu:warm` and `blu:duck`, each accepted only from the notch's page (`fromNotch`); and it hears `notch:talk-shot`, `notch:talk-circle`, `notch:talk-text` and `notch:drawing`. The drawing window sends `draw:event`, accepted only from itself.
+
 ## The web component
 
 `src/` is the `<dot-pal>` element. It has no dependencies and no build step. `src/index.d.ts` is the source of truth for its public API.
@@ -421,10 +590,18 @@ Everything lives in `~/.dotpals` (or `DOTPALS_HOME`):
 | `app/` | `dotpals setup` | A permanent copy of dotpals (npx runs from a temporary folder). Hook commands point here. |
 | `node_modules/` | `desktop/launch.js --install`, `dotpals setup`, `dotpals doctor` | The Electron runtime (about 100 MB). `dotpals doctor` installs it again when it won't run. |
 | `desktop.log` | the desktop app, when `dotpals` starts it | What it printed (errors, the notch crashing). `dotpals doctor` and setup show its end when the pal doesn't open. Started over past 500 KB. |
+| `apps.json` | `bridge/connectors.js` | Your apps: `[{ id, name, kind, url \| command, auth? }]`, with their sign-in (client id, the sign-in server's endpoints, tokens). Mode 0600. Never sent to a page. |
+| `shots/` | the desktop app (`takeShot`, circle mode) | Screenshots for Blu, `shot-<ms>.jpg`, the newest 20. Read by the bridge only from here (`shotOf`), and sent to Blu's brain only with a request about the screen. |
+| `shortcuts.json` | the desktop app | `{ pal, talk, dictate, circle, platform }`: the shortcuts registered right now, for Settings and the notch. |
+| `tasks/`, `tasks.json` | `bridge/tasks.js` | Talk's task files (Markdown, mode 0600) and the last 30 tasks with their verdicts. |
+| `blu/` | the bridge | Where work in your apps runs (Talk's tasks with `code: false`), and short-lived instruction and MCP config files for Claude Code, deleted after. |
+| `brain/` | `bridge/brain.js` | Short-lived files for a command-line brain (instructions, pictures for Codex), deleted after each answer. |
 
 Also:
 
-- The desktop app keeps window position, height, small mode and notch mode in `window.json` in Electron's user-data folder for the app (for example `%APPDATA%\dotpals` on Windows).
+- The desktop app keeps window position, height, small mode and notch mode in `window.json` in Electron's user-data folder for the app (for example `%APPDATA%\dotpals` on Windows). `dictate.log` is there too: what Dictate and Blu's hands did, with the first words of a request said to Blu through Dictate (not what you dictate), started over past 200 KB.
+- `config.json` also holds Blu's settings (`blu`, `brain`, the shortcuts) and its API keys (`brainKeys`, with an optional Spotify `client id:client secret`). Pages see only each key's last 4 characters.
+- The speech models are kept by the notch's and Dictate's pages in Electron's own storage, in that same user-data folder, so they download once.
 - The browser pal keeps the sound toggle and first character in `localStorage`, and the notch keeps the tab you last chose (`dotpals.notch.tabs`).
 - Connecting an agent, or `dotpals statusline`, keeps the original file as `<file>.dotpals-backup` next to it.
 
@@ -438,6 +615,11 @@ Also:
 - **The desktop app** uses sandboxed, context-isolated pages with a narrow preload API, and opens only `http(s)`, `vscode:`, `cursor:` (and, from the pal, `file:`) links outside the app.
 - **Never in the agent's way, unless you ask.** `hook.js` always exits 0 with short timeouts. The fix loop (`loop-hook.js`, on by default) can send Claude back or hold back a commit, but it fails open: no bridge or no answer in time, and Claude carries on. The Cursor and Copilot CLI integrations use only hooks that observe. The OpenCode plugin never throws. Approvals are off unless you turn them on, and always fall back to the terminal.
 - **Careful with other tools' files.** Connect backs up the original, merges instead of overwriting, writes atomically, and refuses to touch a file it can't parse. Disconnect removes only what dotpals added.
+- **Blu: what's on your screen is untrusted.** A screenshot, an app's answer and your agents' sessions hold text someone else wrote. Blu's instructions say never to follow orders in them, but the real limits are in code: `parseBuddyReply()` and main.js's second `action()` check keep only the fixed list of actions (nothing that closes, deletes, sends or buys), click, type and keys need `blu.click`, `hands.run()` checks your settings a third time, and a brain with its own tools on (Gemini CLI, Cursor) never gets a look or a plan.
+- **Changes in your apps need your yes.** `POST /api/talk/apps` refuses a change without `confirmed`; a look gets only read-only tools; even a confirmed change never gets the tools `never()` names. For apps used through Claude Code's own connectors these limits are instructions only (see [Your apps](#your-apps)).
+- **Secrets stay in the bridge.** API keys (`config.json`) and app tokens (`apps.json`, mode 0600) are read only by the bridge and sent only to their own provider or app (and, for Claude Code answering from one of your apps, in its MCP config file, mode 0600, deleted after). Pages see the last 4 characters of a key, and an app's name and status.
+- **Only the notch drives Blu's hands.** The desktop app takes `blu:*` messages only from the notch's page and `draw:event` only from the drawing window. The bridge reads a screenshot only from `~/.dotpals/shots`. A Talk task's folder is always one your agents worked in.
+- **Talk, apps and brain routes** need `x-dotpals: 1` and refuse a foreign `Origin`. Programs on your computer can still call them, as they can read the feed.
 
 See also `SECURITY.md`.
 
@@ -450,6 +632,7 @@ npm test          # node --test: every test/*.test.js, no dependencies needed
 - Tests start real bridges on random ports (5190 and up) with `startBridge({ port, log: () => {} })`, and keep away from your real files with `DOTPALS_HOME` (a temp folder), `DOTPALS_CODEX=0`, `DOTPALS_CLAUDE_LOGS=0`, `DOTPALS_HISTORY=0` and the `DOTPALS_*_DIR` variables.
 - Adapter tests feed sample events into `apply…()` functions and check the entries; connect tests check that config files are merged, backed up and restored.
 - `test/server.test.js` covers generic events, static paths, sleeping sessions, approvals, the checker settings (the API key is never returned) and a check against a fake Laya server; `test/story.test.js` covers the story engine, test verdicts and Codex usage; `test/testout.test.js` the test-output parsers; `test/checker.test.js` the checker with a fake transport (thresholds, caching, failing open, redaction). No test touches the network.
+- Blu: `test/buddy.test.js` (routing, the instructions, checking answers and actions, `resolvePlay` with a fake fetch), `test/brain.test.js` (picking a brain, each provider's request shape, pictures, tools, warming Claude Code up), `test/connectors.test.js` (an MCP app over a fake transport, sign-in, `readOnly` and `never`), `test/hands.test.js`, `test/hands-darwin.test.js` and `test/hands-linux.test.js` (the pure parts, and each OS's commands with a fake `exec`), `test/tasks.test.js` and `test/dictation.test.js`.
 - `test/notch-state.test.js` drives the notch's state machine with made-up times (no waiting), and checks `diffOf()` and `language()`. `test/element.test.js` checks the pal's pure parts in Node: expression eyes, particles, gaze, every character's eye anchors and the new actions.
 - CI (`.github/workflows/ci.yml`) checks the syntax of every file and runs the tests on Node 20 and 22 on Linux, Windows and macOS. Electron isn't installed in CI.
 

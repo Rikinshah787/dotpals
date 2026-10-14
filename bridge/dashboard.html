@@ -212,6 +212,14 @@
 
     /* -- settings --------------------------------------------------------- */
     .settings { display: grid; gap: 18px; }
+    /* Settings: a tab at a time, and each explanation two lines until you click it. */
+    .stabs { margin: 0 0 16px; flex-wrap: wrap; width: fit-content; max-width: 100%; justify-self: start; }
+    .settings .row .text small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .settings .row .text small.more { cursor: pointer; }
+    .settings .row .text small.full { -webkit-line-clamp: unset; display: block; }
+    .appform { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; margin: 10px 0 4px; }
+    .appform button { justify-self: start; }
+    .app-row .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
     [hidden] { display: none !important; } /* hidden wins over display: flex/grid rules like .row's */
     .row:first-of-type { border-top: 0; }
@@ -661,8 +669,11 @@
       <!-- Settings ------------------------------------------------------------ -->
       <section class="view" id="view-settings" aria-labelledby="t-settings" hidden>
         <div class="head"><h1 id="t-settings">Settings</h1><span class="spacer"></span><span class="faint" id="saved"></span></div>
+        <div class="seg stabs" role="group" aria-label="Settings" id="s-tabs">
+          <button type="button" data-tab="pal">Pal</button><button type="button" data-tab="agents">Agents</button><button type="button" data-tab="blu">Blu</button><button type="button" data-tab="apps">Apps</button><button type="button" data-tab="more">History &amp; about</button>
+        </div>
         <div class="settings">
-          <div class="card">
+          <div class="card" data-tab="pal">
             <h2>Your pal</h2>
             <div class="grid2" style="margin-top:12px">
               <div>
@@ -675,7 +686,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="pal">
             <h2>Make your own pal</h2>
             <p class="muted" style="margin:4px 0 0">Pick a body, eyes and something on top. It shows up in the floating pal and here.</p>
             <div class="maker">
@@ -703,24 +714,24 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="agents">
             <h2>Approve from the pal</h2>
             <div class="row"><div class="text">Answer Claude Code’s permission prompts here<small>When Claude asks “Allow Bash: npm install?”, the pal and the notch show exactly what it wants to run, with Allow and Deny. It only waits while a pal, the notch or this dashboard is open; otherwise Claude asks in the terminal as usual. Claude doesn’t show its own prompt while it waits, so keep the wait short.</small></div><input type="checkbox" class="switch" id="s-approvals" aria-label="Approve from the pal"></div>
             <div class="row"><div class="text">Wait for an answer<small>Then Claude asks in the terminal instead.</small></div>
               <select id="s-approval-wait" aria-label="Wait for an answer"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option></select></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="agents">
             <h2>Chat with your agents</h2>
             <div class="row"><div class="text">Talk to your agents from the pal<small>A chat box on the pal sends prompts, and permission requests and questions show up as cards you can answer. OpenCode for now; Claude Code and others are coming. When you send something, dotpals starts its own <code>opencode serve</code> on this computer (only reachable from here). Tray → Start working… asks which project and what to do.</small></div><input type="checkbox" class="switch" id="s-chat" aria-label="Chat with your agents"></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="agents">
             <h2>Share with your agents</h2>
             <div class="row"><div class="text">Tell each Claude Code session what your other agents did here<small>When a Claude session starts in a project, it gets a short note about the other agents that worked there in the last 2 hours: what they changed, whether their tests pass, and whether they’re still at it. Later prompts only get a note when there’s news. dotpals doesn’t send it anywhere itself, but it becomes part of Claude’s context, which Claude Code sends to the model like the rest of your conversation (you won’t see it in the chat). Codex can’t receive notes.</small></div><input type="checkbox" class="switch" id="s-share" aria-label="Share with your agents"></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="agents">
             <h2>Two agents, one file</h2>
             <div class="row"><div class="text">When an agent is about to change a file another agent just changed<small>Another session changed it a few minutes ago and is still at it: that’s how parallel agents undo each other’s work. Claude Code can be stopped before the edit: <b>Ask me first</b> shows Claude’s permission prompt with the reason (“Codex (api) changed billing.ts 2 minutes ago. Edit anyway?”); <b>Tell Claude</b> stops the edit and tells Claude to re-read the file first. Other agents (Codex, Cursor, Gemini…) can’t be stopped: the notch and the pal tell you right after.</small></div>
               <select id="s-conflict" aria-label="Two agents, one file"><option value="ask">Ask me first</option><option value="tell">Tell Claude to re-read it</option><option value="off">Off</option></select></div>
@@ -728,19 +739,100 @@
               <select id="s-conflict-minutes" aria-label="Just changed means within"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="blu">
+            <h2>Blu’s brain</h2>
+            <div class="row"><div class="text">Your AI<small>What Blu thinks with: cleaning up what you dictate (Ctrl+Alt+D), planning what you ask Talk, and looking at your screen with you. Bring any you have: a subscription (Claude Code, Codex, Gemini CLI, Cursor), an API key, or Ollama on this computer.</small><small id="b-uses"></small></div>
+              <select id="b-choice" aria-label="Your AI"><option value="auto">Auto</option></select></div>
+            <div class="row" id="b-model-row" hidden><div class="text">Model<small>Leave it empty for the usual one.</small></div>
+              <input type="text" class="field" id="b-model" spellcheck="false" autocomplete="off" aria-label="Model"></div>
+            <div class="row" id="b-key-row" hidden><div class="text"><span id="b-key-name">API key</span><small id="b-key-state">No key saved.</small><small>Kept in your dotpals settings on this computer, and only sent to that provider.</small></div>
+              <form class="keyform" id="b-key-form" autocomplete="off">
+                <input type="password" class="field" id="b-key" autocomplete="new-password" spellcheck="false" placeholder="Paste a key" aria-label="API key">
+                <button type="submit">Save</button>
+                <button type="button" class="danger" id="b-key-remove" hidden>Remove key</button>
+              </form></div>
+            <div class="row"><div class="text">Test it<small id="b-test-note">One tiny request, to check it answers.</small></div><button type="button" id="b-test">Test</button></div>
+            <div class="row"><div class="text">Clean up dictation with it<small>Self-corrections (“no, sorry, I mean…”), grammar and spelling. Auto: always with a quick AI (Ollama or a key); with a subscription, which takes a few seconds, only when you correct yourself.</small></div>
+              <select id="b-polish" aria-label="Clean up dictation"><option value="auto">Auto</option><option value="always">Always</option><option value="off">Off</option></select></div>
+            <div class="row"><div class="text">Your words<small>Separated by commas. A word spelled your way (dotpals, Blu), or a fix for a word it keeps mishearing, made every time: dot pals → dotpals, blue → Blu.</small></div>
+              <input type="text" class="field" id="b-dictionary" spellcheck="false" autocomplete="off" aria-label="Your words"></div>
+          </div>
+
+          <div class="card" data-tab="blu">
+            <h2>Talking to Blu</h2>
+            <div class="row"><div class="text">What Blu is for<small>Blu answers you itself. Coding: what you say goes to your coding agents, and Blu checks their work. Everyday: Blu helps with your whole computer, and only hands work to Claude when you name it. Both: work goes to Claude when you name an agent or ask for coding work; it always asks before sending.</small></div>
+              <select id="u-mode" aria-label="What Blu is for"><option value="both">Both</option><option value="developer">Coding</option><option value="everyday">Everyday</option></select></div>
+            <div class="row"><div class="text">Hearing<small>How Blu hears you, on this computer. Quick: English only, about 80 MB. Better: any accent, and names and songs in any language, about 600 MB. Best: the most accurate, about 760 MB, for a good graphics card. Downloaded once, the first time you talk. Dictate uses it too.</small></div>
+              <select id="u-hearing" aria-label="Hearing"><option value="quick">Quick</option><option value="better">Better</option><option value="best">Best</option></select></div>
+            <div class="row"><div class="text">Keep listening<small>After Blu answers, it listens for what you say next, like a conversation. Say nothing, say “stop”, or press ■ Stop, and it stops.</small></div><input type="checkbox" class="switch" id="u-conversation" aria-label="Keep listening"></div>
+          </div>
+
+          <div class="card" data-tab="blu">
+            <h2>Your screen, music and computer</h2>
+            <div class="row"><div class="text">Look at my screen when I ask about it<small>Talk’s shortcut takes a screenshot of what you were looking at. It stays on this computer (the newest 20, in <span class="mono">~/.dotpals/shots</span>) unless what you say is about the screen; then Blu’s brain looks at it. With an API key, the picture goes to that provider with your words.</small></div><input type="checkbox" class="switch" id="u-see" aria-label="Look at my screen when I ask about it"></div>
+            <div class="row"><div class="text">Let Blu do things on my computer<small>Play, pause and skip; the volume; opening apps, pages and songs; moving and sizing windows. Nothing that closes, deletes, sends or buys. Each thing it does shows on the Talk card, ✓ or ✗.</small></div><input type="checkbox" class="switch" id="u-hands" aria-label="Let Blu do things on my computer"></div>
+            <div class="row"><div class="text">Let Blu click and type for me<small>Off unless you turn it on. Blu clicks, types or presses keys only when you ask, but it goes by what it sees on screen, so turn this on only if you’re happy with that.</small></div><input type="checkbox" class="switch" id="u-click" aria-label="Let Blu click and type for me"></div>
+            <div class="row"><div class="text">Play music on<small>YouTube and YouTube Music open the song in your browser, nothing to set up. Spotify opens the app on the song with a Spotify key (below), else on a search. Apple Music plays from your library (macOS).</small></div>
+              <select id="u-music" aria-label="Play music on"><option value="youtube">YouTube</option><option value="youtubemusic">YouTube Music</option><option value="spotify">Spotify</option><option value="applemusic">Apple Music (macOS)</option></select></div>
+            <div class="row" id="u-spotify-row"><div class="text">Spotify key<small id="u-spotify-state">No key saved.</small><small>Make an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com ↗</a> (free), then paste its Client ID and Client secret as <span class="mono">id:secret</span>. It’s only used to find the track; it can’t see your account.</small></div>
+              <form class="keyform" id="u-spotify-form" autocomplete="off">
+                <input type="password" class="field" id="u-spotify" autocomplete="new-password" spellcheck="false" placeholder="client id:client secret" aria-label="Spotify key">
+                <button type="submit">Save</button>
+                <button type="button" class="danger" id="u-spotify-remove" hidden>Remove key</button>
+              </form></div>
+            <div class="row"><div class="text">What Blu looks with<small id="u-apps"></small></div></div>
+          </div>
+
+          <div class="card" data-tab="apps" id="apps-card">
+            <h2>Your apps</h2>
+            <p class="muted" style="margin:4px 0 0">Connected to dotpals itself, so Blu uses them with whichever AI you brought: “what’s on my calendar today?”, “add lunch with Sam tomorrow at 1”. A look only reads; a change waits for your “yes”; nothing is ever sent, deleted or paid for.</p>
+            <div id="a-mine"></div>
+            <div class="row"><div class="text">Add an app<small>Then sign in once, in your browser.</small></div><div class="keyform" id="a-presets"></div></div>
+            <details class="adv" id="a-own"><summary>Your own app (any MCP server)</summary>
+              <p class="muted" id="a-own-note" style="margin:8px 0 0">Its address (<span class="mono">https://…/mcp</span>) or the command that starts it (<span class="mono">npx -y some-mcp-server</span>). A client id only if the app asks for one.</p>
+              <form class="appform" id="a-form" autocomplete="off">
+                <input type="text" class="field" id="a-name" spellcheck="false" placeholder="Name" aria-label="App name">
+                <input type="text" class="field" id="a-where" spellcheck="false" placeholder="https://… or a command" aria-label="Address or command">
+                <input type="text" class="field" id="a-client" spellcheck="false" placeholder="Client id (optional)" aria-label="Client id">
+                <input type="password" class="field" id="a-secret" spellcheck="false" autocomplete="new-password" placeholder="Client secret (optional)" aria-label="Client secret">
+                <button type="submit">Add</button>
+              </form>
+            </details>
+          </div>
+
+          <div class="card" data-tab="apps">
+            <h2>Also through Claude</h2>
+            <p class="muted" style="margin:4px 0 0">With Claude Code installed, Blu can also use the apps Claude is connected to (your claude.ai connectors and MCP servers). Slower, and only with Claude: an app you add above is used first.</p>
+            <div class="chips" id="a-claude" style="margin:10px 0 4px"></div>
+            <div class="row" id="a-signin-row" hidden><div class="text warn-text">Waiting for you to sign in<small id="a-signin"></small><small>Open Claude Code and run <span class="mono">/mcp</span>.</small></div></div>
+            <div class="row"><div class="text">claude.ai connectors<small>Gmail, Google Drive and more, connected once at claude.ai.</small></div><button type="button" id="a-claudeai">Open ↗</button></div>
+          </div>
+
+          <div class="card" data-tab="blu">
+            <h2>Shortcuts</h2>
+            <p class="muted" style="margin:4px 0 0">Click a box and press the keys you want (with Ctrl, Alt, Shift or Win). They work at once. If another app has them, a notification says so and the usual one stays.</p>
+            <div class="row"><div class="text">Talk to Blu<small>Hold it while you talk, and let go when you’re done (Windows); or tap it, and Blu listens until you pause.</small><small id="k-talk-now"></small></div>
+              <div class="keyform"><input type="text" class="field keybox" id="k-talk" data-key="talkShortcut" readonly placeholder="Ctrl+Shift+Space" aria-label="Talk shortcut"><button type="button" data-reset="talkShortcut">Usual</button></div></div>
+            <div class="row"><div class="text">Circle something and ask<small>Draw around anything on screen, then ask about it. Again, or Esc, to cancel.</small><small id="k-circle-now"></small></div>
+              <div class="keyform"><input type="text" class="field keybox" id="k-circle" data-key="circleShortcut" readonly placeholder="Ctrl+Alt+C" aria-label="Circle shortcut"><button type="button" data-reset="circleShortcut">Usual</button></div></div>
+            <div class="row"><div class="text">Dictate<small>Type with your voice anywhere. Start with “Blu, …” to ask Blu instead.</small><small id="k-dictate-now"></small></div>
+              <div class="keyform"><input type="text" class="field keybox" id="k-dictate" data-key="dictateShortcut" readonly placeholder="Ctrl+Alt+D" aria-label="Dictate shortcut"><button type="button" data-reset="dictateShortcut">Usual</button></div></div>
+            <div class="row"><div class="text">Show or hide the pal<small id="k-pal-now">Ctrl+Alt+P</small></div></div>
+          </div>
+
+          <div class="card" data-tab="agents">
             <h2>Fix failing tests</h2>
             <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code only. dotpals tells Claude when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
             <div class="row"><div class="text">Tell me when an agent seems stuck<small>Any agent. A ping when the same test, command or edit fails 3 times in a row, a file keeps being changed back and forth, or nothing has worked for 10 minutes while it keeps trying. Once per request; a step still running (a long build) never counts.</small></div><input type="checkbox" class="switch" id="s-stuck" aria-label="Tell me when an agent seems stuck"></div>
             <div class="row"><div class="text">Morning brief<small>The first time the pal opens each day, it says what your agents did since yesterday, what’s unfinished and what’s failing. Any assistant can ask for it too, or for the week (MCP: brief).</small></div><input type="checkbox" class="switch" id="s-brief" aria-label="Morning brief"></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="agents">
             <h2>Restore points</h2>
             <div class="row"><div class="text">Save restore points so you can rewind a request<small>When a request starts and ends, dotpals saves your project’s files in git’s own object store (no branch, no commit, your index untouched). Then <b>Rewind…</b> on a request puts the files it changed back as they were. Only requests from then on can be rewound. Off by default.</small></div><input type="checkbox" class="switch" id="s-restore" aria-label="Save restore points so you can rewind a request"></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="agents">
             <h2>Double-check unclear test results</h2>
             <p class="muted" style="margin:4px 0 0">dotpals reads each test run’s output for its summary (“48 passed”, “1 failed”). When it can’t tell, say no tests ran or the exit code disagrees with the output, it says <b>Tests unclear</b>. A checker can look at those runs once and decide. Clear results are never sent.</p>
             <div class="row"><div class="text">Checker<small>Off unless you choose one.</small></div>
@@ -778,7 +870,7 @@
             <div id="c-checks" class="checks" hidden></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="more">
             <h2>History</h2>
             <div class="row"><div class="text">Keep history<small id="history-where">Saved on this computer only.</small></div><input type="checkbox" class="switch" id="s-history" aria-label="Keep history"></div>
             <div class="row"><div class="text">Keep for<small>Older activity is dropped.</small></div>
@@ -786,7 +878,7 @@
             <div class="row"><div class="text">Clear history<small>Removes everything the dashboard and pal have recorded. Your agents' own logs aren't touched.</small></div><button type="button" class="danger" id="clear">Clear…</button></div>
           </div>
 
-          <div class="card">
+          <div class="card" data-tab="more">
             <h2>About</h2>
             <div class="row"><div class="text">Version<small id="about-version"></small></div><a href="https://github.com/Rikinshah787/dotpals" target="_blank" rel="noopener">GitHub ↗</a></div>
             <div class="row"><div class="text">Files<small id="about-files" class="mono"></small></div></div>
@@ -897,6 +989,7 @@
       const navView = current === 'replay' ? 'sessions' : current; // a replay lives under Sessions
       for (const a of document.querySelectorAll('nav a')) a.setAttribute('aria-current', a.dataset.view === navView ? 'page' : 'false');
       if (current === 'settings' || current === 'agents') refreshStatus();
+      if (current === 'settings') showSettingsTab(id || settingsTab);
       render();
     }
     const VIEWS = ['overview', 'report', 'sessions', 'replay', 'map', 'agents', 'settings'];
@@ -967,7 +1060,7 @@
       const timed = checks.filter((c) => c.ms != null);
       const t = el('div', 'tile click');
       t.title = 'See each check (Settings → Recent checks)';
-      t.onclick = () => { location.hash = 'settings'; setTimeout(() => $('c-checks')?.scrollIntoView({ block: 'center' }), 50); };
+      t.onclick = () => { location.hash = 'settings/agents'; setTimeout(() => $('c-checks')?.scrollIntoView({ block: 'center' }), 50); };
       const sub = el('div', 'sub');
       sub.append(...[[n('passed'), 'passed', 'ok'], [n('failed'), 'failed', 'bad'], [n('unsure') + n('error'), 'unsure', '']].filter(([k]) => k).flatMap(([k, w, cls], i) => [i ? ' · ' : '', el('span', cls, `${k} ${w}`)]));
       if (timed.length) sub.append(` · ~${Math.round(timed.reduce((s, c) => s + c.ms, 0) / timed.length)} ms`);
@@ -2483,6 +2576,254 @@
       await save({ checker: { removeKey: true } });
       toast('Key removed');
     };
+
+    // -- Blu's brain (bridge/brain.js): the AI you brought ----------------------------------
+    let brainInfo = null; // GET /api/brain: the AIs here and which one each job uses
+    async function loadBrain() {
+      try { brainInfo = await api('/api/brain'); } catch { brainInfo = null; }
+      renderBrain();
+    }
+    function renderBrain() {
+      const b = config.brain ?? { choice: 'auto', models: {}, polish: 'auto', dictionary: [] };
+      const brains = brainInfo?.brains ?? [];
+      const opts = [['auto', 'Auto: the first that’s ready'], ...brains.map((x) => [x.id, `${x.name} (${x.how})${x.ready ? ' ✓' : `: ${x.why}`}`])];
+      const sel = $('b-choice');
+      if (sel.options.length !== opts.length || [...sel.options].some((o, i) => o.textContent !== opts[i][1])) sel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+      sel.value = b.choice ?? 'auto';
+      const name = (id) => brains.find((x) => x.id === id)?.name;
+      const notReady = brains.find((x) => x.id === b.choice && !x.ready);
+      $('b-uses').textContent = !brainInfo ? '' : notReady ? `${notReady.name} isn’t ready yet: ${notReady.why}.`
+        : `Dictation uses ${name(brainInfo.quick) ?? 'nothing yet'}. Talk plans with ${name(brainInfo.plan) ?? 'nothing yet'}.`;
+      const chosen = brains.find((x) => x.id === b.choice);
+      $('b-model-row').hidden = !chosen;
+      if (chosen && document.activeElement !== $('b-model')) {
+        $('b-model').value = b.models?.[chosen.id] ?? '';
+        $('b-model').placeholder = chosen.model || 'its usual model';
+      }
+      $('b-key-row').hidden = chosen?.kind !== 'key';
+      if (chosen?.kind === 'key') {
+        const last4 = config.brainKeys?.[chosen.id];
+        $('b-key-name').textContent = `${chosen.name} API key`;
+        $('b-key-state').textContent = last4 ? `Saved: …${last4}` : 'No key saved.';
+        $('b-key-remove').hidden = !last4;
+      }
+      $('b-polish').value = b.polish ?? 'auto';
+      if (document.activeElement !== $('b-dictionary')) $('b-dictionary').value = (b.dictionary ?? []).join(', ');
+      renderBlu();
+    }
+    // -- Blu: your screen, music and computer (bridge/buddy.js, desktop/hands.js) ----------------------------
+    function renderBlu() {
+      const u = config.blu ?? {};
+      $('u-mode').value = u.mode ?? 'both';
+      $('u-see').checked = u.see !== false;
+      $('u-hands').checked = u.hands !== false;
+      $('u-click').checked = u.click === true;
+      $('u-click').disabled = u.hands === false;
+      $('u-music').value = u.music ?? 'youtube';
+      $('u-hearing').value = u.hearing ?? 'quick';
+      $('u-conversation').checked = u.conversation !== false;
+      $('u-spotify-row').hidden = u.music !== 'spotify';
+      const last4 = config.brainKeys?.spotify;
+      $('u-spotify-state').textContent = last4 ? `Saved: …${last4}` : 'No key saved.';
+      $('u-spotify-remove').hidden = !last4;
+      const name = (id) => brainInfo?.brains?.find((x) => x.id === id)?.name;
+      if (brainInfo) $('u-apps').textContent = brainInfo.screen ? `${name(brainInfo.screen)}, from Blu’s brain above. Your apps are in the Apps tab.` : 'No AI that can see is ready: pick one in Blu’s brain above.';
+    }
+    $('u-mode').onchange = (e) => save({ blu: { mode: e.target.value } });
+    $('u-hearing').onchange = (e) => save({ blu: { hearing: e.target.value } });
+    $('u-conversation').onchange = (e) => save({ blu: { conversation: e.target.checked } });
+
+    // -- Your apps (bridge/connectors.js): connected to dotpals itself; and Claude's, as an extra --
+    let appsInfo = null;
+    async function renderApps() {
+      try { appsInfo = await api('/api/apps'); } catch { appsInfo = null; }
+      const a = appsInfo;
+      const STATUS = { connected: 'Connected', 'sign-in': 'Not signed in yet' };
+      $('a-mine').replaceChildren(...(a?.mine ?? []).map((app) => {
+        const row = el('div', 'row app-row');
+        const text = el('div', 'text');
+        text.append(el('b', '', app.name), el('small', app.error ? 'bad' : app.status === 'connected' ? 'ok' : '',
+          app.error ? `Not working: ${app.error}` : `${STATUS[app.status] ?? app.status}${app.tools ? ` · ${app.tools} tools` : ''} · ${app.url ?? app.command}`));
+        const acts = el('div', 'acts');
+        const btn = (label, fn, cls) => { const b = el('button', cls ?? '', label); b.type = 'button'; b.onclick = fn; return b; };
+        if (app.url) acts.append(btn(app.status === 'connected' ? 'Sign in again' : 'Sign in', () => signInApp(app), app.status === 'connected' ? '' : 'primary'));
+        acts.append(btn('Check', () => checkApp(app)), btn('Remove', () => removeApp(app), 'danger'));
+        row.append(text, acts);
+        return row;
+      }));
+      if (!a?.mine?.length) $('a-mine').replaceChildren(el('div', 'row', !a ? 'Couldn’t ask. Is the bridge running?' : 'None yet: add one below.'));
+      // One click each; one that's added already isn't offered again.
+      $('a-presets').replaceChildren(...Object.entries(a?.presets ?? {}).filter(([, p]) => !a.mine.some((m) => m.url === p.url)).map(([id, p]) => {
+        const b = el('button', '', p.name);
+        b.type = 'button';
+        b.onclick = () => addPreset(id, p);
+        return b;
+      }));
+      const c = a?.claude ?? {};
+      $('a-claude').replaceChildren(...(c.connected ?? []).map((name) => el('span', 'pill on', `● ${name}`)));
+      if (!c.installed) $('a-claude').replaceChildren(el('span', 'muted', 'Claude Code isn’t installed here.'));
+      else if (!c.connected?.length) $('a-claude').replaceChildren(el('span', 'muted', 'None.'));
+      $('a-signin-row').hidden = !c.signIn?.length;
+      $('a-signin').textContent = (c.signIn ?? []).join(', ');
+    }
+    async function addApp(body) {
+      try { const { app } = await api('/api/apps/add', body); await renderApps(); return app; }
+      catch (err) { toast(err.message || 'Couldn’t add it'); return null; }
+    }
+    // Signing in happens in your browser; this page looks again when you come back to it.
+    async function signInApp(app) {
+      try { const { url } = await api('/api/apps/signin', { id: app.id }); window.open(url, '_blank'); toast(`Sign in to ${app.name} in your browser, then come back here`); }
+      catch (err) { toast(err.message || 'Couldn’t start signing in'); if (/client id/i.test(err.message)) openOwn(app.name, app.url); }
+    }
+    async function checkApp(app) {
+      try { const r = await api('/api/apps/check', { id: app.id }); toast(`✓ ${app.name} works: ${r.tools} tools`); }
+      catch (err) { toast(err.message || 'It didn’t answer'); }
+      renderApps();
+    }
+    async function removeApp(app) {
+      if (!confirm(`Remove ${app.name} from dotpals? You can add it again any time.`)) return;
+      try { await api('/api/apps/remove', { id: app.id }); toast(`Removed ${app.name}`); } catch (err) { toast(err.message || 'Couldn’t remove it'); }
+      renderApps();
+    }
+    function openOwn(name, where, note) {
+      $('a-own').open = true;
+      $('a-name').value = name ?? '';
+      $('a-where').value = where ?? '';
+      if (note) $('a-own-note').textContent = note;
+      ($('a-name').value ? (where ? $('a-client') : $('a-where')) : $('a-name')).focus();
+    }
+    async function addPreset(id, p) {
+      // Google won't register dotpals for you: its sign-in needs your own client.
+      if (p.ownClient) return openOwn(p.name, p.url, 'Google needs your own sign-in client: at console.cloud.google.com, make a project, turn on the Calendar API, then Credentials → Create OAuth client (Desktop app), and paste its client id and secret here.');
+      const app = await addApp({ preset: id });
+      if (app) signInApp(app);
+    }
+    $('a-claudeai').onclick = () => window.open('https://claude.ai/settings/connectors', '_blank');
+    $('a-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = $('a-name').value.trim(), where = $('a-where').value.trim();
+      if (!name || !where) { toast('Give it a name, and its address or the command that starts it'); return; }
+      const client = $('a-client').value.trim(), secret = $('a-secret').value.trim();
+      const app = await addApp({ name, ...(/^https?:\/\//i.test(where) ? { url: where } : { command: where }), ...(client ? { clientId: client } : {}), ...(secret ? { clientSecret: secret } : {}) });
+      if (!app) return;
+      for (const f of ['a-name', 'a-where', 'a-client', 'a-secret']) $(f).value = '';
+      $('a-own').open = false;
+      if (app.url) signInApp(app); else checkApp(app);
+    };
+    addEventListener('focus', () => { if (current === 'settings' && settingsTab === 'apps') renderApps(); });
+    renderApps();
+
+    // -- Settings, a tab at a time (#settings/<tab>) -------------------------------------------
+    const SETTINGS_TABS = ['pal', 'agents', 'blu', 'apps', 'more'];
+    let settingsTab = (() => { try { return localStorage.getItem('dotpals.settings.tab'); } catch { return null; } })() || 'pal';
+    function showSettingsTab(tab) {
+      settingsTab = SETTINGS_TABS.includes(tab) ? tab : 'pal';
+      try { localStorage.setItem('dotpals.settings.tab', settingsTab); } catch {}
+      for (const c of document.querySelectorAll('.settings > [data-tab]')) c.hidden = c.dataset.tab !== settingsTab;
+      for (const b of $('s-tabs').children) b.setAttribute('aria-pressed', String(b.dataset.tab === settingsTab));
+      if (settingsTab === 'apps') renderApps();
+      requestAnimationFrame(markLong);
+    }
+    $('s-tabs').onclick = (e) => { const t = e.target.closest('[data-tab]')?.dataset.tab; if (t) location.hash = `settings/${t}`; };
+    // An explanation that doesn't fit in two lines opens when you click it.
+    function markLong() {
+      for (const sm of document.querySelectorAll('.settings .row .text small')) {
+        if (sm.classList.contains('full')) continue;
+        const long = sm.scrollHeight > sm.clientHeight + 2;
+        sm.classList.toggle('more', long);
+        sm.title = long ? 'Click to read more' : '';
+      }
+    }
+    document.querySelector('.settings').addEventListener('click', (e) => {
+      const sm = e.target.closest('.row .text small');
+      if (!sm || e.target.closest('a, button, input, select') || !(sm.classList.contains('more') || sm.classList.contains('full'))) return;
+      sm.classList.toggle('full');
+      sm.title = sm.classList.contains('full') ? '' : 'Click to read more';
+    });
+    addEventListener('resize', () => { if (current === 'settings') markLong(); });
+
+    // -- Shortcuts: press the keys in a box; "Usual" goes back to the usual one -----------------
+    const keyLabel = (accel) => String(accel ?? '').replace(/CommandOrControl|CmdOrCtrl|Control/g, 'Ctrl').replace(/Super/g, 'Win');
+    async function renderKeys() {
+      let now = {};
+      try { now = await (await fetch('/api/shortcuts')).json(); } catch {}
+      for (const [id, key, usual] of [['k-talk', 'talkShortcut', 'Ctrl+Shift+Space'], ['k-circle', 'circleShortcut', 'Ctrl+Alt+C'], ['k-dictate', 'dictateShortcut', 'Ctrl+Alt+D']]) {
+        if (document.activeElement !== $(id)) $(id).value = keyLabel(config[key]);
+        $(id).placeholder = usual;
+        const which = id.slice(2);
+        $(`k-${which}-now`).textContent = now[which] ? `Working now: ${keyLabel(now[which])}` : now.platform ? 'Not working: every choice is taken by another app.' : 'The desktop app isn’t running.';
+      }
+      if (now.pal) $('k-pal-now').textContent = keyLabel(now.pal);
+    }
+    for (const box of document.querySelectorAll('.keybox')) {
+      box.onkeydown = (e) => {
+        e.preventDefault();
+        if (e.key === 'Escape' || e.key === 'Tab') { box.blur(); return; }
+        const mods = [e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+        const k = e.code === 'Space' ? 'Space' : /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^Digit\d$/.test(e.code) ? e.code.slice(5) : /^F([1-9]|1\d|2[0-4])$/.test(e.code) ? e.code : null;
+        if (!k) { box.value = `${mods.map(keyLabel).join('+')}${mods.length ? '+' : ''}…`; return; }
+        if (!mods.length) { toast('Add Ctrl, Alt, Shift or Win, so it doesn’t get in the way of typing'); return; }
+        const accel = [...mods, k].join('+');
+        box.value = keyLabel(accel);
+        box.blur();
+        save({ [box.dataset.key]: accel }).then(() => setTimeout(renderKeys, 2500));
+      };
+    }
+    for (const b of document.querySelectorAll('[data-reset]')) b.onclick = () => save({ [b.dataset.reset]: '' }).then(() => setTimeout(renderKeys, 2500));
+    renderKeys();
+    $('u-see').onchange = (e) => save({ blu: { see: e.target.checked } });
+    $('u-hands').onchange = (e) => save({ blu: { hands: e.target.checked } });
+    $('u-click').onchange = (e) => save({ blu: { click: e.target.checked } });
+    $('u-music').onchange = (e) => save({ blu: { music: e.target.value } });
+    $('u-spotify-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const key = $('u-spotify').value.trim();
+      if (!key) return;
+      if (!/^[^:\s]+:[^:\s]+$/.test(key)) { toast('Paste it as client id:client secret'); return; }
+      try {
+        config = await api('/api/config', { brainKeys: { spotify: key } });
+        $('u-spotify').value = '';
+        toast('Spotify key saved');
+        renderBlu();
+      } catch (err) { toast(err.message || 'Couldn’t save the key'); }
+    };
+    $('u-spotify-remove').onclick = async () => {
+      if (!confirm('Remove the Spotify key?')) return;
+      await save({ brainKeys: { spotify: null } });
+      toast('Key removed');
+    };
+    $('b-choice').onchange = async (e) => { await save({ brain: { choice: e.target.value } }); loadBrain(); };
+    $('b-model').onchange = (e) => { if ($('b-choice').value !== 'auto') save({ brain: { models: { [$('b-choice').value]: e.target.value.trim() } } }); };
+    $('b-polish').onchange = (e) => save({ brain: { polish: e.target.value } });
+    $('b-dictionary').onchange = (e) => save({ brain: { dictionary: e.target.value.split(/[,\n]/).map((w) => w.trim()).filter(Boolean) } });
+    $('b-key-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const id = $('b-choice').value;
+      const key = $('b-key').value.trim();
+      if (!key || id === 'auto') return;
+      try {
+        config = await api('/api/config', { brainKeys: { [id]: key } });
+        $('b-key').value = '';
+        toast('Key saved');
+        await loadBrain();
+      } catch (err) { toast(err.message === '403' ? 'The bridge refused. Reload the page and try again.' : err.message || 'Couldn’t save the key'); }
+    };
+    $('b-key-remove').onclick = async () => {
+      if (!confirm('Remove this API key?')) return;
+      await save({ brainKeys: { [$('b-choice').value]: null } });
+      toast('Key removed');
+      loadBrain();
+    };
+    $('b-test').onclick = async () => {
+      const id = $('b-choice').value === 'auto' ? brainInfo?.quick : $('b-choice').value;
+      if (!id) { $('b-test-note').textContent = 'No AI is ready yet: pick one above.'; return; }
+      $('b-test-note').textContent = 'Asking…';
+      try {
+        const r = await api('/api/brain/test', { id });
+        $('b-test-note').textContent = r.ok ? `✓ ${r.by} answered in ${(r.ms / 1000).toFixed(1)} s` : `✗ ${r.error}`;
+      } catch { $('b-test-note').textContent = 'Couldn’t ask. Is the bridge running?'; }
+    };
+    loadBrain();
     $('c-test').onclick = async () => {
       const b = $('c-test');
       b.disabled = true;
@@ -2734,6 +3075,7 @@
       $('s-days').value = String(config.historyDays);
       $('s-days').disabled = !config.history;
       renderChecker();
+      renderBrain();
       if (!status) return;
       $('history-where').textContent = config.history ? `Saved on this computer only: ${status.historyFile} (${(status.historySize / 1024).toFixed(0)} KB, ${status.entries} entries)` : 'Off. Activity is kept only until the pal closes.';
       $('about-version').textContent = `dotpals ${status.version} · bridge on port ${status.port}`;

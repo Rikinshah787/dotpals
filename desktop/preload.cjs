@@ -54,7 +54,8 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   },
   /** Ask for a project folder: its path, or null when cancelled. */
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
-  openDashboard: () => ipcRenderer.send('dashboard:open'),
+  /** The dashboard, at a place in it when given ("settings/apps"). */
+  openDashboard: (at) => ipcRenderer.send('dashboard:open', at),
   getOpenAtLogin: () => ipcRenderer.invoke('login:get'),
   setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),
   copy: (text) => ipcRenderer.send('clipboard:write', text),
@@ -81,11 +82,64 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   notchSize: (width, height, island) => ipcRenderer.send('notch:size', width, height, island ?? null),
   /** The notch's shortcuts: { escape, approval } → which ones got registered { escape, allow, deny }. */
   notchKeys: (want) => ipcRenderer.invoke('notch:keys', want),
-  /** onNotchKey('escape' | 'allow' | 'deny'): one of those shortcuts was pressed. */
+  /** onNotchKey('escape' | 'allow' | 'deny' | 'talk'): one of those shortcuts was pressed. */
   onNotchKey(callback) {
     ipcRenderer.removeAllListeners('notch:key');
     ipcRenderer.on('notch:key', (_, key) => callback(key));
   },
+  /** Dictate (bridge/dictate.html): onDictate('toggle' | 'cancel'): its shortcut (start, or finish now), or Esc. */
+  onDictate(callback) {
+    ipcRenderer.removeAllListeners('dictate:key');
+    ipcRenderer.on('dictate:key', (_, what) => callback(what));
+  },
+  /** Type this where the cursor is (the app pastes it, then puts your clipboard back) → { ok, copied?, error? }. */
+  dictateType: (text) => ipcRenderer.invoke('dictate:type', text),
+  /** Dictate is 'listening' (Esc cancels it), or 'hide' (it's done: hide the pill). */
+  dictateState: (state) => ipcRenderer.send('dictate:state', state),
+  /** "Blu, …" said to Dictate: hand the request to Talk in the notch (with a screenshot). */
+  dictateToBlu: (text) => ipcRenderer.send('dictate:blu', text),
+  /** The notch: onTalkText({ text, shot }), a request said to Blu from Dictate. */
+  onTalkText(callback) {
+    ipcRenderer.removeAllListeners('notch:talk-text');
+    ipcRenderer.on('notch:talk-text', (_, said) => callback(said));
+  },
+  // -- Blu, the screen buddy (bridge/buddy.js, desktop/hands.js) ------------------------------
+  /** The notch: onTalkShot(shot), the screenshot taken as Talk's shortcut was pressed ({ path, w, h, x, y } or null). */
+  onTalkShot(callback) {
+    ipcRenderer.removeAllListeners('notch:talk-shot');
+    ipcRenderer.on('notch:talk-shot', (_, shot) => callback(shot));
+  },
+  /** The notch: onTalkCircle({ shot, circled }), you circled something (Ctrl+Alt+C): ask about it. */
+  onTalkCircle(callback) {
+    ipcRenderer.removeAllListeners('notch:talk-circle');
+    ipcRenderer.on('notch:talk-circle', (_, data) => callback(data));
+  },
+  /** A fresh screenshot of the screen you're on → { path, w, h, x, y } or null. */
+  bluShot: () => ipcRenderer.invoke('blu:shot'),
+  /** Draw Blu's marks over the screen a screenshot showed: { marks, shot: its path, keep }. */
+  bluDraw: (data) => ipcRenderer.send('blu:draw', data),
+  /** Take Blu's drawings off the screen. */
+  bluClear: () => ipcRenderer.send('blu:clear'),
+  /** Do these actions on the computer → a receipt for each [{ act, ok, words, error? }]. `shot`: the screenshot's path, for clicks. */
+  bluDo: (data) => ipcRenderer.invoke('blu:do', data),
+  /** The music card: 'info' → what's playing { title, artist, playing, app } or null; 'play' | 'pause' | 'playpause' | 'next' | 'previous' | 'louder' | 'quieter' → a receipt. */
+  bluMedia: (what) => ipcRenderer.invoke('blu:media', what),
+  /** Music that's playing goes quieter (true) while Blu listens, and back (false). */
+  bluDuck: (on) => ipcRenderer.send('blu:duck', !!on),
+  /** Get Blu's hands ready (Windows: its helper starts), while you're still talking. */
+  bluWarm: () => ipcRenderer.send('blu:warm'),
+  /** onBluDrawing(on): Blu's marks came on screen, or all went away. */
+  onBluDrawing(callback) {
+    ipcRenderer.removeAllListeners('notch:drawing');
+    ipcRenderer.on('notch:drawing', (_, on) => callback(on));
+  },
+  /** The drawing window (bridge/draw.html): onDrawCmd({ type: 'marks' | 'clear' | 'circle' | 'cancel', … }). */
+  onDrawCmd(callback) {
+    ipcRenderer.removeAllListeners('draw:cmd');
+    ipcRenderer.on('draw:cmd', (_, cmd) => callback(cmd));
+  },
+  /** The drawing window tells the app: 'empty' (nothing left on screen), 'circled' ({ box, image }). */
+  drawEvent: (type, data) => ipcRenderer.send('draw:event', type, data ?? null),
   /** onIdle(seconds): how long since the last keyboard or mouse input (every 2 s). */
   onIdle(callback) {
     ipcRenderer.removeAllListeners('notch:idle');

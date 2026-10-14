@@ -16,7 +16,8 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSyn
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compareVersions, findElectron, installElectron } from '../desktop/launch.js';
+import { compareVersions, findElectron, installElectron, macApp, openMacApp } from '../desktop/launch.js';
+import { buildMacApp, bundleVersion, electronDist } from '../desktop/mac-app.js';
 import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
@@ -78,7 +79,7 @@ function startApp(extra = []) {
   mkdirSync(home(), { recursive: true });
   const log = openSync(logFile, existsSync(logFile) && statSync(logFile).size > 500_000 ? 'w' : 'a');
   writeSync(log, `--- ${new Date().toLocaleString()}: starting dotpals ${version} ${extra.join(' ')}\n`);
-  spawn(electron, [main, ...extra], { detached: true, stdio: ['ignore', log, log], env }).unref();
+  if (!openMacApp(main, extra, logFile)) spawn(electron, [main, ...extra], { detached: true, stdio: ['ignore', log, log], env }).unref();
   closeSync(log);
   return true;
 }
@@ -99,9 +100,29 @@ function desktopRuntime(fresh = false) {
     warn(`Couldn’t remove the old desktop runtime (${err.code}): it’s still in use. Quit dotpals from the tray, then run dotpals doctor.`);
     return false;
   }
-  if (installElectron() && electronRuns(findElectron())) { ok('Desktop runtime installed'); return true; }
+  if (installElectron() && electronRuns(findElectron())) { ok('Desktop runtime installed'); macBundle(true); return true; }
   warn(`The desktop runtime still won’t run. Something on this computer may be blocking it (antivirus${platform() === 'win32' ? ', or Windows Smart App Control' : ''}).`);
   return false;
+}
+
+/**
+ * macOS: dotpals.app, Electron's app named dotpals (desktop/mac-app.js), so macOS asks for
+ * permissions as dotpals. Made again when Electron's version changes (`fresh`: always).
+ */
+function macBundle(fresh = false) {
+  const exe = findElectron();
+  if (platform() !== 'darwin' || !exe || process.env.DOTPALS_ELECTRON) return;
+  const dist = electronDist(exe);
+  const had = bundleVersion(macApp);
+  const want = bundleVersion(join(dist, 'Electron.app'));
+  if (!fresh && had && had === want) { ok('dotpals.app is ready (macOS asks for permissions as dotpals)'); return; }
+  try {
+    buildMacApp({ electronDist: dist, dest: macApp });
+    // It's signed on this Mac, not by a developer: macOS ties what you allowed to this one build.
+    ok(had && had !== want ? `Made dotpals.app again for Electron ${want}. If something you allowed it stops working, turn dotpals off and on under Privacy & Security` : `Made ${macApp}, so macOS asks for permissions as dotpals`);
+  } catch (err) {
+    warn(`Couldn’t make dotpals.app (${err.message}). The pal still runs, but macOS lists it as Electron.`);
+  }
 }
 
 /** The notch setting the desktop app keeps in its own folder: 'always' (the default), 'auto' (when the pal is hidden) or 'off'. */
@@ -250,6 +271,7 @@ async function setup(flags) {
     if (installElectron()) ok('Desktop runtime installed');
     else { warn('Couldn’t install Electron. You can still use the dashboard in a browser: dotpals bridge'); }
   }
+  macBundle();
 
   // 4. Settings file with defaults, then your preferences (asked in a terminal; --yes or no
   // terminal keeps the defaults, which you can change any time on the dashboard).

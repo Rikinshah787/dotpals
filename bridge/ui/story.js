@@ -29,7 +29,7 @@ const RISKY = [
 ];
 const SECRET = /(^|[\\/])(\.env(\.[\w-]+)?|\.npmrc|\.pypirc|id_(rsa|ed25519)|credentials?(\.json)?|secrets?\.[\w]+|[\w-]*\.(pem|key|p12|pfx))$/i;
 
-const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
+export const commandOf = (e) => String(e.body?.command ?? e.detail ?? e.title ?? '');
 
 /**
  * Whether a command runs tests: a test command at the start of one of its parts
@@ -205,11 +205,12 @@ function countWords(f) {
 /**
  * Whether a test command's output goes through a pipe (`npm test | grep fail`): the shell
  * then reports the last command's exit code (grep's), not the tests'. `2>&1 | tee` too.
+ * `is` picks the command to ask about (a test run by default).
  */
-function piped(cmd) {
+function piped(cmd, is = (p) => TEST.test(p)) {
   for (const statement of splitCommands(scriptText(cmd), { pipes: false })) {
     const pipeline = splitCommands(statement);
-    if (pipeline.length > 1 && parts(pipeline.slice(0, -1).join(';')).some((p) => TEST.test(p))) return true;
+    if (pipeline.length > 1 && parts(pipeline.slice(0, -1).join(';')).some(is)) return true;
   }
   return false;
 }
@@ -655,7 +656,7 @@ function target(e) {
 const testedAs = (e) => (e.kind === 'run' && stepType(e) === 'test' && !running(e) ? testVerdict(e).state : null);
 const failedStep = (e) => e.status === 'failed' || testedAs(e) === 'failed';
 /** Whether a test run runs every test: no file, folder or name filter after the runner (`npm test`, `pytest -q`). */
-const wholeSuite = (e) => parts(commandOf(e)).filter((p) => TEST.test(p)).some((p) => {
+export const wholeSuite = (e) => parts(commandOf(e)).filter((p) => TEST.test(p)).some((p) => {
   if (/^(npm|pnpm|yarn|bun)\s+(run\s+)?test:/.test(p)) return false; // `npm run test:unit` is one part of it
   const words = p.replace(/\s+\d?>>?&?\s*\S+/g, '').split(/\s+/).slice(1);
   return !words.some((w) => /[\\/]|\.(?:[cm]?[jt]sx?|py|go|rs|rb|php|java|cs)$/i.test(w) || /^(-k|-t|--grep|--test-name-pattern|--testNamePattern|--filter|-run)(=|$)/.test(w));
@@ -732,12 +733,7 @@ const COMMIT = /\bgit\s+commit\b/i;
 export function testState(steps) {
   const list = [...steps].sort((a, b) => a.at - b.at);
   const tests = list.filter((e) => e.kind === 'run' && stepType(e) === 'test');
-  const edits = [];
-  for (const e of list) {
-    for (const path of commandEdits(e)) edits.push({ at: e.at, path });
-    if (stepType(e) !== 'change' || outside(e) || e.status === 'failed') continue;
-    for (const f of e.files ?? []) if (f.change !== 'read' && !NOT_CODE.test(String(f.path))) edits.push({ at: e.at, path: f.path });
-  }
+  const edits = codeEdits(list);
   const last = tests.at(-1) ?? null;
   if (!edits.length && !last) return null;
   const seen = new Map();
@@ -754,6 +750,47 @@ export function testState(steps) {
     commit = { at: c.at, tested: !!before && testPassed(before) === true && !edits.some((x) => x.at > before.at && x.at < c.at) };
   }
   return { state, last, verdict, since, commit };
+}
+
+/** The code changes in steps, with when: [{ at, path }]. Not docs, failed edits or files outside the project. */
+function codeEdits(list) {
+  const edits = [];
+  for (const e of list) {
+    for (const path of commandEdits(e)) edits.push({ at: e.at, path });
+    if (stepType(e) !== 'change' || outside(e) || e.status === 'failed') continue;
+    for (const f of e.files ?? []) if (f.change !== 'read' && !NOT_CODE.test(String(f.path))) edits.push({ at: e.at, path: f.path });
+  }
+  return edits;
+}
+
+/**
+ * Whether `command` (`npm run build`, `tsc`, `git commit`) ran OK after the last code
+ * change, as testState decides "after": { state, note? }
+ *   state: 'passed' | 'failed' | 'unclear' (note says why) | 'stale' (it only ran before the
+ *          last change) | 'not-run'
+ * A run counts when one of its parts is the command, or the command with more arguments
+ * (`tsc --noEmit` for `tsc`, not `tsconfig`). One OK run after the last change is enough. A
+ * run piped into another command is unclear: the exit code is the last command's. A test
+ * command is read as testVerdict reads it.
+ */
+export function ranAfterLastChange(steps, command) {
+  const list = [...steps].sort((a, b) => a.at - b.at);
+  const tidy = (s) => s.replace(/\s+/g, ' ').trim();
+  const want = parts(command).map(tidy);
+  const is = (w) => (p) => tidy(p) === w || tidy(p).startsWith(`${w} `);
+  const runs = want.length ? list.filter((e) => e.kind === 'run' && want.every((w) => parts(commandOf(e)).some(is(w)))) : [];
+  if (!runs.length) return { state: 'not-run' };
+  const lastEdit = codeEdits(list).reduce((t, x) => Math.max(t, x.at), -Infinity);
+  const after = runs.filter((e) => e.at >= lastEdit);
+  if (!after.length) return { state: 'stale' };
+  const test = want.some((w) => w.search(TEST) === 0);
+  const results = after.map((e) => {
+    if (test && !running(e)) { const v = testVerdict(e); return { state: v.state, note: v.note }; }
+    if (e.status !== 'ok' && e.status !== 'failed') return { state: 'unclear', note: 'it didn’t finish' };
+    if (piped(commandOf(e), (p) => want.some((w) => is(w)(p)))) return { state: 'unclear', note: 'its output went through a pipe, so the exit code isn’t its own' };
+    return { state: e.status === 'ok' ? 'passed' : 'failed' };
+  });
+  return results.find((r) => r.state === 'passed') ?? results.find((r) => r.state === 'unclear') ?? results.at(-1);
 }
 
 // A source file's name: what a command that writes files is taken to change.

@@ -64,6 +64,29 @@
 //   POST /api/chat/answer { id, reply } | { id, answers }  answer an OpenCode permission request
 //                        (`ocask` events: once, always or reject) or question (null skips it)
 //   GET  /api/chat/projects → { projects: [{ path, name }] } folders agents worked in, newest first
+//   GET  /api/talk/projects          → { projects, claude } the folders a task can go to; is Claude Code installed
+//   GET  /api/talk/tasks             → { tasks } the tasks so far, newest first (also `task` events as they change)
+//   POST /api/talk/plan { text, project?, pal?, shot? }   your words → { plan } with a definition of done (bridge/tasks.js),
+//                        or { reply } when it was just talk (what the pal, named `pal`, says back). Planned by
+//                        Blu's brain; `shot`: { path, x, y }, a screenshot under ~/.dotpals/shots as you spoke
+//   POST /api/talk/buddy { text, shot?, circled?, history?, pal? }   Blu looks at your screen (bridge/buddy.js) →
+//                        { say, draw, do, task, clear, keep, words, by, ms, saw }: what to say, the marks to draw
+//                        (screenshot pixels), the actions to do (desktop/hands.js), work for an agent
+//   GET  /api/shortcuts              → { pal, talk, dictate, circle, platform } the desktop app's shortcuts that work now
+//   GET  /api/apps                   → { connected, signIn, mine, claude, presets } your apps: connected to dotpals
+//                        (bridge/connectors.js), and the ones Claude Code is connected to
+//   POST /api/apps/add { name, url? | command? | preset?, clientId?, clientSecret? }, /api/apps/remove { id },
+//        /api/apps/signin { id } → { url } (sign in in your browser; back at GET /api/apps/callback), /api/apps/check { id }
+//   POST /api/talk/apps { app, ask, change?, confirmed? }   → { say, calls } Blu's brain looks (or, said yes to, does one
+//                        thing) in that app: yours with any AI that can use tools, Claude's through Claude Code
+//   GET  /api/brain                  → { brains, quick, plan, screen, brain, keys, apps } the AIs here, which ones each job uses,
+//                        the settings, and which API keys are saved (their last 4 characters)
+//   POST /api/brain/polish { text }  → { text, by?, ms?, error? } dictation, cleaned up by Blu's brain (your text
+//                        back as it was when that's off, there's no AI, or it fails)
+//   POST /api/brain/test { id }      → { ok, by, ms } or { ok: false, error } is that brain working?
+//   POST /api/talk/start { id, title?, task?, done?, project? }   start Claude Code on it in a new terminal
+//   POST /api/talk/fix { id }        → { text } a request for the agent to fix what isn't done (to paste)
+//   POST /api/talk/pr/plan { id }    → { pr } what opening a PR would do; POST /api/talk/pr/open { id } does it
 //   (every POST under /api needs the `x-dotpals: 1` header)
 //
 //   node bridge/server.js            (PORT=5175 by default)
@@ -73,7 +96,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
@@ -84,13 +107,18 @@ import { baseName, sentence } from './ui/recap.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
-import { checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
+import { brainKeys, checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
+import { ask, askApps, askWithTools, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem, warmUp } from './brain.js';
+import { PRESETS, createConnectors, never, readOnly } from './connectors.js';
+import { actionWords, agentApps, appsSystem, appTools, buddyInput, buddySystem, parseBuddyReply, resolvePlay, saidYesTo } from './buddy.js';
+import { yourWords } from './ui/dictation.js';
 import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, guardReply, pathKey, who } from './guard.js';
-import { HANDOFF_AGENTS, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
+import { HANDOFF_AGENTS, findOnPath, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
 import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 import { checkpoint, createGround, restoreFiles, rewindPlan, runGit, snapshot, testDiff, treeChanges } from './ground.js';
 import { createChat } from './chat.js';
+import { agentEnv, askPlanner, claudeTaskArgs, createTaskList, doneItem, evaluate, fixRequest, knownProjects, makePlan, newSessionId, openPr, prPlan, receiptMarkdown, run, saveTask, taskMarkdown, taskPrompt, verdictWords } from './tasks.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } })();
@@ -333,6 +361,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       checkConflicts(entry);
       if (entry.status === 'failed' || entry.kind === 'run' || (entry.kind === 'edit' && entry.status === 'ok')) checkStuck(entry.session);
       groundTruth(entry);
+      taskNews(entry);
       any = true;
     }
     if (any) history.save();
@@ -717,6 +746,340 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         publish([activity.upsert({ id: entry.id, git })]);
       }, () => {});
     }
+  }
+
+  // -- Talk to Blu (bridge/tasks.js): a task said or typed, done by an agent, checked here ------
+  // Plans wait here until you send or drop them; a sent task is followed through its session
+  // (ours: Claude Code starts with a session id we chose) and checked each time it finishes.
+  const taskList = createTaskList();
+  // Saved tasks keep their last verdict; a task's new steps (live, or read from its transcript) check it again.
+  taskList.load().catch(() => {});
+  const plans = new Map(); // plan id → plan, for 30 minutes
+  const prPlans = new Map(); // task id → what opening its PR will do (shown before it's done)
+  const taskTimers = new Map();
+  const projectsNow = () => knownProjects(activity.all(), (s) => sessionMeta.get(s)?.cwd, { isFolder: handoffOptions.isFolder ?? isFolder, name: folderName });
+  // Each awake agent in a line, so the pal can answer "what are my agents doing?".
+  const agentsNow = () => [...sessions.values()].slice(-6).map((u) => {
+    const last = activity.findLast(u.session, (e) => e.kind !== 'prompt');
+    return { label: u.label, harness: u.harness, state: u.state, asked: activity.findLast(u.session, (e) => e.kind === 'prompt')?.title,
+      latest: last && (last.kind === 'done' ? last.summary || 'finished' : `${last.kind} ${last.title ?? ''}`.trim()) };
+  });
+  const taskView = (t) => ({ ...t, verdict: t.verdict && { ...t.verdict, turn: undefined } });
+  function taskNews(entry) {
+    const task = entry.session && taskList.bySession(entry.session);
+    if (!task) return;
+    // When a request ends, wait a moment for git's account of it (groundTruth) before checking.
+    settleTask(task, entry.kind === 'done' || entry.kind === 'error' ? 2500 : 600);
+  }
+  function settleTask(task, delay) {
+    clearTimeout(taskTimers.get(task.id));
+    taskTimers.set(task.id, setTimeout(() => {
+      taskTimers.delete(task.id);
+      const v = evaluate(task, [...activity.each()]);
+      // Steps not loaded yet (history trimmed, a restart): keep what was known.
+      if (v.state === 'starting' && task.verdict && task.verdict.state !== 'starting') return;
+      const before = task.state;
+      task.state = v.state;
+      task.verdict = v;
+      if (!['starting', 'working'].includes(v.state)) task.words = verdictWords(task, v);
+      send('task', taskView(task));
+      if (before !== v.state || !['starting', 'working'].includes(v.state)) taskList.save();
+    }, delay));
+  }
+  /** Read a JSON body; only this bridge's own pages (or no page at all) may ask, as for the hand-off. */
+  async function talkBody(req, res) {
+    const origin = req.headers.origin;
+    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) { json(res, 403, { error: 'forbidden' }); return null; }
+    try { return JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { error: 'bad json' }); return null; }
+  }
+  /** A project folder the agents worked in, by its path; never a folder only a request names. */
+  const knownProject = (path) => projectsNow().find((p) => p.path.toLowerCase() === String(path ?? '').toLowerCase()) ?? null;
+
+  // -- Blu's brain (bridge/brain.js): the AI you brought, for cleaning up dictation and Talk's plans --
+  /** The AIs here, and the one a job ('quick' or 'plan') uses: { brain, here, keys }. Looked up again after 20 s, or when Settings change. */
+  let brainsSeen = null; // { at, here }
+  async function brainFor(job) {
+    const keys = brainKeys();
+    if (!brainsSeen || Date.now() - brainsSeen.at > 20_000) {
+      brainsSeen = { at: Date.now(), here: await (handoffOptions.brains ?? brainsHere)({ keys: Object.fromEntries(Object.keys(keys).map((id) => [id, true])) }) };
+    }
+    const here = brainsSeen.here;
+    return { brain: pickBrain(here, { choice: config.brain?.choice, job }), here, keys };
+  }
+  const askBrain = (brain, keys, system, text, timeoutMs, images = []) =>
+    (handoffOptions.ask ?? ask)(brain, { system, text, images, model: config.brain?.models?.[brain?.id], key: keys[brain?.id], timeoutMs });
+  /** A screenshot you pointed at as you spoke: only one dotpals took, under ~/.dotpals/shots. With its size in pixels, when given. */
+  function shotOf(s) {
+    const dir = join(home(), 'shots');
+    const path = typeof s?.path === 'string' ? normalize(s.path) : '';
+    if (!path.toLowerCase().startsWith(`${normalize(dir).toLowerCase()}${sep}`) || !/\.(png|jpe?g)$/i.test(path) || !existsSync(path)) return null;
+    const px = (n) => Number.isInteger(n) && n > 0 && n <= 10_000;
+    return { path, ...(Number.isFinite(s.x) && Number.isFinite(s.y) ? { x: s.x, y: s.y } : {}), ...(px(s.w) && px(s.h) ? { w: s.w, h: s.h } : {}) };
+  }
+  // -- Your apps (Settings → Apps): connected to dotpals itself (bridge/connectors.js), so any AI
+  // Blu thinks with can use them; and, when Claude Code is here, the apps it's connected to.
+  const connectors = handoffOptions.connectors ?? createConnectors({ file: join(home(), 'apps.json'), redirect: `http://127.0.0.1:${port}/api/apps/callback`, log: print });
+  /** The apps Blu can use: yours in dotpals first, then Claude's (bridge/buddy.js agentApps), by name. */
+  function appsNow() {
+    const mine = connectors.list();
+    const claude = (handoffOptions.apps ?? agentApps)();
+    const taken = new Set(mine.map((a) => a.name.toLowerCase()));
+    const fromClaude = { ...claude, connected: claude.connected.filter((n) => !taken.has(n.toLowerCase())) };
+    return {
+      connected: [...mine.filter((a) => a.status === 'connected').map((a) => a.name), ...fromClaude.connected],
+      signIn: [...mine.filter((a) => a.status !== 'connected').map((a) => a.name), ...claude.signIn],
+      mine, claude: fromClaude,
+    };
+  }
+  async function appsApi(req, res, path) {
+    const body = await talkBody(req, res);
+    if (!body) return;
+    try {
+      if (path === '/api/apps/add') {
+        const preset = PRESETS[body.preset];
+        const app = connectors.add(preset ? { ...preset, ...body, name: preset.name, url: preset.url } : body);
+        send('apps', appsNow());
+        return json(res, 200, { app });
+      }
+      const app = connectors.get(String(body.id ?? ''));
+      if (!app) return json(res, 404, { error: 'dotpals has no app by that name' });
+      if (path === '/api/apps/remove') { connectors.remove(app.id); send('apps', appsNow()); return json(res, 200, { ok: true }); }
+      if (path === '/api/apps/signin') return json(res, 200, await connectors.signIn(app.id));
+      if (path === '/api/apps/check') {
+        const tools = await connectors.tools(app.id);
+        send('apps', appsNow());
+        return json(res, 200, { ok: true, tools: tools.length });
+      }
+    } catch (err) {
+      return json(res, err.signIn || err.ownClient ? 409 : 400, { error: err.message, ...(err.signIn ? { signIn: true } : {}), ...(err.ownClient ? { ownClient: true } : {}) });
+    }
+    return json(res, 404, { error: 'not found' });
+  }
+  const palOf = (p) => (typeof p === 'string' && /^[\w .'-]{1,30}$/.test(p) ? p : 'Blu');
+  /** Blu's instructions for a look at your screen (bridge/buddy.js), from your settings now: the same for warming up and for the look. */
+  function buddyNow(name) {
+    const blu = config.blu ?? {};
+    const can = { hands: blu.hands !== false, click: blu.click === true };
+    const apps = appsNow();
+    return { blu, can, apps, system: buddySystem({ name, mode: blu.mode, can, music: blu.music, apps }) };
+  }
+  async function brainApi(req, res, path) {
+    const body = await talkBody(req, res);
+    if (!body) return;
+    // Talk is listening: start Claude Code ahead, if that's what looks at your screen (bridge/brain.js warmUp).
+    if (path === '/api/brain/warm') {
+      const { brain } = await brainFor('screen');
+      const started = brain ? await (handoffOptions.warmUp ?? warmUp)(brain, { system: buddyNow(palOf(body.pal)).system, model: config.brain?.models?.[brain.id] || brain.model }).catch(() => false) : false;
+      return json(res, 200, { warm: started });
+    }
+    if (path === '/api/brain/polish') {
+      const text = String(body.text ?? '').trim().slice(0, 8000);
+      const mode = config.brain?.polish ?? 'auto';
+      if (!text || mode === 'off') return json(res, 200, { text });
+      const { brain, keys } = await brainFor('quick');
+      if (!brain) return json(res, 200, { text, error: 'no AI is set up (Settings → Blu’s brain)' });
+      // "auto": a subscription's command line takes seconds, so only when you corrected yourself.
+      if (mode === 'auto' && !isQuick(brain) && !correcting(text)) return json(res, 200, { text });
+      try {
+        // Under the pill's own 20 s wait, so an answer nobody would read isn't waited for.
+        const r = await askBrain(brain, keys, polishSystem(config.brain?.dictionary), text, isQuick(brain) ? 12_000 : 18_000);
+        const clean = polished(text, r.text, yourWords(config.brain?.dictionary ?? []).words);
+        return json(res, 200, clean ? { text: clean, by: r.by, ms: r.ms } : { text, error: `${r.by}’s answer didn’t look like your words` });
+      } catch (err) {
+        return json(res, 200, { text, error: err.message });
+      }
+    }
+    if (path === '/api/brain/test') {
+      const { here, keys } = await brainFor('quick');
+      const brain = here.find((b) => b.id === body.id);
+      if (!brain) return json(res, 404, { error: 'dotpals doesn’t know that brain' });
+      if (!brain.ready) return json(res, 200, { ok: false, error: brain.why });
+      try {
+        const r = await askBrain(brain, keys, 'Reply with the single word: ready', 'Are you there?', 45_000);
+        return json(res, 200, { ok: true, by: r.by, ms: r.ms });
+      } catch (err) {
+        return json(res, 200, { ok: false, error: err.message });
+      }
+    }
+    return json(res, 404, { error: 'not found' });
+  }
+
+  async function talk(req, res, path) {
+    const body = await talkBody(req, res);
+    if (!body) return;
+    // Blu, your screen buddy (bridge/buddy.js): it looks at your screen with you, and answers with
+    // what to say, what to draw on the screen and what to do on your computer (desktop/hands.js
+    // does it). Work for an agent comes back as `task`, for Talk's plan.
+    if (path === '/api/talk/buddy') {
+      const text = String(body.text ?? '').trim().slice(0, 2000);
+      if (!text) return json(res, 400, { error: 'Say what you want' });
+      const name = palOf(body.pal);
+      const { blu, can, apps, system } = buddyNow(name);
+      const shot = blu.see === false ? null : shotOf(body.shot);
+      const box = body.circled;
+      const circled = shot && box && [box.x, box.y, box.w, box.h].every(Number.isFinite) ? { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) } : null;
+      const { brain, here, keys } = await brainFor('screen');
+      if (!brain) {
+        const chosen = here.find((b) => b.id === config.brain?.choice);
+        return json(res, 400, { error: chosen && !chosen.ready ? `${chosen.name} isn’t ready: ${chosen.why} (Settings → Blu’s brain)` : 'No AI that can see is set up: add one in Settings → Blu’s brain' });
+      }
+      try {
+        const images = shot ? [{ type: /\.png$/i.test(shot.path) ? 'image/png' : 'image/jpeg', data: (await readFile(shot.path)).toString('base64') }] : [];
+        const history = (Array.isArray(body.history) ? body.history : []).slice(-6).map((t) => ({ said: String(t?.said ?? ''), reply: String(t?.reply ?? ''), drew: String(t?.drew ?? '') }));
+        const input = buddyInput(text, { shot, circled, history, agents: blu.mode === 'everyday' ? [] : agentsNow(), name, words: yourWords(config.brain?.dictionary ?? []).words });
+        const r = await askBrain(brain, keys, system, input, isQuick(brain) ? 40_000 : 90_000, images);
+        const reply = parseBuddyReply(r.text, { size: shot?.w ? { w: shot.w, h: shot.h } : null, can, apps });
+        // "Yes" to the change Blu just asked about: done now, not asked again. Only on your own plain
+        // yes, right after Blu's question about that same change (bridge/buddy.js saidYesTo): the
+        // brain can't confirm a change on its own, nor swap in another.
+        if (saidYesTo(text, history.at(-1)?.reply, reply.apps)) reply.apps.confirmed = true;
+        // "Play some jazz": the link that plays it, found here (YouTube's first result, or your Spotify app's).
+        for (const a of reply.do) if (a.act === 'play') Object.assign(a, await resolvePlay(a, { music: blu.music, spotifyKey: keys.spotify }).catch(() => ({})));
+        return json(res, 200, { ...reply, words: reply.do.map(actionWords), by: r.by, ms: r.ms, saw: !!images.length });
+      } catch (err) {
+        return json(res, 502, { error: `${brain.name} couldn’t answer: ${err.message}` });
+      }
+    }
+    // Blu asks Claude in one of your apps it's connected to ("what's on my calendar today?"): only
+    // that app's tools, only a look unless it's a change you said yes to (bridge/buddy.js appsSystem).
+    if (path === '/api/talk/apps') {
+      const apps = appsNow();
+      const app = apps.connected.find((n) => n === body.app);
+      const question = String(body.ask ?? '').trim().slice(0, 500);
+      if (!app || !question) return json(res, 400, { error: `${String(body.app ?? 'That app').slice(0, 40)} isn’t connected (Settings → Apps)` });
+      const change = body.change === true;
+      if (change && body.confirmed !== true) return json(res, 409, { error: 'Say yes first' });
+      // Said out loud, so no Markdown and no web addresses; the first link ("open it here") becomes
+      // the Talk card's Open button instead.
+      const spoken = (t) => String(t ?? '').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '$1').replace(/<?https?:\/\/\S+/g, '').replace(/[*_`#>]+/g, '').replace(/\s+([.,;:!?])/g, '$1').replace(/\s+/g, ' ').trim().slice(0, 800);
+      const linkOf = (t) => { const u = (/\]\((https:[^)\s]+)\)/.exec(String(t)) ?? /(https:\/\/[^\s)<>"]+)/.exec(String(t)))?.[1]; return u && u.length < 2000 ? u : undefined; };
+      const own = apps.mine.find((a) => a.name === app);
+      // One of yours: Blu's brain (whichever AI you brought) calls its tools; dotpals runs each
+      // call, and only the ones it may use now: a look only reads; a change you said yes to
+      // never sends, deletes or pays.
+      if (own) {
+        const { brain, here, keys } = await brainFor('apps');
+        if (!brain) {
+          const chosen = here.find((b) => b.id === config.brain?.choice);
+          return json(res, 400, { error: chosen ? `${chosen.name} can’t use your apps: pick an API key, Ollama or Claude Code (Settings → Blu)` : 'No AI that can use your apps is set up (Settings → Blu)' });
+        }
+        try {
+          const all = await connectors.tools(own.id);
+          const usable = all.filter((t) => (change ? !never(t, own.id) : readOnly(t, own.id)));
+          if (!usable.length) return json(res, 400, { error: `${app} has no tools Blu may use for ${change ? 'that' : 'a look'}` });
+          const name = (t) => `${own.id.replace(/-/g, '_')}__${t.name}`.replace(/[^\w-]/g, '_').slice(0, 64);
+          const byName = new Map(usable.map((t) => [name(t), t]));
+          const tools = [...byName].map(([n, t]) => ({ name: n, description: String(t.description ?? '').slice(0, 1000), schema: t.inputSchema ?? { type: 'object', properties: {} } }));
+          // Claude Code's --allowedTools is a list: only plain tool names go in it (no commas or spaces).
+          const mcp = brain.id === 'claude' ? { config: { mcpServers: { [own.id]: await connectors.claudeEntry(own.id) } }, allowed: usable.filter((t) => /^[\w-]{1,64}$/.test(t.name)).map((t) => `mcp__${own.id}__${t.name}`) } : null;
+          const r = await (handoffOptions.askWithTools ?? askWithTools)(brain, {
+            system: appsSystem({ app, change }), text: question, tools, mcp, model: config.brain?.models?.[brain.id], key: keys[brain.id], timeoutMs: isQuick(brain) ? 60_000 : 120_000,
+            call: async (n, args) => (byName.has(n) ? connectors.call(own.id, byName.get(n).name, args) : `Error: Blu may not use ${n} now`),
+          });
+          // "Notion: search", not "Notion: notion search" (Claude Code's names are mcp__<app>__<tool>).
+          const label = (n) => (byName.get(n)?.name ?? String(n).split('__').pop()).replace(new RegExp(`^${own.id}[-_]`, 'i'), '').replace(/[_-]+/g, ' ');
+          return json(res, 200, { say: spoken(r.text), link: linkOf(r.text), app, by: r.by, ms: r.ms, calls: r.calls.map((c) => ({ words: `${app}: ${label(c.name)}`, ok: c.ok })) });
+        } catch (err) {
+          return json(res, err.signIn ? 409 : 502, { error: err.signIn ? err.message : `${brain.name} couldn’t use ${app}: ${err.message}`, ...(err.signIn ? { signIn: true } : {}) });
+        }
+      }
+      // Connected in Claude: Claude Code with only that app's tools.
+      try {
+        const r = await (handoffOptions.askApps ?? askApps)({ tools: appTools(apps.claude.servers?.[app] ?? app), system: appsSystem({ app, change }), ask: question, model: config.brain?.models?.claude || 'haiku' });
+        return json(res, 200, { say: spoken(r.text), link: linkOf(r.text), app, by: r.by, ms: r.ms });
+      } catch (err) {
+        return json(res, 502, { error: `Claude couldn’t reach ${app}: ${err.message}` });
+      }
+    }
+    if (path === '/api/talk/plan') {
+      const text = String(body.text ?? '').trim().slice(0, 2000);
+      if (!text) return json(res, 400, { error: 'Say or type what you want done' });
+      const projects = projectsNow();
+      const chosen = body.project ? knownProject(body.project) : null;
+      if (body.project && !chosen) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
+      try {
+        const name = typeof body.pal === 'string' && /^[\w .'-]{1,30}$/.test(body.pal) ? body.pal : 'Blu';
+        const shot = shotOf(body.shot);
+        // Planned by Blu's brain: your Claude Code as before, or whichever AI you chose.
+        const { brain, here, keys } = await brainFor('plan');
+        const mine = here.find((b) => b.id === config.brain?.choice);
+        if (!brain && mine && !mine.ready) return json(res, 400, { error: `${mine.name} isn’t ready: ${mine.why} (Settings → Blu’s brain)` });
+        const think = brain && brain.id !== 'claude' ? (system, input) => askBrain(brain, keys, system, input, 90_000).then((r) => r.text) : null;
+        const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name, agents: agentsNow(), shot, think, model: config.brain?.models?.claude });
+        if (reply.chat) return json(res, 200, { reply: reply.chat }); // just talk: what the pal says back
+        // An email or a note isn't work in a project: it runs in ~/.dotpals/blu.
+        const apps = { path: join(home(), 'blu'), name: 'your apps' };
+        if (reply.code === false) await mkdir(apps.path, { recursive: true });
+        const plan = makePlan({ text, reply, projects, project: chosen, shot, apps });
+        plans.set(plan.id, plan);
+        for (const [id, p] of plans) if (Date.now() - p.createdAt > 30 * 60_000) plans.delete(id);
+        return json(res, 200, { plan });
+      } catch (err) {
+        return json(res, 502, { error: `Blu couldn’t write the plan: ${err.message}` });
+      }
+    }
+    if (path === '/api/talk/start') {
+      const plan = plans.get(body.id);
+      if (!plan) return json(res, 404, { error: 'That plan has expired: ask again' });
+      // What you changed on the card before sending: the title, the task and the definition of done (never the folder's path).
+      if (typeof body.title === 'string' && body.title.trim()) plan.title = body.title.trim().slice(0, 80);
+      if (typeof body.task === 'string' && body.task.trim()) plan.task = body.task.trim().slice(0, 4000);
+      if (body.project) {
+        const p = knownProject(body.project);
+        if (!p) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
+        plan.project = p;
+      }
+      if (Array.isArray(body.done)) {
+        // The tests item stays the plan's own (its command comes from the project's files); the rest is tidied by doneItem.
+        plan.done = body.done.slice(0, 12).flatMap((d) => [d?.kind === 'tests' ? plan.done.find((x) => x.kind === 'tests') : doneItem(d)].filter(Boolean));
+      }
+      const has = handoffOptions.has ?? onPath;
+      if (!has('claude')) return json(res, 400, { error: 'Claude Code isn’t installed here (no `claude` on PATH)' });
+      if (!(handoffOptions.isFolder ?? isFolder)(plan.project.path)) return json(res, 409, { error: 'That project folder is gone' });
+      let file;
+      try { file = await saveTask(taskMarkdown(plan)); } catch (err) { return json(res, 500, { error: `Couldn’t save the task: ${err.message}` }); }
+      const session = newSessionId();
+      const command = launchCommand({ platform: handoffOptions.platform ?? process.platform, agent: 'claude', dir: plan.project.path, args: claudeTaskArgs({ sessionId: session, title: plan.title, prompt: taskPrompt(file) }), has, find: handoffOptions.find });
+      if (command.error) return json(res, 409, { error: command.error, file });
+      try { await (handoffOptions.launch ?? launch)({ ...command, options: { ...command.options, env: agentEnv() } }); } catch (err) { return json(res, 500, { error: `Couldn’t open a terminal: ${err.message}`, file }); }
+      plans.delete(plan.id);
+      const task = { ...plan, id: plan.id.replace(/^plan-/, 'task-'), session, file, startedAt: Date.now(), state: 'starting' };
+      noteSession(session, plan.project.path);
+      await taskList.add(task);
+      send('task', taskView(task));
+      return json(res, 200, { task: taskView(task) });
+    }
+    const task = taskList.get(body.id);
+    if (!task) return json(res, 404, { error: 'dotpals has no record of that task' });
+    if (path === '/api/talk/fix') {
+      const v = evaluate(task, [...activity.each()]);
+      if (!v.problems?.length) return json(res, 409, { error: 'There’s nothing to fix' });
+      return json(res, 200, { text: fixRequest(task, v) });
+    }
+    if (path === '/api/talk/pr/plan') {
+      const v = evaluate(task, [...activity.each()]);
+      if (v.state !== 'ready' && !body.anyway) return json(res, 409, { error: 'The task isn’t ready to merge yet' });
+      const p = await (handoffOptions.prPlan ?? prPlan)(task, v).catch((err) => ({ error: err.message }));
+      if (p.error) return json(res, 409, { error: p.error });
+      prPlans.set(task.id, { ...p, at: Date.now() });
+      return json(res, 200, { pr: p });
+    }
+    if (path === '/api/talk/pr/open') {
+      const p = prPlans.get(task.id);
+      if (!p || Date.now() - p.at > 15 * 60_000) return json(res, 409, { error: 'Look at the PR’s plan first' });
+      prPlans.delete(task.id);
+      const v = evaluate(task, [...activity.each()]);
+      try {
+        const r = await (handoffOptions.openPr ?? openPr)(task, p, receiptMarkdown(task, v));
+        task.pr = { url: r.url, branch: p.branch, at: Date.now() };
+        await taskList.save();
+        send('task', taskView(task));
+        return json(res, 200, { pr: task.pr });
+      } catch (err) {
+        return json(res, 502, { error: err.message });
+      }
+    }
+    return json(res, 404, { error: 'not found' });
   }
 
   // -- Is the checker working? -------------------------------------------------------------
@@ -1209,6 +1572,37 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       return json(res, 200, { projects });
     }
     if (req.method === 'GET' && path === '/api/handoff/agents') return json(res, 200, { agents: installedAgents({ has: handoffOptions.has ?? onPath }) });
+    // Talk to Blu: the project folders a task can go to, and the tasks so far.
+    if (req.method === 'GET' && path === '/api/talk/projects') return json(res, 200, { projects: projectsNow(), claude: (handoffOptions.has ?? onPath)('claude') });
+    if (req.method === 'GET' && path === '/api/talk/tasks') return json(res, 200, { tasks: taskList.list().map(taskView) });
+    // Your apps (bridge/connectors.js) and the ones Claude Code is connected to: Settings → Apps.
+    if (req.method === 'GET' && path === '/api/apps') {
+      const a = appsNow();
+      return json(res, 200, { ...a, claude: { ...a.claude, installed: (handoffOptions.has ?? onPath)('claude') }, presets: PRESETS });
+    }
+    // Back from signing in to an app in your browser (bridge/connectors.js): a page that says how it went.
+    if (req.method === 'GET' && path === '/api/apps/callback') {
+      let line, ok = true;
+      try {
+        const q = new URL(req.url, 'http://localhost').searchParams;
+        const app = await connectors.finish({ state: q.get('state'), code: q.get('code'), error: q.get('error') });
+        line = `${app.name} is connected to dotpals. You can close this tab and ask Blu about it.`;
+        connectors.tools(app.id).catch(() => {}).finally(() => send('apps', appsNow()));
+      } catch (err) { ok = false; line = err.message; }
+      const safe = line.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      res.writeHead(ok ? 200 : 400, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(`<!doctype html><meta charset="utf-8"><title>dotpals</title><body style="font:16px system-ui;background:#0b0b0e;color:#f2f2f5;display:grid;place-items:center;height:100vh;margin:0"><p>${ok ? '✓' : '✗'} ${safe}</p></body>`);
+    }
+    // The desktop app's shortcuts that work right now (it writes them when it registers them).
+    if (req.method === 'GET' && path === '/api/shortcuts') {
+      try { return json(res, 200, JSON.parse(await readFile(join(home(), 'shortcuts.json'), 'utf8'))); } catch { return json(res, 200, {}); }
+    }
+    if (req.method === 'GET' && path === '/api/brain') {
+      const { brain, here } = await brainFor('quick');
+      const plan = pickBrain(here, { choice: config.brain?.choice, job: 'plan' });
+      const screen = pickBrain(here, { choice: config.brain?.choice, job: 'screen' });
+      return json(res, 200, { brains: here, quick: brain?.id ?? null, plan: plan?.id ?? null, screen: screen?.id ?? null, brain: config.brain, keys: config.brainKeys ?? {}, apps: appsNow() });
+    }
 
     // Changes need a custom header: browsers won't send it cross-site without
     // asking first (and we never say yes), so other websites can't change settings.
@@ -1219,8 +1613,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       // A pasted key that can't be one (spaces, line breaks): say so rather than drop it quietly.
       const key = patch?.checker?.jevKey;
       if (typeof key === 'string' && key.trim() && !validKey(key)) return json(res, 400, { error: 'That doesn’t look like an API key (it has spaces or unusual characters). Paste it again.' });
+      for (const k of Object.values(patch?.brainKeys ?? {})) if (typeof k === 'string' && k.trim() && !validKey(k)) return json(res, 400, { error: 'That doesn’t look like an API key (it has spaces or unusual characters). Paste it again.' });
       const before = config;
       config = saveConfig(patch);
+      brainsSeen = null; // a new key or choice: look again
       applyWatchers();
       if (enabled('claude') !== (before.agents?.claude !== false)) applyClaude();
       if (config.history && !before.history) history.save();
@@ -1306,6 +1702,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
       return rewind(res, path, body ?? {});
     }
+    if (path.startsWith('/api/talk/')) return talk(req, res, path);
+    if (path.startsWith('/api/brain/')) return brainApi(req, res, path);
+    if (path.startsWith('/api/apps/')) return appsApi(req, res, path);
     // Chat (bridge/chat.js): a prompt typed in the pal goes to OpenCode.
     // { text, session? ('opencode:ses_…' to continue it), directory? (for a new one) }
     // Answer an OpenCode permission request or question from the pal.
@@ -1499,7 +1898,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { chat.stop(); stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
+  server.on('close', () => { connectors.close(); chat.stop(); stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); fail(err); });
