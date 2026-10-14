@@ -1797,6 +1797,11 @@
       const row = ui.rows[rp.i].parentElement;
       if (row.offsetTop < ui.list.scrollTop) ui.list.scrollTop = row.offsetTop;
       else if (row.offsetTop + row.offsetHeight > ui.list.scrollTop + ui.list.clientHeight) ui.list.scrollTop = row.offsetTop + row.offsetHeight - ui.list.clientHeight;
+      // Only when the frame (or what it shows) changed: a live update that changes nothing here
+      // keeps the reader's scroll inside the patch and output, their selection and their focus.
+      const sig = `${rp.i}|${f.step}|${f.status}|${f.marks.map((m) => m.kind + m.text).join(',')}|${f.test?.words ?? ''}|${(f.output ?? '').length}|${(f.patch ?? '').length}|${(f.summary ?? '').length}`;
+      if (ui.detailSig === sig) return;
+      ui.detailSig = sig;
       ui.detail.replaceChildren(...rpFrame(f));
     }
 
