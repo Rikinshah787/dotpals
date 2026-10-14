@@ -1,6 +1,6 @@
 // Blu's hands: what Blu does on your computer when you ask (the list is in bridge/buddy.js):
 // play, pause and skip whatever's playing, the volume, opening apps, links and songs, moving
-// and sizing windows and, only when you allow it (Settings → Blu's eyes and hands), clicking,
+// and sizing windows and, only when you allow it (Settings → Blu → Your screen, music and computer), clicking,
 // typing and pressing keys.
 //
 //   Windows  a PowerShell kept running: user32 for keys, windows and the mouse, the system's
@@ -95,8 +95,10 @@ export function shotToScreen({ x, y }, shot) {
   return { x: d.bounds.x + (x * d.bounds.width) / shot.w, y: d.bounds.y + (y * d.bounds.height) / shot.h };
 }
 
-/** A string for PowerShell, in single quotes. */
-const ps = (s) => `'${String(s ?? '').replace(/[\r\n]/g, ' ').replace(/'/g, "''")}'`;
+/** A string for PowerShell, in single quotes (PowerShell takes the curly ones ‘ ’ ‚ ‛ as quotes too). */
+export const ps = (s) => `'${String(s ?? '').replace(/[\r\n]/g, ' ').replace(/['‘’‚‛]/g, '$&$&')}'`;
+/** A whole number for a PowerShell line, or $null. */
+const psNum = (n) => (typeof n === 'number' && Number.isFinite(n) ? String(Math.round(n)) : '$null');
 /** A string for AppleScript, in double quotes. */
 const as = (s) => `"${String(s ?? '').replace(/[\r\n]/g, ' ').replace(/[\\"]/g, '\\$&')}"`;
 
@@ -200,7 +202,7 @@ export function createHands({ shell, screen, typeOut, log = () => {}, platform =
   const macAllowed = async () => {
     if (await trusted(false)) return;
     await trusted(true); // asks you
-    throw new Error('allow dotpals (listed as Electron, or as your terminal) under Privacy & Security → Accessibility, then ask again');
+    throw new Error('allow dotpals under Privacy & Security → Accessibility, then ask again');
   };
   const missing = (tool) => (err) => { throw /ENOENT|not found/i.test(err.message) ? new Error(`install ${tool} for this`) : err; };
   // Linux: xdotool works on X11 only (Wayland doesn't let one app move another's windows or press its keys).
@@ -223,12 +225,12 @@ export function createHands({ shell, screen, typeOut, log = () => {}, platform =
 
   /** → { before, after, muted } where the system can tell. */
   async function volume(a) {
-    if (platform === 'win32') return win.call(`Vol ${a.by ?? '$null'} ${a.set ?? '$null'} ${a.mute === undefined ? '$null' : a.mute ? '$true' : '$false'}`);
+    if (platform === 'win32') return win.call(`Vol ${psNum(a.by)} ${psNum(a.set)} ${a.mute === undefined ? '$null' : a.mute === true ? '$true' : '$false'}`);
     if (platform === 'darwin') {
       const before = Number(await osa('output volume of (get volume settings)'));
       // "missing value": speakers the Mac can't set the volume of (HDMI, some USB).
       if (a.mute === undefined && !Number.isFinite(before)) throw new Error('these speakers’ volume can’t be changed from the Mac');
-      if (a.mute !== undefined) await osa(`set volume output muted ${a.mute}`);
+      if (a.mute !== undefined) await osa(`set volume output muted ${a.mute === true}`);
       else await osa(`set volume output volume ${Math.max(0, Math.min(100, a.set ?? before + a.by))} without output muted`);
       return { before, after: Number(await osa('output volume of (get volume settings)')) };
     }
@@ -357,11 +359,15 @@ export function createHands({ shell, screen, typeOut, log = () => {}, platform =
       try { return await osa(`tell application "Music" to play (item 1 of (search library playlist 1 for ${as(a.applemusic)}))`); }
       catch { return openIn(`https://www.youtube.com/results?search_query=${encodeURIComponent(a.applemusic)}`, a.browser); } // not in your library
     }
-    if (!/^(https:\/\/(www|music)\.youtube\.com\/|spotify:(track|search):)/.test(a.url ?? '')) throw new Error('nothing found to play');
-    return a.url.startsWith('spotify:') ? shell.openExternal(a.url) : openIn(a.url, a.browser);
+    // Only YouTube's pages and Spotify's own links, whole (no quotes or spaces that would reach the app as more of its command line).
+    const url = String(a.url ?? '');
+    if (/^spotify:(track|search):[\w%.!~*'()-]+$/.test(url)) return shell.openExternal(url);
+    if (!/^https:\/\/(www|music)\.youtube\.com\//.test(url)) throw new Error('nothing found to play');
+    return openIn(url, a.browser);
   }
   /** A page in the browser you named, else your usual one (also when that browser isn't installed). */
-  async function openIn(url, browser) {
+  async function openIn(page, browser) {
+    const url = new URL(page).href; // as one piece: spaces and quotes encoded, so it stays one argument
     const app = BROWSER_APPS[platform]?.[browser];
     if (!app) return shell.openExternal(url);
     try {

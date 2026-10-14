@@ -38,22 +38,27 @@ export const slug = (name) => String(name ?? '').toLowerCase().replace(/[^a-z0-9
  * name, after the app's own prefix (`app`: "notion" for notion-get-comments).
  */
 const LOOKS = 'get|list|search|find|read|fetch|query|retrieve|lookup|look_up|describe|show|view|check|count';
+// A look that also writes: "get_or_create_page", "findAndReplace".
+const ALSO_WRITES = /(^|_)(and|or|then)_(create|update|delete|remove|replace|set|add|save|write|edit|insert|upsert|move|send|post|archive|mark|clear|reset)(_|$)/i;
 export function readOnly(tool, app = '') {
   const a = tool?.annotations ?? {};
   if (typeof a.readOnlyHint === 'boolean') return a.readOnlyHint;
   const n = String(tool?.name ?? '').replace(app ? new RegExp(`^${app.replace(/[^\w-]/g, '')}[-_]`, 'i') : /^$/, '');
+  if (ALSO_WRITES.test(n.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/-/g, '_'))) return false;
   return new RegExp(`^(${LOOKS})([_-]|$)`, 'i').test(n) || new RegExp(`^(${LOOKS})[A-Z]`).test(n); // list_events, searchPages; not "getaway"
 }
 /** A command as its words: "npx -y \"my server\"" → ['npx', '-y', 'my server']. */
 export const words = (command) => (String(command).match(/"[^"]*"|\S+/g) ?? []).map((w) => w.replace(/^"|"$/g, ''));
 /**
  * Never, even when you said yes to a change: sending, deleting, paying (Blu drafts instead), and
- * what reaches other people (a comment, sharing, an invite). An app's own "destructive" mark too.
+ * what reaches other people (a comment, sharing, an invite, a reply or a forward that isn't a
+ * draft). An app's own "destructive" mark too.
  */
 export function never(tool, app = '') {
-  const n = String(tool?.name ?? '');
+  const n = String(tool?.name ?? '').replace(/([a-z0-9])([A-Z])/g, '$1_$2'); // postMessage → post_Message
   return tool?.annotations?.destructiveHint === true || /(send|delete|remove|destroy|trash|purge|pay|purchase|transfer|refund|post_message|publish)/i.test(n)
-    || (/comment|reaction|(^|[_-])(share|invite)([_-]|$)/i.test(n) && !readOnly(tool, app));
+    || (/comment|reaction|(^|[_-])(share|invite)([_-]|$)/i.test(n) && !readOnly(tool, app))
+    || (/(^|[_-])(reply|forward)([_-]|$)/i.test(n) && !/draft/i.test(n) && !readOnly(tool, app));
 }
 
 /** Server-sent events → their JSON messages. */
@@ -65,6 +70,35 @@ export function sseMessages(text) {
     try { out.push(JSON.parse(data)); } catch {}
   }
   return out;
+}
+
+/**
+ * A response's text, at most `max` characters (more fails). `enough(text)`: for server-sent
+ * events, whether the answer is in yet; an app may keep the stream open after it.
+ */
+export async function bounded(r, enough = null, max = 8_000_000) {
+  const reader = r.body?.getReader?.();
+  if (!reader) { const t = String(await r.text()); if (t.length > max) throw new Error('it answered with too much'); return t; }
+  const decoder = new TextDecoder();
+  let text = '', from = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    text += decoder.decode(value, { stream: true });
+    if (text.length > max) { reader.cancel().catch(() => {}); throw new Error('it answered with too much'); }
+    const end = enough ? Math.max(text.lastIndexOf('\n\n'), text.lastIndexOf('\n\r\n')) : -1;
+    if (end > from) {
+      if (enough(text.slice(from, end))) { reader.cancel().catch(() => {}); return text; }
+      from = end;
+    }
+  }
+}
+
+/** An address dotpals may send you or a sign-in to: https, or http on this computer. Else null. */
+function webUrl(s) {
+  let u = null;
+  try { u = new URL(String(s ?? '')); } catch {}
+  return u && (u.protocol === 'https:' || (u.protocol === 'http:' && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname))) ? u : null;
 }
 
 /** A tool's answer as text for the brain: its text parts, and what else there was. */
@@ -102,9 +136,8 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
     if (find(id)) throw new Error(`There’s already an app called ${n}`);
     let app;
     if (url) {
-      let u = null;
-      try { u = new URL(String(url).trim()); } catch {}
-      if (!u || !(u.protocol === 'https:' || (u.protocol === 'http:' && /^(127\.0\.0\.1|localhost)$/.test(u.hostname)))) throw new Error('The app’s address starts with https://');
+      const u = webUrl(String(url).trim());
+      if (!u) throw new Error('The app’s address starts with https://');
       app = { id, name: n, kind: 'http', url: u.href };
       const preset = Object.values(PRESETS).find((p) => p.url === u.href);
       if (preset?.ownClient) app.ownClient = true;
@@ -146,13 +179,14 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
       throw Object.assign(new Error(`Sign in to ${app.name} first (Settings → Apps)`), { signIn: true });
     }
     if (r.status === 404 && l.session) { live.delete(app.id); throw Object.assign(new Error('the app forgot this session'), { again: true }); }
-    if (notify) return null;
+    if (notify) { r.body?.cancel?.().catch(() => {}); return null; }
     if (!r.ok) throw new Error(`${app.name} answered ${r.status}`);
     const session = r.headers.get('mcp-session-id');
     if (session) l.session = session;
-    const type = r.headers.get('content-type') ?? '';
-    const text = await r.text();
-    const messages = type.includes('text/event-stream') ? sseMessages(text) : (() => { try { return [].concat(JSON.parse(text)); } catch { return []; } })();
+    const sse = (r.headers.get('content-type') ?? '').includes('text/event-stream');
+    // At most 8 MB; as events, only until the answer is in.
+    const text = await bounded(r, sse ? (t) => sseMessages(t).some((m) => m?.id === body.id) : null).catch((err) => { throw new Error(`${app.name}: ${err.message}`); });
+    const messages = sse ? sseMessages(text) : (() => { try { return [].concat(JSON.parse(text)); } catch { return []; } })();
     const reply = messages.find((m) => m?.id === body.id);
     if (!reply) throw new Error(`${app.name} gave no answer`);
     if (reply.error) throw new Error(`${app.name}: ${String(reply.error.message ?? 'error').slice(0, 200)}`);
@@ -170,6 +204,7 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
     proc.stdout.on('data', (d) => {
       const lines = (entry.buf + d).split('\n');
       entry.buf = lines.pop();
+      if (entry.buf.length > 8_000_000) entry.buf = ''; // a line that never ends: dropped
       for (const line of lines) {
         let m; try { m = JSON.parse(line); } catch { continue; }
         const w = entry.waiting.get(m?.id);
@@ -244,17 +279,23 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
 
   // -- signing in (MCP authorization: OAuth 2.1, PKCE) -------------------------------------------
   const getJson = async (url) => {
-    try { const r = await fetchFn(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) }); return r.ok ? await r.json() : null; } catch { return null; }
+    try { const r = await fetchFn(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) }); return r.ok ? JSON.parse(await bounded(r, null, 1_000_000)) : null; } catch { return null; }
   };
-  /** Where the app's sign-in is: its protected-resource metadata, then its sign-in server's. */
+  /**
+   * Where the app's sign-in is: its protected-resource metadata, then its sign-in server's. Only
+   * metadata about this app (its `resource` on the app's own host), and only https addresses: the
+   * sign-in link opens in your browser, and the token goes to the token address.
+   */
   async function signInServer(app) {
     const u = new URL(app.url);
-    const fromHeader = /resource_metadata="([^"]+)"/.exec(app.authHeader ?? '')?.[1];
+    const fromHeader = webUrl(/resource_metadata="([^"]+)"/.exec(app.authHeader ?? '')?.[1])?.href;
     const path = u.pathname.replace(/\/+$/, '');
     let resource = `${u.origin}${path}`, issuer = null, scopes = null;
     for (const t of [fromHeader, `${u.origin}/.well-known/oauth-protected-resource${path}`, `${u.origin}/.well-known/oauth-protected-resource`].filter(Boolean)) {
       const prm = await getJson(t);
-      if (prm?.authorization_servers?.length) { issuer = prm.authorization_servers[0]; resource = prm.resource ?? resource; scopes = prm.scopes_supported ?? null; break; }
+      if (!prm?.authorization_servers?.length || !webUrl(prm.authorization_servers[0]) || (prm.resource && webUrl(prm.resource)?.origin !== u.origin)) continue;
+      issuer = prm.authorization_servers[0]; resource = prm.resource ?? resource; scopes = Array.isArray(prm.scopes_supported) ? prm.scopes_supported.map(String) : null;
+      break;
     }
     issuer ??= u.origin; // older servers: the sign-in is on the app's own host
     const iu = new URL(issuer);
@@ -262,10 +303,11 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
     let meta = null;
     for (const t of [`${iu.origin}/.well-known/oauth-authorization-server${ip}`, `${iu.origin}/.well-known/openid-configuration${ip}`, ...(ip ? [`${iu.origin}${ip}/.well-known/openid-configuration`] : [])]) {
       meta = await getJson(t);
-      if (meta?.authorization_endpoint && meta?.token_endpoint) break;
+      if (webUrl(meta?.authorization_endpoint) && webUrl(meta?.token_endpoint)) break;
       meta = null;
     }
     meta ??= { authorization_endpoint: `${iu.origin}/authorize`, token_endpoint: `${iu.origin}/token`, registration_endpoint: `${iu.origin}/register` };
+    if (!webUrl(meta.registration_endpoint)) delete meta.registration_endpoint;
     return { meta, resource, scopes };
   }
   /** The link to sign in to an app in your browser; it comes back to finish(). */
@@ -281,7 +323,7 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
         method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(10_000),
         body: JSON.stringify({ client_name: 'dotpals', redirect_uris: [redirect], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
       });
-      const reg = await r.json().catch(() => ({}));
+      const reg = await bounded(r, null, 1_000_000).then(JSON.parse).catch(() => ({}));
       if (!r.ok || !reg.client_id) throw new Error(`${app.name} didn’t let dotpals register (${String(reg.error_description ?? reg.error ?? r.status).slice(0, 120)})`);
       Object.assign(app.auth, { clientId: reg.client_id, ...(reg.client_secret ? { clientSecret: reg.client_secret } : {}), registered: true, redirect });
     }
@@ -299,7 +341,7 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
   async function tokenRequest(app, params) {
     const body = new URLSearchParams({ ...params, client_id: app.auth.clientId, ...(app.auth.clientSecret ? { client_secret: app.auth.clientSecret } : {}), ...(app.auth.resource ? { resource: app.auth.resource } : {}) });
     const r = await fetchFn(app.auth.meta.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: String(body), signal: AbortSignal.timeout(15_000) });
-    const t = await r.json().catch(() => ({}));
+    const t = await bounded(r, null, 1_000_000).then(JSON.parse).catch(() => ({}));
     if (!r.ok || !t.access_token) throw new Error(`${app.name}: ${String(t.error_description ?? t.error ?? `sign-in failed (${r.status})`).slice(0, 160)}`);
     app.auth.tokens = { access_token: t.access_token, ...(t.refresh_token || app.auth.tokens?.refresh_token ? { refresh_token: t.refresh_token ?? app.auth.tokens.refresh_token } : {}), ...(t.expires_in ? { expires_at: Date.now() + Number(t.expires_in) * 1000 } : {}) };
     delete app.error;
@@ -308,8 +350,8 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
   /** Back from the browser: the code for a token. → the app's view. */
   async function finish({ state, code, error }) {
     const p = pending.get(String(state ?? ''));
-    if (!p) throw new Error('That sign-in has expired: start it again from Settings → Apps');
-    pending.delete(state);
+    pending.delete(String(state ?? '')); // used once, whatever came back
+    if (!p || Date.now() - p.at > 15 * 60_000) throw new Error('That sign-in has expired: start it again from Settings → Apps');
     const app = find(p.id);
     if (!app) throw new Error('That app was removed');
     if (error) throw new Error(`${app.name} said: ${String(error).slice(0, 120)}`);
@@ -317,12 +359,17 @@ export function createConnectors({ file, redirect, fetchFn = fetch, spawn = node
     live.delete(app.id);
     return view(app);
   }
-  /** A token that still works, renewed when it's about to run out; null when there's none. */
+  /**
+   * A token that still works, renewed when it's about to run out; null when there's none. One
+   * renewal at a time per app: a refresh token may work only once.
+   */
+  const renewing = new Map(); // app id → its renewal under way
   async function accessToken(app) {
     const t = app.auth?.tokens;
     if (!t?.access_token) return null;
     if (t.expires_at && t.expires_at - Date.now() < 60_000 && t.refresh_token && app.auth.meta?.token_endpoint) {
-      try { await tokenRequest(app, { grant_type: 'refresh_token', refresh_token: t.refresh_token }); } catch (err) { log(`app ${app.name}: renewing the sign-in failed: ${err.message}`); return null; }
+      if (!renewing.has(app.id)) renewing.set(app.id, tokenRequest(app, { grant_type: 'refresh_token', refresh_token: t.refresh_token }).finally(() => renewing.delete(app.id)));
+      try { await renewing.get(app.id); } catch (err) { log(`app ${app.name}: renewing the sign-in failed: ${err.message}`); return null; }
     }
     return app.auth.tokens?.access_token ?? null;
   }

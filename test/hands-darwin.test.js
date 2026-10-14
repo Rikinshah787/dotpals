@@ -9,7 +9,7 @@ const applescript = (script) => ['osascript', '-l', 'AppleScript', '-e', script]
 const javascript = (script) => ['osascript', '-l', 'JavaScript', '-e', script];
 const SE = 'tell application "System Events" to ';
 const FRONT = `${SE}tell (first application process whose frontmost is true) to `;
-const ACCESSIBILITY = 'allow dotpals (listed as Electron, or as your terminal) under Privacy & Security → Accessibility, then ask again';
+const ACCESSIBILITY = 'allow dotpals under Privacy & Security → Accessibility, then ask again';
 
 // The main screen (menu bar on top, Dock at the bottom), and a second one to its left.
 const displays = [

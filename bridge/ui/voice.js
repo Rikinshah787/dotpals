@@ -7,7 +7,7 @@
 //   voice.listen({ quiet: true })   the same, but if you say nothing it just stops (a follow-up)
 //   voice.say(text)  speak; resolves when done
 //
-// `hearing()`: which Whisper (Settings → Blu's eyes and hands → Hearing), read each time it
+// `hearing()`: which Whisper (Settings → Blu → Talking to Blu → Hearing), read each time it
 // listens: 'quick' (English only, about 80 MB), 'better' (Whisper small: any accent, names in
 // any language, about 600 MB) or 'best' (Whisper large-v3 turbo, about 760 MB, for a good
 // graphics card). Options for listening only (Dictate, bridge/dictate.html): `pause` (ms of
@@ -199,7 +199,7 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     const audio = joined(r.chunks);
     const mic = r.device ? ` (${r.device})` : '';
     if (!audio.length) { status(`No sound reached Blu from the microphone${mic}.`, true); pal('idle'); return; }
-    if (r.peak < 0.004) { status(`The microphone${mic} sent only silence. Check Windows Settings → Privacy & security → Microphone, and the input device.`, true); pal('idle'); return; }
+    if (r.peak < 0.004) { status(`The microphone${mic} sent only silence. Check that dotpals may use the microphone (your system's privacy settings), and the input device.`, true); pal('idle'); return; }
     try {
       pal('thinking');
       status('Got it, one moment…');

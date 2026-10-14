@@ -5,7 +5,8 @@
 //   node desktop/launch.js --install   download Electron once into ~/.dotpals, then open it
 //
 // Electron is looked up in this package's node_modules (after `npm install`),
-// then in ~/.dotpals, so the Claude Code plugin can use it without its own install.
+// then in ~/.dotpals, so the Claude Code plugin can use it without its own install. On macOS,
+// the dotpals.app setup makes from it (~/.dotpals/dotpals.app) starts instead, when it's there.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -59,9 +60,30 @@ export function compareVersions(a, b) {
  */
 export function launchFloat(electron = findElectron(), { app = root } = {}) {
   if (!electron) return false;
+  if (openMacApp(join(app, 'desktop', 'main.js'))) return true;
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   spawn(electron, [join(app, 'desktop', 'main.js')], { detached: true, stdio: 'ignore', env }).unref();
+  return true;
+}
+
+/** macOS: the dotpals.app setup makes from Electron (desktop/mac-app.js), so macOS asks for permissions as dotpals. */
+export const macApp = join(shared, 'dotpals.app');
+
+/**
+ * macOS, when setup made dotpals.app: start `main` (desktop/main.js) with `args` on it, through
+ * `open`. macOS asks for permissions as the app that started a program, so run straight from a
+ * terminal it would ask as that terminal; `open` starts it as an app of its own. -n: a new copy
+ * (it hands its arguments to one already running); -g: in the background. `log`: a file for what
+ * it prints. Returns false when there's no dotpals.app to start (the caller starts Electron).
+ */
+export function openMacApp(main, args = [], log) {
+  if (process.platform !== 'darwin' || process.env.DOTPALS_ELECTRON || !existsSync(join(macApp, 'Contents', 'MacOS', 'Electron'))) return false;
+  // `open` gives it the system's environment, not ours: pass on PATH and dotpals' own settings.
+  // Only those: what's passed shows in the process list (a key in TYPESAFE_API_KEY would too).
+  const env = Object.entries(process.env).filter(([k]) => /^(PATH|PORT|DOTPALS_\w+)$/.test(k));
+  const out = log ? ['--stdout', log, '--stderr', log] : [];
+  spawn('open', ['-n', '-g', ...env.flatMap(([k, v]) => ['--env', `${k}=${v}`]), ...out, '-a', macApp, '--args', main, ...args], { detached: true, stdio: 'ignore' }).unref();
   return true;
 }
 

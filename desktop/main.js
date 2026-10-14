@@ -16,6 +16,7 @@ import { configPath, home, loadConfig, saveConfig } from '../bridge/config.js';
 import { readUsage } from '../bridge/usage.js';
 import { action } from '../bridge/buddy.js';
 import { createHands } from './hands.js';
+import { loginAgentOn, setLoginAgent } from './mac-app.js';
 
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
@@ -72,7 +73,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // Flags from `dotpals setup` / `dotpals dashboard`.
   function handleArgs(argv) {
-    if (argv.includes('--open-at-login')) app.setLoginItemSettings({ ...loginItem(), openAtLogin: true });
+    if (argv.includes('--open-at-login')) openAtLogin(true);
     if (argv.includes('--dashboard')) openDashboard();
     if (argv.includes('--notch')) setNotchMode('always');
     if (argv.includes('--notch-auto')) setNotchMode('auto');
@@ -110,6 +111,13 @@ if (!app.requestSingleInstanceLock()) {
 
   // When run as electron.exe + main.js (npm run float, setup), log-in needs the script too.
   const loginItem = () => (app.isPackaged ? {} : { path: process.execPath, args: [fileURLToPath(import.meta.url)] });
+  // macOS ignores that path and those args (its login item would open Electron bare): a LaunchAgent starts dotpals there.
+  const opensAtLogin = () => (process.platform === 'darwin' ? loginAgentOn() : app.getLoginItemSettings(loginItem()).openAtLogin);
+  function openAtLogin(on) {
+    if (process.platform === 'darwin') return setLoginAgent(on, { exe: process.execPath, main: fileURLToPath(import.meta.url) });
+    app.setLoginItemSettings({ ...loginItem(), openAtLogin: on });
+    return on;
+  }
 
   // The start-of-day greeting ("what are we working on today?") and its folder picker.
   // Shown once the pal loads when Tray → Greet me when dotpals starts is on (off by
@@ -124,8 +132,8 @@ if (!app.requestSingleInstanceLock()) {
     const r = await dialog.showOpenDialog(win, { title: 'Choose a project folder', properties: ['openDirectory'] });
     return r.canceled ? null : r.filePaths[0] ?? null;
   });
-  ipcMain.handle('login:get', () => app.getLoginItemSettings(loginItem()).openAtLogin);
-  ipcMain.handle('login:set', (_, on) => { app.setLoginItemSettings({ ...loginItem(), openAtLogin: !!on }); return !!on; });
+  ipcMain.handle('login:get', () => opensAtLogin());
+  ipcMain.handle('login:set', (_, on) => openAtLogin(!!on));
 
   // The dashboard: sessions, logs, stats and settings, in a normal window.
   let dashboard;
@@ -312,7 +320,7 @@ if (!app.requestSingleInstanceLock()) {
       if (!allowed) {
         if (systemPreferences.getMediaAccessStatus('screen') === 'not-determined') await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }).catch(() => {}); // asks you
         logDictate('screenshot: dotpals isn’t allowed to record the screen');
-        if (!toldScreen && Notification.isSupported()) { toldScreen = true; new Notification({ title: 'dotpals', body: 'To see your screen, allow dotpals (it may be listed as Electron, or as your terminal) under System Settings → Privacy & Security → Screen & System Audio Recording, then reopen it.', icon, silent: true }).show(); }
+        if (!toldScreen && Notification.isSupported()) { toldScreen = true; new Notification({ title: 'dotpals', body: 'To see your screen, allow dotpals under System Settings → Privacy & Security → Screen & System Audio Recording, then reopen it.', icon, silent: true }).show(); }
         return null;
       }
       const point = screen.getCursorScreenPoint();
@@ -423,7 +431,7 @@ if (!app.requestSingleInstanceLock()) {
       if (process.platform === 'darwin') {
         if (!systemPreferences.isTrustedAccessibilityClient(false)) {
           systemPreferences.isTrustedAccessibilityClient(true); // asks you
-          return Promise.reject(new Error('allow dotpals (listed as Electron, or as your terminal) under Privacy & Security → Accessibility'));
+          return Promise.reject(new Error('allow dotpals under Privacy & Security → Accessibility'));
         }
         return run('osascript', ['-e', 'tell application "System Events" to keystroke "v" using command down']);
       }
@@ -448,8 +456,9 @@ if (!app.requestSingleInstanceLock()) {
   let drawEsc = false;       // Esc is ours while you circle
   let pendingCircle = null;  // the screenshot you're circling on
   let circleShortcut = null; // the one that's registered
-  /** The drawing window, over the screen with these bounds. */
-  function drawWindow(bounds) {
+  let drawOk = null;         // whether the drawing window can be seen through (a promise)
+  /** The drawing window, over the screen with these bounds; null when it can't be seen through. */
+  async function drawWindow(bounds) {
     if (!draw || draw.isDestroyed()) {
       draw = new BrowserWindow({
         ...bounds, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
@@ -463,11 +472,30 @@ if (!app.requestSingleInstanceLock()) {
       draw.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
       draw.setIgnoreMouseEvents(true);
       draw.on('closed', () => { draw = null; releaseDrawEsc(); });
+      drawOk = seeThrough(draw);
       draw.loadURL(`${bridge}/bridge/draw.html`).catch(() => draw?.loadFile(fileURLToPath(new URL('../bridge/draw.html', import.meta.url))));
     }
+    if (!(await drawOk)) { draw?.destroy(); return null; }
+    if (!draw || draw.isDestroyed()) return null;
     draw.setBounds(bounds);
     if (!draw.isVisible()) draw.showInactive();
     return draw;
+  }
+  // Linux without a compositor (some window managers run none): a see-through window comes out
+  // black, and drawing would black out the screen. Its depth tells (32 bits: see-through). Then
+  // Blu doesn't draw, it still talks; a window made later, once a compositor runs, is checked again.
+  let toldCompositor = false;
+  function seeThrough(w) {
+    if (process.platform !== 'linux') return Promise.resolve(true);
+    let id;
+    try { id = w.getNativeWindowHandle().readUInt32LE(0); } catch { return Promise.resolve(true); }
+    return new Promise((ok) => execFile('xwininfo', ['-id', String(id)], { timeout: 2000 }, (err, out) => {
+      const depth = Number(/Depth:\s*(\d+)/.exec(out ?? '')?.[1]);
+      if (err || !depth || depth === 32) return ok(true); // not an X window (Wayland), no xwininfo, or see-through
+      logDictate(`drawing: no compositor is running (windows are ${depth}-bit), so Blu doesn’t draw on the screen`);
+      if (!toldCompositor && Notification.isSupported()) { toldCompositor = true; new Notification({ title: 'dotpals', body: 'Blu can’t draw on your screen: that needs a compositor (picom, for one), and none is running. Blu still talks.', icon, silent: true }).show(); }
+      ok(false);
+    }));
   }
   function toDraw(cmd) {
     if (!draw || draw.isDestroyed()) return;
@@ -484,11 +512,11 @@ if (!app.requestSingleInstanceLock()) {
 
   // The notch asks: a fresh screenshot, marks to draw, drawings off, actions to do.
   ipcMain.handle('blu:shot', (event) => (fromNotch(event) && loadConfig().blu?.see !== false ? takeShot() : null));
-  ipcMain.on('blu:draw', (event, { marks, shot, keep } = {}) => {
+  ipcMain.on('blu:draw', async (event, { marks, shot, keep } = {}) => {
     const s = shots.get(shot);
     if (!fromNotch(event) || !s || !Array.isArray(marks) || !marks.length) return;
-    drawWindow(s.display.bounds);
-    toDraw({ type: 'marks', marks: marks.slice(0, 8), w: s.w, h: s.h, keep: !!keep });
+    if (!(await drawWindow(s.display.bounds))) return;
+    toDraw({ type: 'marks', marks: marks.slice(0, 24), w: s.w, h: s.h, keep: !!keep });
     toNotch('notch:drawing', true);
   });
   ipcMain.on('blu:clear', (event) => { if (fromNotch(event)) toDraw({ type: 'clear' }); });
@@ -497,15 +525,17 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.on('blu:duck', (event, on) => { if (fromNotch(event) && loadConfig().blu?.hands !== false) hands.duck(!!on); });
   ipcMain.handle('blu:do', async (event, { actions, shot } = {}) => {
     if (!fromNotch(event) || !Array.isArray(actions)) return [];
-    // Checked again here: only actions from the list, as the bridge sent them.
+    // Checked again here: only actions from the list, as the bridge sent them; clicks on the screenshot.
+    const s = shots.get(shot);
     const list = actions.slice(0, 6).map((a) => {
-      const ok = action(a);
+      const ok = action(a, s ? { W: s.w, H: s.h } : undefined);
       if (ok?.act === 'play') Object.assign(ok, { url: typeof a.url === 'string' ? a.url : undefined, applemusic: typeof a.applemusic === 'string' ? a.applemusic.slice(0, 120) : undefined });
       return ok && { ...ok, words: typeof a.words === 'string' ? a.words.slice(0, 80) : undefined };
     }).filter(Boolean);
     const blu = loadConfig().blu ?? {};
-    const receipts = await hands.run(list, { shot: shots.get(shot) ?? null, allow: { hands: blu.hands !== false, click: blu.click === true } });
-    logDictate(`Blu did: ${receipts.map((r) => `${r.ok ? '✓' : '✗'} ${r.words}${r.error ? ` (${r.error})` : ''}`).join(' · ')}`);
+    const receipts = await hands.run(list, { shot: s ?? null, allow: { hands: blu.hands !== false, click: blu.click === true } });
+    // What Blu typed stays out of the log.
+    logDictate(`Blu did: ${receipts.map((r) => `${r.ok ? '✓' : '✗'} ${r.act === 'type' ? 'Type …' : r.words}${r.error ? ` (${r.error})` : ''}`).join(' · ')}`);
     return receipts;
   });
 
@@ -518,7 +548,8 @@ if (!app.requestSingleInstanceLock()) {
     const s = shot && shots.get(shot.path);
     if (!s) return;
     pendingCircle = shot;
-    drawWindow(s.display.bounds);
+    // Nothing to circle on (Linux without a compositor): just talk.
+    if (!(await drawWindow(s.display.bounds))) { pendingCircle = null; talkInNotch(); return; }
     draw.setIgnoreMouseEvents(false);
     toDraw({ type: 'circle', w: shot.w, h: shot.h, image: `data:image/jpeg;base64,${(await readFile(shot.path)).toString('base64')}` });
     if (!drawEsc && !globalShortcut.isRegistered('Escape')) { try { drawEsc = globalShortcut.register('Escape', cancelCircle); } catch {} }
@@ -590,7 +621,7 @@ if (!app.requestSingleInstanceLock()) {
       { type: 'separator' },
       { label: 'Notifications', type: 'checkbox', checked: loadConfig().notifications, click: (item) => saveConfig({ notifications: item.checked }) },
       ...(loadConfig().chat ? [{ label: 'Greet me when dotpals starts', type: 'checkbox', checked: !!loadConfig().greetOnStart, click: (item) => saveConfig({ greetOnStart: item.checked }) }] : []),
-      { label: 'Open when I log in', type: 'checkbox', checked: app.getLoginItemSettings(loginItem()).openAtLogin, click: (item) => app.setLoginItemSettings({ ...loginItem(), openAtLogin: item.checked }) },
+      { label: 'Open when I log in', type: 'checkbox', checked: opensAtLogin(), click: (item) => openAtLogin(item.checked) },
       { type: 'separator' },
       { label: 'Quit dotpals', click: () => app.quit() },
     ]);

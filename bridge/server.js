@@ -110,7 +110,7 @@ import { createLaya } from './laya.js';
 import { brainKeys, checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
 import { ask, askApps, askWithTools, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem, warmUp } from './brain.js';
 import { PRESETS, createConnectors, never, readOnly } from './connectors.js';
-import { actionWords, agentApps, appsSystem, appTools, buddyInput, buddySystem, parseBuddyReply, resolvePlay } from './buddy.js';
+import { actionWords, agentApps, appsSystem, appTools, buddyInput, buddySystem, parseBuddyReply, resolvePlay, saidYesTo } from './buddy.js';
 import { yourWords } from './ui/dictation.js';
 import { FILE_TOOLS, ago, alertText, createAlerts, findConflict, guardReason, guardReply, pathKey, who } from './guard.js';
 import { HANDOFF_AGENTS, findOnPath, handoffPrompt, installedAgents, isFolder, launch, launchCommand, onPath, saveNote } from './handoff.js';
@@ -930,9 +930,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         const r = await askBrain(brain, keys, system, input, isQuick(brain) ? 40_000 : 90_000, images);
         const reply = parseBuddyReply(r.text, { size: shot?.w ? { w: shot.w, h: shot.h } : null, can, apps });
         // "Yes" to the change Blu just asked about: done now, not asked again. Only on your own plain
-        // yes, right after a question from Blu: the brain can't confirm a change on its own.
-        const lastAsked = (history.at(-1)?.reply ?? '').includes('?'); // Blu asked something
-        if (reply.apps?.change && lastAsked && /^(yes|yeah|yep|yup|sure|ok|okay|alright|do it|go ahead|go for it|please( do)?|create it|make it|add it|sounds good)\b[\s\S]{0,120}$/i.test(text.replace(/^(hey |ok )?blu(e)?[,.]?\s*/i, ''))) reply.apps.confirmed = true;
+        // yes, right after Blu's question about that same change (bridge/buddy.js saidYesTo): the
+        // brain can't confirm a change on its own, nor swap in another.
+        if (saidYesTo(text, history.at(-1)?.reply, reply.apps)) reply.apps.confirmed = true;
         // "Play some jazz": the link that plays it, found here (YouTube's first result, or your Spotify app's).
         for (const a of reply.do) if (a.act === 'play') Object.assign(a, await resolvePlay(a, { music: blu.music, spotifyKey: keys.spotify }).catch(() => ({})));
         return json(res, 200, { ...reply, words: reply.do.map(actionWords), by: r.by, ms: r.ms, saw: !!images.length });
@@ -970,7 +970,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
           const name = (t) => `${own.id.replace(/-/g, '_')}__${t.name}`.replace(/[^\w-]/g, '_').slice(0, 64);
           const byName = new Map(usable.map((t) => [name(t), t]));
           const tools = [...byName].map(([n, t]) => ({ name: n, description: String(t.description ?? '').slice(0, 1000), schema: t.inputSchema ?? { type: 'object', properties: {} } }));
-          const mcp = brain.id === 'claude' ? { config: { mcpServers: { [own.id]: await connectors.claudeEntry(own.id) } }, allowed: usable.map((t) => `mcp__${own.id}__${t.name}`) } : null;
+          // Claude Code's --allowedTools is a list: only plain tool names go in it (no commas or spaces).
+          const mcp = brain.id === 'claude' ? { config: { mcpServers: { [own.id]: await connectors.claudeEntry(own.id) } }, allowed: usable.filter((t) => /^[\w-]{1,64}$/.test(t.name)).map((t) => `mcp__${own.id}__${t.name}`) } : null;
           const r = await (handoffOptions.askWithTools ?? askWithTools)(brain, {
             system: appsSystem({ app, change }), text: question, tools, mcp, model: config.brain?.models?.[brain.id], key: keys[brain.id], timeoutMs: isQuick(brain) ? 60_000 : 120_000,
             call: async (n, args) => (byName.has(n) ? connectors.call(own.id, byName.get(n).name, args) : `Error: Blu may not use ${n} now`),

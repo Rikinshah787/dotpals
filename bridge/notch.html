@@ -771,13 +771,13 @@
         buddy.at = Date.now();
         buddy.history = [...buddy.history, { said: text, reply: r.say, drew: drewWords(r.draw) }].slice(-6);
         if (r.clear && !r.draw.length) desktop?.bluClear?.();
-        if (r.draw.length && shot) desktop?.bluDraw?.({ marks: r.draw, shot: shot.path, keep: r.keep });
+        if (r.draw.length && shot && !r.steps) desktop?.bluDraw?.({ marks: r.draw, shot: shot.path, keep: r.keep });
         const actions = r.do.map((a, i) => ({ ...a, words: r.words[i] }));
         Object.assign(talk, { answer: r.say, note: '', acts: actions.map((a) => ({ words: a.words, ok: null })) });
         keepOpen();
         // Doing and talking at once: "Alright, it's on now" while the song starts.
         const doing = actions.length ? desktop?.bluDo?.({ actions, shot: shot?.path }) : null;
-        const speaking = r.say ? speak(r.say) : Promise.resolve();
+        const speaking = r.steps && shot ? teach(r, shot, turn) : r.say ? speak(r.say) : Promise.resolve();
         const receipts = await doing;
         if (receipts) {
           talk.acts = receipts;
@@ -813,6 +813,19 @@
       Object.assign(talk, { note: 'Okay, not done.', acts: null });
       keepOpen();
       return speak(choose(['Okay, I won’t.', 'Sure, left it.']));
+    }
+    /**
+     * Step by step, like a teacher at a whiteboard: each step's marks (the working it writes, a
+     * circle, an arrow) appear as Blu starts saying that step. Stop ends it between steps.
+     */
+    async function teach(r, shot, turn) {
+      for (const [i, st] of r.steps.entries()) {
+        if (turn !== talk.turn) return;
+        const marks = r.draw.filter((m) => m.step === i);
+        if (marks.length) desktop?.bluDraw?.({ marks, shot: shot.path, keep: i > 0 || r.keep });
+        else if (i === 0 && !r.keep) desktop?.bluClear?.();
+        if (st.say) await speak(st.say);
+      }
     }
     /** Claude looks (or, once you said yes, does one thing) in one of your apps; Blu says what it found. */
     function askApps(ask) {
@@ -1340,13 +1353,13 @@
     }
 
     const ICONS = {
-      pal: '<circle cx="8" cy="9" r="5"/><circle cx="6.3" cy="8.5" r=".6" fill="currentColor"/><circle cx="9.7" cy="8.5" r=".6" fill="currentColor"/>',
+      pal: '<circle cx="8" cy="8.5" r="5.6"/><circle cx="6.1" cy="7.7" r="1" fill="currentColor" stroke="none"/><circle cx="9.9" cy="7.7" r="1" fill="currentColor" stroke="none"/><path d="M6.4 10.4q1.6 1.2 3.2 0"/>',
       dash: '<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>',
-      palAway: '<circle cx="8" cy="9" r="5"/><path d="M5.6 9h1.4M9 9h1.4"/>', // eyes shut: the pal is put away
+      palAway: '<circle cx="8" cy="8.5" r="5.6"/><path d="M5 8.2q1.1-1.2 2.2 0M8.8 8.2q1.1-1.2 2.2 0M6.4 10.4q1.6 1.2 3.2 0"/>', // eyes shut: the pal is put away
       tuck: '<path d="M4 8h8"/>', // minimize
       mic: '<rect x="6" y="2" width="4" height="7.5" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"/>', // Talk to Blu
       close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
-      gear: '<circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
+      gear: '<circle cx="8" cy="8" r="4.2"/><circle cx="8" cy="8" r="1.6"/><path stroke-width="2.4" stroke-linecap="butt" d="M8 1.4v2.6M8 12v2.6M1.4 8h2.6M12 8h2.6M3.33 3.33l1.84 1.84M10.83 10.83l1.84 1.84M3.33 12.67l1.84-1.84M10.83 5.17l1.84-1.84"/>',
     };
     function icon(label, path, fn) {
       const b = button('icon', null, fn, label);

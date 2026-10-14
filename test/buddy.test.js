@@ -141,3 +141,18 @@ test('route: Blu answers itself; work goes to Claude when you name an agent or a
   assert.equal(aboutScreen('play some jazz'), false);
   assert.equal(drewWords([{ shape: 'circle', label: 'total' }, { shape: 'arrow', label: '' }]), 'circle “total”, arrow');
 });
+
+test('steps: Blu writes the working as it talks; each mark knows its step; handwriting needs its text', () => {
+  const r = parseBuddyReply(JSON.stringify({ steps: [
+    { say: 'First, 50 is 25 times 2.', draw: [{ shape: 'box', x: 50, y: 50, w: 360, h: 70 }, { shape: 'write', x: 470, y: 60, h: 30, text: '√50 = √(25×2) = 5√2' }] },
+    { say: 'Then the square root of 8 is 2 root 2.', draw: [{ shape: 'write', x: 470, y: 110, text: '√8 = 2√2' }, { shape: 'write', x: 470, y: 160, text: '' }] },
+    { say: 'So the answer is D.', draw: [] },
+  ] }), { size: { w: 900, h: 600 } });
+  assert.equal(r.say, 'First, 50 is 25 times 2. Then the square root of 8 is 2 root 2. So the answer is D.');
+  assert.equal(r.steps.length, 3);
+  assert.deepEqual(r.draw.map((m) => [m.step, m.shape, m.text ?? '', m.color, m.h]), [[0, 'box', '', 'red', 70], [0, 'write', '√50 = √(25×2) = 5√2', 'blue', 30], [1, 'write', '√8 = 2√2', 'blue', 32]]); // no text, no mark; letters 32 px when not given
+  assert.match(buddySystem({}), /"shape": "write"/);
+  assert.match(buddySystem({}), /a teacher at a whiteboard/);
+  // Without steps, as before: one answer, its marks at once.
+  assert.equal(parseBuddyReply('{"say":"It’s D.","draw":[{"shape":"circle","x":1,"y":1,"w":5,"h":5}]}').steps, undefined);
+});

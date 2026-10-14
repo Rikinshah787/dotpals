@@ -66,7 +66,7 @@ test('run: a receipt for each action; off switches and unknown actions refuse, t
   ], { allow: { hands: true, click: false } });
   assert.deepEqual(receipts.map((r) => r.ok), [true, true, false, false, false]);
   assert.match(receipts[3].error, /clicking and typing are off/);
-  assert.deepEqual(opened, ['https://example.com', 'https://www.youtube.com/watch?v=aBcDeFgHiJk']);
+  assert.deepEqual(opened, ['https://example.com/', 'https://www.youtube.com/watch?v=aBcDeFgHiJk']); // as one whole address
   const off = await hands.run([{ act: 'url', url: 'https://example.com' }], { allow: { hands: false } });
   assert.match(off[0].error, /hands are off/);
   const typed = await hands.run([{ act: 'type', text: 'hi' }], { allow: { hands: true, click: true } });

@@ -15,13 +15,15 @@
     .label.on { opacity: 1; transform: none; }
     .label.yellow { background: #ffd60a; color: #2e2600; }
     .gone { transition: opacity .45s; opacity: 0 !important; }
+    /* Blu's handwriting: the working, written next to what it explains. */
+    .hand { font-family: "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", cursive; font-weight: 700; paint-order: stroke; stroke: rgba(255, 255, 255, .85); stroke-width: 3px; stroke-linejoin: round; }
     body.circling { cursor: crosshair; background: rgba(10, 12, 20, .16); }
     #hint { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); padding: 7px 14px; border-radius: 999px; background: rgba(14, 14, 18, .88); color: #f2f2f5; font: 600 13px/1.2 system-ui, "Segoe UI", -apple-system, sans-serif; box-shadow: 0 4px 18px rgba(0, 0, 0, .35); }
     @media (prefers-reduced-motion: reduce) { .label { transition: none; } }
   </style>
 </head>
 <body>
-  <svg id="ink" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg id="ink" xmlns="http://www.w3.org/2000/svg"><defs id="clips"></defs></svg>
   <div id="hint" hidden>Circle what you mean · Esc to cancel</div>
   <script type="module">
     const desktop = window.dotpalsDesktop;
@@ -31,6 +33,7 @@
     const INK = { red: '#ff3b30', green: '#30d158', yellow: '#ffd60a', blue: '#0a84ff' };
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const marks = []; // { nodes: [elements], at }
+    let writes = 0;   // handwriting clips made so far (their ids)
     let fade = 0;
 
     // A little wobble, the same each time for the same mark (so a redraw doesn't jump).
@@ -83,6 +86,28 @@
       const b = { x: m.x * sx, y: m.y * sy, w: m.w * sx, h: m.h * sy };
       const color = INK[m.color] ?? INK.red;
       const nodes = [];
+      if (m.shape === 'write') {
+        // Written left to right, at about the speed of a hand: a clip that widens over the text.
+        const size = Math.max(14, m.h * sy);
+        const text = document.createElementNS(NS, 'text');
+        Object.entries({ x: b.x, y: b.y + size * 0.85, 'font-size': size, fill: color, class: 'hand' }).forEach(([k, v]) => text.setAttribute(k, v));
+        text.textContent = m.text;
+        const clip = document.createElementNS(NS, 'clipPath');
+        clip.id = `w${++writes}`;
+        const reveal = document.createElementNS(NS, 'rect');
+        Object.entries({ x: b.x - 6, y: b.y - size * 0.4, height: size * 1.9, width: 1 }).forEach(([k, v]) => reveal.setAttribute(k, v));
+        reveal.style.width = '0px';
+        clip.append(reveal);
+        document.getElementById('clips').append(clip);
+        text.setAttribute('clip-path', `url(#${clip.id})`);
+        svg.append(text);
+        nodes.push(text, clip);
+        const ms = reduced ? 0 : Math.min(1800, Math.max(350, m.text.length * 55));
+        const wide = text.getComputedTextLength() + 14;
+        setTimeout(() => { reveal.style.transition = `width ${ms}ms linear`; reveal.style.width = `${wide}px`; }, delay);
+        marks.push({ nodes, at: Date.now() });
+        return;
+      }
       if (m.shape === 'highlight') {
         const rect = document.createElementNS(NS, 'rect');
         Object.entries({ x: b.x - 3, y: b.y - 2, width: b.w + 6, height: b.h + 4, rx: 3, fill: color, 'fill-opacity': 0.32 }).forEach(([k, v]) => rect.setAttribute(k, v));
