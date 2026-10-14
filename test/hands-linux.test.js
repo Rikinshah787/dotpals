@@ -31,7 +31,7 @@ const windowAt = (file, args) => {
   const a = args.join(' ');
   if (a === 'getactivewindow') return '42';
   if (a === 'getwindowgeometry --shell 42') return 'WINDOW=42\nX=302\nY=240\nWIDTH=600\nHEIGHT=400\nSCREEN=0';
-  if (a === 'windowmove 42 302 240 sleep 0.1 getwindowgeometry --shell 42') return 'WINDOW=42\nX=304\nY=280\nWIDTH=600\nHEIGHT=400\nSCREEN=0';
+  if (a === 'windowmove 42 302 240 sleep 0.1 getwindowgeometry --shell 42' || a === 'sleep 0.05 getwindowgeometry --shell 42') return 'WINDOW=42\nX=304\nY=280\nWIDTH=600\nHEIGHT=400\nSCREEN=0';
   return '';
 };
 
@@ -75,13 +75,14 @@ test('Linux windows: the one in front or the app named, moved with xdotool from 
     ['xdotool', 'getactivewindow'],
     ['xdotool', 'getwindowgeometry', '--shell', '42'],
     ['xdotool', 'windowmove', '42', '302', '240', 'sleep', '0.1', 'getwindowgeometry', '--shell', '42'],
+    ['xdotool', 'sleep', '0.05', 'getwindowgeometry', '--shell', '42'], // read again: it has stopped moving
     ['xdotool', 'windowsize', '42', '600', '400', 'windowmove', '42', '300', '120'], // its frame was at (300, 200): up by a tenth of the screen
   ]);
   assert.deepEqual(p.matched, [{ x: 300, y: 200, width: 600, height: 400 }]);
   const named = linux((file, args) => (args[0] === 'search' ? '42\n43' : windowAt(file, args)));
   await named.run({ act: 'window', how: 'smaller', app: 'spotify' }, { act: 'window', how: 'left', app: 'spotify' }, { act: 'window', how: 'maximize', app: 'spotify' },
     { act: 'window', how: 'minimize', app: 'spotify' }, { act: 'window', how: 'focus', app: 'spotify' });
-  assert.deepEqual(named.calls.filter(([, cmd]) => !['getwindowgeometry', 'windowmove'].includes(cmd)), [
+  assert.deepEqual(named.calls.filter(([, cmd]) => !['getwindowgeometry', 'windowmove', 'sleep'].includes(cmd)), [
     ['xdotool', 'search', '--onlyvisible', '--class', 'spotify'], ['xdotool', 'windowsize', '42', '480', '320', 'windowmove', '42', '360', '240'],
     ['xdotool', 'search', '--onlyvisible', '--class', 'spotify'], ['xdotool', 'windowsize', '42', '640', '800', 'windowmove', '42', '0', '0'],
     ['xdotool', 'search', '--onlyvisible', '--class', 'spotify'], ['xdotool', 'windowsize', '42', '1280', '800', 'windowmove', '42', '0', '0'],

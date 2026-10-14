@@ -300,8 +300,10 @@ export function createHands({ shell, screen, typeOut, log = () => {}, platform =
     const g = await geometry();
     // Moving a window to where xdotool says it is moves it by its title bar (some versions count it
     // twice): for the moves that start from where it is, try that once and take off how far it went.
+    // A busy window manager can take longer than 0.1 s: read again until it stops moving.
     if (['smaller', 'bigger', 'up', 'down', 'nudge-left', 'nudge-right'].includes(a.how)) {
-      const m = await geometry(['windowmove', id, String(g.X), String(g.Y), 'sleep', '0.1']);
+      let m = await geometry(['windowmove', id, String(g.X), String(g.Y), 'sleep', '0.1']);
+      for (let i = 0, was = ''; i < 8 && `${m.X},${m.Y}` !== was; i++) { was = `${m.X},${m.Y}`; m = await geometry(['sleep', '0.05']); }
       Object.assign(g, { X: 2 * g.X - m.X, Y: 2 * g.Y - m.Y });
     }
     const d = screen.getDisplayMatching({ x: g.X, y: g.Y, width: g.WIDTH, height: g.HEIGHT });

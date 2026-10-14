@@ -277,7 +277,9 @@ test('voice: no graphics card here, so Whisper runs on the processor (wasm); the
   const said = p.logs.filter((l) => l.startsWith('[voice]'));
   t.diagnostic(`${said.join(' · ') || 'nothing logged'} (${Math.round((Date.now() - started) / 1000)} s)`);
   await shut(p);
-  assert.ok(said.some((l) => /speech model \(quick\) on the processor/.test(l)), 'Whisper loaded on the processor');
+  const loaded = said.some((l) => /speech model \(quick\) on the processor/.test(l));
+  if (!loaded && said.some((l) => /Failed to fetch/.test(l))) return t.skip('the speech model couldn’t be downloaded (network)');
+  assert.ok(loaded, 'Whisper loaded on the processor');
 });
 
 test('without a compositor: see-through windows come out black, so Blu doesn’t draw (no black screen); one started later is used', { skip }, async (t) => {
