@@ -1,7 +1,7 @@
 {
   "name": "dotpals",
-  "version": "0.11.0",
-  "description": "See what your coding agent actually did, and make it fix the tests it broke: a floating pal for Claude Code, Codex and any agent that checks every file changed, command run and test result, plus an MCP server any AI tool can ask for the evidence. Also a zero-dependency animated Web Component for agent UIs.",
+  "version": "0.12.0",
+  "description": "See what your coding agent actually did, and make it fix the tests it broke: a floating pal for Claude Code, Codex and any agent that checks every file changed, command run and test result, plus an MCP server any AI tool can ask for the evidence. New: talk to Blu, who sees your screen, draws on it as it explains and uses your apps. Also a zero-dependency animated Web Component for agent UIs.",
   "keywords": [
     "claude-code",
     "codex",
@@ -10,6 +10,8 @@
     "developer-tools",
     "mcp",
     "mcp-server",
+    "voice-assistant",
+    "screen-assistant",
     "testing",
     "activity-log",
     "ai",

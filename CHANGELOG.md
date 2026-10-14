@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-14
+
+Talk to Blu: say it to the pal in your notch. Blu looks at your screen when you ask about it, draws on it as it explains (step by step, in its own handwriting), does things on your computer, uses your apps with your yes, and hands coding work to Claude and checks it, with the AI you already have.
+
 ### Added
 
 - **Talk to Blu.** Press Ctrl+Shift+Space (or the 🎤 in the notch) and say a task: Blu writes what "done" means (the tests that must pass, the folders not to touch), Claude Code does it when you say "send it", and Blu checks the result against that list and tells you, with a verdict card in the notch's *Talk* tab. Blu speaks with a natural voice made on this computer (Kokoro, 7 voices) and hears you with Whisper, also on this computer; you see your words as you speak. It chats back to hello and questions, with your pal's name.
@@ -414,7 +418,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/rikinshah787/dotpals/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/rikinshah787/dotpals/compare/v0.9.5...v0.9.6
