@@ -137,6 +137,7 @@ test('route: Blu answers itself; work goes to Claude when you name an agent or a
   assert.equal(route('fix this error'), 'plan');
   assert.equal(route('fix this error', { mode: 'everyday' }), 'buddy');
   assert.equal(route('fix the volume, it’s too loud'), 'buddy');
+  assert.equal(route('push it and open a PR'), 'plan'); // "open" is a computer word too
   assert.equal(aboutScreen('what’s this?'), true);
   assert.equal(aboutScreen('play some jazz'), false);
   assert.equal(drewWords([{ shape: 'circle', label: 'total' }, { shape: 'arrow', label: '' }]), 'circle “total”, arrow');

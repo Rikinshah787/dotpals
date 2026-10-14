@@ -148,8 +148,14 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
 
   let rec = null; // the recording in progress
   let holdNext = false; // the shortcut is held, and listening hasn't started yet
-  async function listen({ quiet = false } = {}) {
+  let starting = false; // getting the microphone ready
+  async function listen(options) {
     if (rec) return stop();
+    if (starting) return;
+    starting = true;
+    try { return await begin(options); } finally { starting = false; }
+  }
+  async function begin({ quiet = false } = {}) {
     stopSpeaking();
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
@@ -157,9 +163,18 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     const ctx = new AudioContext({ sampleRate: 16000 });
     if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
     // Captured on the audio thread: loading the models while you talk can't drop any of it.
-    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([RECORDER], { type: 'text/javascript' })));
-    const source = ctx.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(ctx, 'blu-recorder');
+    const code = URL.createObjectURL(new Blob([RECORDER], { type: 'text/javascript' }));
+    let source, node;
+    try {
+      await ctx.audioWorklet.addModule(code);
+      source = ctx.createMediaStreamSource(stream);
+      node = new AudioWorkletNode(ctx, 'blu-recorder');
+    } catch (err) {
+      for (const t of stream.getTracks()) t.stop();
+      ctx.close().catch(() => {});
+      status(`Blu can’t listen (${err.message}).`, true);
+      return;
+    } finally { URL.revokeObjectURL(code); }
     const chunks = [];
     const started = performance.now();
     let floor = 0, samples = 0, said = false, lastLoud = started;

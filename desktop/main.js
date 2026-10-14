@@ -165,7 +165,8 @@ if (!app.requestSingleInstanceLock()) {
   async function talkInNotch() {
     if (talkDown) return; // the shortcut repeating while you hold it
     talkDown = Date.now();
-    const held = setTimeout(() => { if (talkDown) toNotch('notch:key', 'talk-hold'); }, HOLD);
+    // Only Windows can tell how long the key is held (keys.released): elsewhere every press is a tap.
+    const held = process.platform === 'win32' && vkOf(talkShortcut) ? setTimeout(() => { if (talkDown) toNotch('notch:key', 'talk-hold'); }, HOLD) : null;
     keys.released(talkShortcut).then((ms) => {
       talkDown = 0;
       clearTimeout(held);
@@ -298,7 +299,7 @@ if (!app.requestSingleInstanceLock()) {
   // never takes one.
   ipcMain.on('dictate:blu', async (event, text) => {
     if (!dictate || event.sender !== dictate.webContents || typeof text !== 'string' || !text.trim()) return;
-    const shot = await takeShot();
+    const shot = loadConfig().blu?.see !== false ? await takeShot() : null;
     logDictate(`to Blu${shot ? ', with a screenshot' : ''}: ${text.slice(0, 80)}`);
     createNotch();
     const go = () => notch?.webContents.send('notch:talk-text', { text: text.slice(0, 2000), shot });
@@ -529,7 +530,7 @@ if (!app.requestSingleInstanceLock()) {
     const s = shots.get(shot);
     const list = actions.slice(0, 6).map((a) => {
       const ok = action(a, s ? { W: s.w, H: s.h } : undefined);
-      if (ok?.act === 'play') Object.assign(ok, { url: typeof a.url === 'string' ? a.url : undefined, applemusic: typeof a.applemusic === 'string' ? a.applemusic.slice(0, 120) : undefined });
+      if (ok?.act === 'play') Object.assign(ok, { url: typeof a.url === 'string' && /^(https:|spotify:)/i.test(a.url) ? a.url.slice(0, 2000) : undefined, applemusic: typeof a.applemusic === 'string' ? a.applemusic.slice(0, 120) : undefined });
       return ok && { ...ok, words: typeof a.words === 'string' ? a.words.slice(0, 80) : undefined };
     }).filter(Boolean);
     const blu = loadConfig().blu ?? {};

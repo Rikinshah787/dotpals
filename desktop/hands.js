@@ -147,7 +147,7 @@ function windowsHelper(log) {
     const p = proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     out = '';
     p.on('error', (err) => log(`hands helper: ${err.message}`));
-    p.on('exit', (code) => { if (proc === p) proc = null; for (const w of waiting.splice(0)) { clearTimeout(w.timer); w.fail(new Error(`the helper stopped (${code})`)); } });
+    p.on('exit', (code) => { if (proc !== p) return; proc = null; for (const w of waiting.splice(0)) { clearTimeout(w.timer); w.fail(new Error(`the helper stopped (${code})`)); } });
     p.stdin.on('error', () => {});
     p.stderr.on('data', (d) => log(`hands helper error: ${String(d).trim().slice(0, 300)}`));
     p.stdout.on('data', (d) => {
@@ -170,7 +170,7 @@ function windowsHelper(log) {
     return new Promise((ok, fail) => {
       const p = start();
       const w = { ok, fail };
-      w.timer = setTimeout(() => { const i = waiting.indexOf(w); if (i >= 0) waiting.splice(i, 1); fail(new Error('Windows took too long')); try { p.kill(); } catch {} }, timeoutMs);
+      w.timer = setTimeout(() => { if (proc === p) proc = null; for (const x of waiting.splice(0)) { clearTimeout(x.timer); x.fail(new Error('Windows took too long')); } try { p.kill(); } catch {} }, timeoutMs);
       waiting.push(w);
       p.stdin.write(`try { ${line} } catch { Out @{ error = $_.Exception.Message } }\n`);
     });
@@ -415,16 +415,18 @@ export function createHands({ shell, screen, typeOut, log = () => {}, platform =
   // Quieter while you talk to Blu: music that's playing goes down to a third while it listens,
   // so it hears you and not the song, and back up after (unless the volume was changed meanwhile:
   // "turn it down" stays down).
-  let ducked = null; // { from, to }
+  let ducked = null, wanted = false; // { from, to }; whether it should be down now
   async function duck(on) {
+    wanted = on;
     try {
       if (on) {
         if (ducked) return;
         const [now, v] = await Promise.all([nowPlaying(), readVolume()]);
-        if (!now?.playing || !v || v.muted || v.volume < 15) return;
+        if (!wanted || !now?.playing || !v || v.muted || v.volume < 15) return;
         const to = Math.max(8, Math.round(v.volume / 3));
         await volume({ set: to });
         ducked = { from: v.volume, to };
+        if (!wanted) await duck(false); // listening ended while it was turned down
       } else if (ducked) {
         const was = ducked;
         ducked = null;

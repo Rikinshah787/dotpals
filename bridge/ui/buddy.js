@@ -20,7 +20,7 @@ const CODING = /\b(fix|refactor|implement|commit|push|pull request|open a PR|mer
 export function route(text, { mode = 'both' } = {}) {
   const t = String(text ?? '');
   if (AGENT.test(t)) return 'plan';
-  if (mode !== 'everyday' && CODING.test(t) && !COMPUTER.test(t)) return 'plan';
+  if (mode !== 'everyday' && CODING.test(t) && (!COMPUTER.test(t) || /\b(PR|pull request)\b/i.test(t))) return 'plan';
   return 'buddy';
 }
 

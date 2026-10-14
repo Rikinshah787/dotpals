@@ -1002,8 +1002,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         const shot = shotOf(body.shot);
         // Planned by Blu's brain: your Claude Code as before, or whichever AI you chose.
         const { brain, here, keys } = await brainFor('plan');
-        const chosen = here.find((b) => b.id === config.brain?.choice);
-        if (!brain && chosen && !chosen.ready) return json(res, 400, { error: `${chosen.name} isn’t ready: ${chosen.why} (Settings → Blu’s brain)` });
+        const mine = here.find((b) => b.id === config.brain?.choice);
+        if (!brain && mine && !mine.ready) return json(res, 400, { error: `${mine.name} isn’t ready: ${mine.why} (Settings → Blu’s brain)` });
         const think = brain && brain.id !== 'claude' ? (system, input) => askBrain(brain, keys, system, input, 90_000).then((r) => r.text) : null;
         const reply = await (handoffOptions.planner ?? askPlanner)(text, projects, { name, agents: agentsNow(), shot, think, model: config.brain?.models?.claude });
         if (reply.chat) return json(res, 200, { reply: reply.chat }); // just talk: what the pal says back

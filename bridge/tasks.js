@@ -582,7 +582,8 @@ export async function prPlan(task, v, { git = (args) => run('git', args, { cwd: 
   const branch = newBranch ? `blu/${slug(task.title)}-${randomBytes(2).toString('hex')}` : current;
   // Raw: each line starts with two status columns, the first often a space.
   const status = (await out(['status', '--porcelain', '--untracked-files=all'], { raw: true })) ?? '';
-  const dirty = new Set(status.split('\n').filter(Boolean).map((l) => slash(l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop())));
+  const prefix = (await out(['rev-parse', '--show-prefix'])) ?? '';
+  const dirty = new Set(status.split('\n').filter(Boolean).map((l) => slash(l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop())).filter((p) => p.startsWith(prefix)).map((p) => p.slice(prefix.length)));
   const files = (v.changed ?? []).filter((f) => [...dirty].some((d) => d.toLowerCase() === f.toLowerCase()));
   const ahead = Number(await out(['rev-list', '--count', `origin/${base}..HEAD`])) || 0;
   if (!files.length && !ahead) return { error: 'There’s nothing to put in a PR: no changes from this task, and no commits ahead of the base' };
@@ -595,7 +596,7 @@ export async function openPr(task, plan, body, { git = (args) => run('git', args
   if (plan.newBranch) await step('Creating the branch', git(['switch', '-c', plan.branch]));
   if (plan.files.length) {
     await step('Adding the files', git(['add', '--', ...plan.files]));
-    await step('Committing', git(['commit', '-m', task.title, '-m', `Done by ${TASK_AGENTS[task.agent]?.full ?? 'an agent'} and checked by dotpals (Talk to Blu).`]));
+    await step('Committing', git(['commit', '-m', task.title, '-m', `Done by ${TASK_AGENTS[task.agent]?.full ?? 'an agent'} and checked by dotpals (Talk to Blu).`, '--', ...plan.files]));
   }
   await step('Pushing', git(['push', '-u', 'origin', plan.branch]));
   const dir = join(home(), 'tasks');
