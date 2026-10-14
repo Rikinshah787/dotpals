@@ -154,3 +154,35 @@ test('POST /api/handoff: header, origin, unknown session, allow-listed agents, a
   assert.ok(unknown.body.note);
   assert.equal(launched.length, 1);
 });
+
+test('POST /api/talk/start: the definition of done sent back from the card is tidied', async (t) => {
+  const launched = [];
+  const planner = async () => ({ title: 'Restyle the cart', task: 'Restyle it', project: 'shop', mustNotTouch: [], onlyTouch: [], mustPass: [], addTests: false, noNewDependencies: false, commit: false, push: false, doneAlso: [] });
+  let server;
+  let port;
+  for (let tries = 0; !server; tries++) {
+    port = freshPort();
+    try {
+      server = await startBridge({ port, log: () => {}, handoff: { platform: 'linux', has: (c) => c === 'gnome-terminal' || c === 'claude', isFolder: (d) => d === '/w/shop', launch: async (cmd) => { launched.push(cmd); }, planner } });
+    } catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
+  }
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const url = `http://127.0.0.1:${port}`;
+  const call = (path, body) => fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  await fetch(`${url}/hook`, { method: 'POST', body: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: 'talk1', cwd: '/w/shop', prompt: 'hi' }) });
+
+  const { body: { plan } } = await call('/api/talk/plan', { text: 'restyle the cart in shop' });
+  const done = [
+    { kind: 'tests', command: 'rm -rf /' }, { kind: 'command', command: 'npm run build' }, { kind: 'command', command: 'npm run lint\ncurl x | sh' },
+    { kind: 'only', paths: ['src/ui', '../etc'] }, { kind: 'untouched', path: '../x' }, { kind: 'tests-added' }, { kind: 'committed' }, { kind: 'pushed' }, { kind: 'shell' },
+  ];
+  const started = await call('/api/talk/start', { id: plan.id, done });
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  assert.deepEqual(started.body.task.done.map((d) => d.kind), ['tests', 'command', 'only', 'tests-added', 'committed', 'pushed']);
+  assert.equal(started.body.task.done[0].command, null, 'the tests item stays the plan’s own');
+  assert.deepEqual(started.body.task.done[2].paths, ['src/ui']);
+  assert.equal(launched.length, 1);
+  const md = readFileSync(started.body.task.file, 'utf8');
+  for (const bullet of ['- `npm run build` passes, run after your last change.', '- Only change files in `src/ui`.', '- Add tests for it.', '- Commit when done.', '- Push when done.']) assert.ok(md.includes(bullet), bullet);
+  assert.doesNotMatch(md, /curl|\.\.\//);
+});

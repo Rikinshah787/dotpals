@@ -873,7 +873,7 @@
         }
         Object.assign(talk, { plan, mode: 'plan', note: 'Say “send it”, add something, or “cancel”.' });
         keepOpen();
-        const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '').replace(/^Nothing in/, 'nothing in')).join(', and ');
+        const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '').replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())).join(', and ');
         await speak(`${choose(['Got it.', 'Okay.', 'Sure thing.'])} Claude will ${plan.title.charAt(0).toLowerCase()}${plan.title.slice(1)}, in ${plan.project.name}${plan.guessedProject ? ', where you were working last' : ''}.${crit ? ` I'll call it done when ${crit}.` : ''} ${choose(['Want me to send it?', 'Shall I send it?', 'Good to go?'])}`);
         if (talk.mode === 'plan' && talk.plan?.id === plan.id) voice.listen(); // asked by voice: answered by voice
       });
@@ -1817,6 +1817,7 @@
 
     /** The Talk tab: what you said, Blu's plan to send, or the task and how it went. */
     const TASK_WORDS = { starting: 'starting', working: 'working', ready: '✓ ready to merge', 'not-ready': '⚠ not ready', 'no-changes': 'no code changed', done: '✓ done', 'no-actions': 'nothing done in your apps', stopped: 'stopped' };
+    const DONE_ICONS = { tests: '🧪', command: '▶', untouched: '🚫', only: '📁', 'tests-added': '➕', 'no-deps': '📦', committed: '✔', pushed: '⬆' };
     function fillTalk(main) {
       const t = talk.task, p = talk.plan;
       const key = JSON.stringify([voice.listening(), talk.pal, talk.mode, talk.note, talk.bad, talk.said, talk.answer, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url, talk.acts, talk.drawing, settings?.blu?.mode]);
@@ -1840,12 +1841,12 @@
         if (talk.drawing) actions.append(button('btn', 'Clear drawing', () => desktop?.bluClear?.()));
         if (p) {
           card.append(el('p', '', `${p.title} · ${p.project.name}${p.guessedProject ? ' (where you worked last)' : ''}`));
-          card.append(checks(p.done.map((d) => [d.kind === 'tests' ? '🧪' : d.kind === 'untouched' ? '🚫' : '✍', 'm', d.text.replace(/`/g, '')])));
+          card.append(checks(p.done.map((d) => [DONE_ICONS[d.kind] ?? '✍', 'm', d.text.replace(/`/g, '')])));
           actions.append(button('btn allow', 'Send to Claude', sendPlan), button('btn', 'Cancel', () => { Object.assign(talk, { plan: null, mode: 'idle', note: '' }); schedule(); }));
         } else if (t) {
           card.append(el('p', '', `${t.title} · ${t.project?.name ?? ''} · ${TASK_WORDS[t.state] ?? t.state}`));
           if (['starting', 'working'].includes(t.state)) card.append(el('p', 'asked', t.verdict?.doing ?? 'Starting in a new terminal…'));
-          if (t.verdict?.checks?.length) card.append(checks(t.verdict.checks.slice(0, 7).map((c) => [c.ok === true ? '✓' : c.ok === false ? '✗' : '?', c.ok === true ? 'y' : c.ok === false ? 'n' : 'm', c.text])));
+          if (t.verdict?.checks?.length) card.append(checks(t.verdict.checks.slice(0, 12).map((c) => [c.ok === true ? '✓' : c.ok === false ? '✗' : '?', c.ok === true ? 'y' : c.ok === false ? 'n' : 'm', c.text])));
           if (talk.pr) {
             card.append(el('p', 'asked', `${talk.pr.newBranch ? `New branch ${talk.pr.branch} from ${talk.pr.base}` : `On ${talk.pr.branch}`}, commit ${talk.pr.files.join(', ') || 'nothing new'}, push, open the PR.`));
             actions.append(button('btn allow', 'Open the PR', openPr), button('btn', 'Not now', () => { Object.assign(talk, { pr: null, mode: 'idle' }); schedule(); }));
@@ -1875,7 +1876,7 @@
       head.append(mark, el('b', '', `Blu checked: ${t?.title ?? 'the task'}`), el('span', 'grow'));
       card.append(head, el('p', 'said', t?.words ?? ''));
       const checks = el('ul', 'tchecks');
-      for (const c of (t?.verdict?.checks ?? []).slice(0, 7)) {
+      for (const c of (t?.verdict?.checks ?? []).slice(0, 12)) {
         const li = el('li', c.ok === true ? 'y' : c.ok === false ? 'n' : 'm');
         li.append(el('b', '', c.ok === true ? '✓' : c.ok === false ? '✗' : '?'), el('span', '', c.text));
         checks.append(li);

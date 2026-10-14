@@ -114,7 +114,7 @@ import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 import { checkpoint, createGround, restoreFiles, rewindPlan, runGit, snapshot, testDiff, treeChanges } from './ground.js';
 import { createChat } from './chat.js';
-import { agentEnv, askPlanner, claudeTaskArgs, createTaskList, evaluate, fixRequest, knownProjects, makePlan, newSessionId, openPr, prPlan, receiptMarkdown, run, saveTask, taskMarkdown, taskPrompt, tidyPath, verdictWords } from './tasks.js';
+import { agentEnv, askPlanner, claudeTaskArgs, createTaskList, doneItem, evaluate, fixRequest, knownProjects, makePlan, newSessionId, openPr, prPlan, receiptMarkdown, run, saveTask, taskMarkdown, taskPrompt, verdictWords } from './tasks.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } })();
@@ -978,12 +978,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         plan.project = p;
       }
       if (Array.isArray(body.done)) {
-        plan.done = body.done.slice(0, 12).flatMap((d) => {
-          if (d?.kind === 'tests') return [plan.done.find((x) => x.kind === 'tests')].filter(Boolean);
-          if (d?.kind === 'untouched' && tidyPath(d.path)) return [{ kind: 'untouched', path: tidyPath(d.path), text: `Nothing in \`${tidyPath(d.path)}\` changes` }];
-          if (d?.kind === 'manual' && String(d.text ?? '').trim()) return [{ kind: 'manual', text: String(d.text).trim().slice(0, 200) }];
-          return [];
-        });
+        // The tests item stays the plan's own (its command comes from the project's files); the rest is tidied by doneItem.
+        plan.done = body.done.slice(0, 12).flatMap((d) => [d?.kind === 'tests' ? plan.done.find((x) => x.kind === 'tests') : doneItem(d)].filter(Boolean));
       }
       const has = handoffOptions.has ?? onPath;
       if (!has('claude')) return json(res, 400, { error: 'Claude Code isn’t installed here (no `claude` on PATH)' });

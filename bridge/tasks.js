@@ -5,8 +5,9 @@
 //   2. you send it, and the agent starts in a new terminal in the project, with a session
 //      id of ours so its steps are this task's;
 //   3. when the agent finishes, Blu checks the definition of done against what really
-//      happened: the "Ready to merge?" rules (ui/story.js) plus the folders you said not
-//      to touch;
+//      happened: the "Ready to merge?" rules (ui/story.js) plus what you asked for (folders
+//      not to touch or the only ones to change, commands that must pass, new tests, no new
+//      dependencies, a commit, a push);
 //   4. if you want, Blu opens a PR: a branch, a commit of the files the task changed, a
 //      push and `gh pr create`, after you've seen exactly what it will do.
 //
@@ -22,7 +23,7 @@ import { join, relative, isAbsolute } from 'node:path';
 import { home } from './config.js';
 import { findOnPath } from './handoff.js';
 import { buildTurns } from './ui/recap.js';
-import { commandEdits, gitTruth, readiness, simple, testLine, turnMarkdown, whyStopped } from './ui/story.js';
+import { commandEdits, commandOf, gitTruth, parts, ranAfterLastChange, readiness, simple, stepType, testLine, testVerdict, turnMarkdown, wholeSuite, whyStopped } from './ui/story.js';
 
 /** The agents a task can go to. Claude Code takes a session id, so its steps are known to be the task's. */
 export const TASK_AGENTS = { claude: { name: 'Claude', full: 'Claude Code' } };
@@ -129,17 +130,26 @@ Reply with only a JSON object, no other text:
  "code": true if the task changes code in a project, false for anything else (an email, a note, a search),
  "project": "the project's name if they named one of the known projects, else an empty string",
  "mustNotTouch": ["files or folders they said not to change, as paths relative to the project"],
- "doneAlso": ["other conditions for done they asked for, each short; leave out running the tests, that is always added for code"]}
-For chat, leave the task fields empty. Don't invent requirements. If a task is unclear, keep their words in "task".`;
+ "onlyTouch": ["the only files or folders they said to change, as paths relative to the project"],
+ "mustPass": ["commands they said must pass, like npm run build, npm run lint or tsc; leave out the tests, they are always run"],
+ "addTests": true if they asked for new tests, else false,
+ "noNewDependencies": true if they said not to add dependencies or packages, else false,
+ "commit": true if they asked to commit, else false,
+ "push": true if they asked to push, else false,
+ "doneAlso": ["any other conditions for done they asked for that the fields above don't cover, each short; not the tests"]}
+For chat, leave the task fields empty (empty lists, false). Don't invent requirements. If a task is unclear, keep their words in "task".`;
 
+const strings = { type: 'array', items: { type: 'string' } };
 export const PLAN_SCHEMA = {
   type: 'object',
   properties: {
     kind: { type: 'string', enum: ['task', 'chat'] }, reply: { type: 'string' },
     title: { type: 'string' }, task: { type: 'string' }, code: { type: 'boolean' }, project: { type: 'string' },
-    mustNotTouch: { type: 'array', items: { type: 'string' } }, doneAlso: { type: 'array', items: { type: 'string' } },
+    mustNotTouch: strings, onlyTouch: strings, mustPass: strings,
+    addTests: { type: 'boolean' }, noNewDependencies: { type: 'boolean' }, commit: { type: 'boolean' }, push: { type: 'boolean' },
+    doneAlso: strings,
   },
-  required: ['kind', 'reply', 'title', 'task', 'code', 'project', 'mustNotTouch', 'doneAlso'],
+  required: ['kind', 'reply', 'title', 'task', 'code', 'project', 'mustNotTouch', 'onlyTouch', 'mustPass', 'addTests', 'noNewDependencies', 'commit', 'push', 'doneAlso'],
 };
 
 /**
@@ -159,10 +169,16 @@ export function tidyPath(p) {
   const s = String(p ?? '').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+|\/+$/g, '');
   return !s || s.split('/').includes('..') ? '' : s;
 }
+/** A command that must pass: one line, at most 200 characters, without backticks (it's only ever matched, never run); '' otherwise. */
+function tidyCommand(c) {
+  const s = typeof c === 'string' ? c.trim().replace(/^`+|`+$/g, '').trim() : '';
+  return s.length <= 200 && !/[\r\n`]/.test(s) ? s : '';
+}
 
 /**
  * The planner's answer (`claude -p --output-format json`): { chat } when it was just talk (what to
- * say back), else { title, task, project, mustNotTouch, doneAlso }; throws if it's neither.
+ * say back), else { title, task, project, mustNotTouch, onlyTouch, mustPass, addTests,
+ * noNewDependencies, commit, push, doneAlso }; throws if it's neither.
  */
 export function parsePlanReply(stdout) {
   let outer;
@@ -181,7 +197,10 @@ export function parsePlanReply(stdout) {
   const list = (a, max) => (Array.isArray(a) ? a : []).map((x) => clean(x, max)).filter(Boolean).slice(0, 8);
   const out = {
     title: clean(plan.title, 80), task: String(plan.task ?? '').trim().slice(0, 4000), code: plan.code !== false, project: clean(plan.project, 80),
-    mustNotTouch: list(plan.mustNotTouch, 200).map(tidyPath).filter(Boolean), doneAlso: list(plan.doneAlso, 200),
+    mustNotTouch: list(plan.mustNotTouch, 200).map(tidyPath).filter(Boolean), onlyTouch: list(plan.onlyTouch, 200).map(tidyPath).filter(Boolean),
+    mustPass: (Array.isArray(plan.mustPass) ? plan.mustPass : []).map(tidyCommand).filter(Boolean).slice(0, 8),
+    addTests: plan.addTests === true, noNewDependencies: plan.noNewDependencies === true, commit: plan.commit === true, push: plan.push === true,
+    doneAlso: list(plan.doneAlso, 200),
   };
   if (!out.task) throw new Error('Claude’s plan had no task');
   if (!out.title) out.title = clean(out.task, 60);
@@ -247,11 +266,39 @@ export async function askPlanner(text, projects, { name, agents, shot, think, mo
 }
 
 /**
+ * One item of the definition of done (but the tests), tidied and with its words, or null
+ * when it isn't one. Paths are relative to the project and commands one line (tidyPath,
+ * tidyCommand): what the planner said and what the card sends back go through here.
+ */
+export function doneItem(d) {
+  const path = (p) => (typeof p === 'string' ? tidyPath(p) : '');
+  switch (d?.kind) {
+    case 'command': { const c = tidyCommand(d.command); return c ? { kind: 'command', command: c, text: `\`${c}\` passes, run after the last change` } : null; }
+    case 'untouched': { const p = path(d.path); return p ? { kind: 'untouched', path: p, text: `Nothing in \`${p}\` changes` } : null; }
+    case 'only': {
+      const ps = [...new Set((Array.isArray(d.paths) ? d.paths : []).slice(0, 8).map(path).filter(Boolean))];
+      return ps.length ? { kind: 'only', paths: ps, text: `Only files in ${ps.map((p) => `\`${p}\``).join(' or ')} change` } : null;
+    }
+    case 'tests-added': return { kind: 'tests-added', text: 'New tests are added' };
+    case 'no-deps': return { kind: 'no-deps', text: 'No new dependencies are added' };
+    case 'committed': return { kind: 'committed', text: 'The work is committed' };
+    case 'pushed': return { kind: 'pushed', text: 'The work is pushed' };
+    case 'manual': { const t = clean(d.text, 200); return t ? { kind: 'manual', text: t } : null; }
+    default: return null;
+  }
+}
+
+/**
  * The plan Blu reads back: the planner's answer, the project folder (one the agents worked
  * in, never from the request) and the definition of done:
- *   tests      the project's test command passes, run after the last change (checked)
- *   untouched  nothing under a path changes (checked)
- *   manual     anything else you asked for (shown, not checked)
+ *   tests        the project's test command passes, run after the last change (checked)
+ *   command      a command you named passes, run after the last change (checked)
+ *   untouched    nothing under a path changes (checked)
+ *   only         nothing outside these paths changes (checked)
+ *   tests-added  test files changed, and more tests ran than before when that can be told (checked)
+ *   no-deps      no lockfile changed and no package added (checked)
+ *   committed    committed after the last change; pushed: pushed after it (checked)
+ *   manual       anything else you asked for (shown, not checked)
  */
 export function makePlan({ text, reply, projects, project: chosen, shot = null, apps = null, testCommand = detectTestCommand }) {
   const code = reply.code !== false; // an email or a note has no tests to pass
@@ -260,9 +307,18 @@ export function makePlan({ text, reply, projects, project: chosen, shot = null, 
   if (!picked.project) throw new Error('dotpals doesn’t know any project folders yet: start an agent in one first');
   const cmd = code ? testCommand(picked.project.path) : null;
   const done = [
+    // Work in your apps (an email, a note) has no tests, commands or files to check: only what you asked for.
     ...(code ? [{ kind: 'tests', command: cmd, text: cmd ? `\`${cmd}\` passes, run after the last change` : 'The tests pass, run after the last change' }] : []),
-    ...reply.mustNotTouch.map((path) => ({ kind: 'untouched', path, text: `Nothing in \`${path}\` changes` })),
-    ...reply.doneAlso.map((text) => ({ kind: 'manual', text })),
+    ...[
+      ...(code ? [
+        ...(reply.mustPass ?? []).filter((c) => c !== cmd).map((command) => ({ kind: 'command', command })),
+        ...reply.mustNotTouch.map((path) => ({ kind: 'untouched', path })),
+        { kind: 'only', paths: reply.onlyTouch ?? [] },
+        reply.addTests && { kind: 'tests-added' }, reply.noNewDependencies && { kind: 'no-deps' },
+        reply.commit && { kind: 'committed' }, reply.push && { kind: 'pushed' },
+      ] : []),
+      ...reply.doneAlso.map((text) => ({ kind: 'manual', text })),
+    ].map(doneItem).filter(Boolean),
   ];
   return {
     id: `plan-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`, said: String(text).trim().slice(0, 2000),
@@ -271,16 +327,24 @@ export function makePlan({ text, reply, projects, project: chosen, shot = null, 
   };
 }
 
+// The definition of done as the agent reads it, one bullet per item (anything else: its own words).
+const BULLETS = {
+  tests: (d) => `${d.command ? `\`${d.command}\` passes` : 'The project’s tests pass'}, run after your last change.`,
+  command: (d) => `\`${d.command}\` passes, run after your last change.`,
+  untouched: (d) => `Don’t change anything in \`${d.path}\`.`,
+  only: (d) => `Only change files in ${d.paths.map((p) => `\`${p}\``).join(' or ')}.`,
+  'tests-added': () => 'Add tests for it.',
+  'no-deps': () => 'Don’t add dependencies.',
+  committed: () => 'Commit when done.',
+  pushed: () => 'Push when done.',
+};
+
 /** The task file the agent reads. */
 export function taskMarkdown(plan) {
   const lines = [`# ${plan.title}`, '', `Task from dotpals (Blu) for the project in \`${plan.project.path}\`.`, '', plan.task.trim(), ''];
   if (plan.shot) lines.push(`A screenshot of their screen when they asked: \`${plan.shot}\` (open it if the task says "this" or "here").`, '');
   lines.push('## Definition of done', '');
-  for (const d of plan.done) {
-    if (d.kind === 'tests') lines.push(`- ${d.command ? `\`${d.command}\` passes, run after your last change` : 'The project’s tests pass, run after your last change'}.`);
-    else if (d.kind === 'untouched') lines.push(`- Don’t change anything in \`${d.path}\`.`);
-    else lines.push(`- ${d.text}`);
-  }
+  for (const d of plan.done) lines.push(`- ${BULLETS[d.kind]?.(d) ?? d.text}`);
   if (plan.code === false) lines.push('- Nothing is sent, posted, deleted or paid for without asking first: draft it.', '', 'When you’ve finished, say exactly what you did and where (for example: a draft saved in Gmail, not sent).');
   else lines.push('', `When you’ve finished, run ${plan.testCommand ? `\`${plan.testCommand}\`` : 'the tests'} once more after your final edit, then say what you changed and how the tests went.`);
   return `${lines.join('\n')}\n`;
@@ -353,6 +417,79 @@ function doingWords(step, task) {
   return clean(t, 120);
 }
 
+// A test file: in a test folder, or named like one (cart.test.js, cart.spec.ts, test_cart.py, cart_test.go, cart_spec.rb).
+const TEST_FILE = /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.\w+$|(^|\/)test_[^/]*\.py$|_test\.go$|_spec\.rb$/i;
+// New dependencies, kept simple: a lockfile (or requirements file) changed; a command added
+// a package (`npm i lodash`, `pip install requests`, `cargo add serde`; not `npm ci`, a bare
+// `npm install` or `pip install -r requirements.txt`); or a manifest (package.json,
+// pyproject.toml…) changed and an install ran. A manifest changed on its own doesn't count:
+// without a diff, new dependencies can't be told from a new script.
+const LOCKFILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements[^/]*\.txt|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/i;
+const MANIFEST = /(^|\/)(package\.json|pyproject\.toml|Pipfile|Cargo\.toml|go\.mod|Gemfile|composer\.json)$/i;
+const ADD = /^(?:(?:npm|pnpm|yarn|bun)\s+(?:install|i|add)|pip3?\s+install|uv\s+(?:add|pip\s+install)|poetry\s+add|cargo\s+add|go\s+get|gem\s+install|bundle\s+add|composer\s+require)\s+/i;
+const INSTALL = /^(?:(?:npm|pnpm|yarn|bun)\s+(?:install|i|add|ci)|pip3?\s+install|uv\s+(?:add|sync|pip\s+install)|poetry\s+(?:add|install)|cargo\s+add|go\s+get|gem\s+install|bundle\s+(?:add|install)|composer\s+(?:require|install))\b/i;
+/** Whether a command (one of its parts) names a package to add: a word after the verb that isn't an option, a redirect, "." or a requirements file. */
+const addsPackage = (p) => { const m = ADD.exec(p); return !!m && p.slice(m[0].length).split(/\s+/).some((w) => w && !/^-|[<>&]|^\.$|\.(txt|toml|cfg|in)$/i.test(w)); };
+
+/** New tests: a test file changed and, when whole-suite runs before and after it can be counted, more tests ran. */
+function testsAdded(steps, changed, dir) {
+  const files = changed.filter((f) => TEST_FILE.test(f));
+  if (!files.length) return { ok: false, text: 'No test files were added or changed' };
+  const where = files.slice(0, 3).join(', ');
+  const isTest = (p) => TEST_FILE.test(relativeTo(dir, p) ?? '');
+  const edited = steps.filter((s) => s.status !== 'failed' && [...(s.files ?? []).filter((f) => f.change !== 'read').map((f) => f.path), ...commandEdits(s)].some(isTest)).map((s) => s.at);
+  const runs = steps.filter((s) => s.kind === 'run' && stepType(s) === 'test' && wholeSuite(s)).map((s) => ({ at: s.at, f: testVerdict(s).facts }))
+    .filter((r) => r.f?.parsed && r.f.total > 0).sort((a, b) => a.at - b.at);
+  const after = runs.at(-1);
+  // Counted before the first test file changed, and after the last (same runner): else the counts can't be compared.
+  const before = edited.length && after?.at > Math.max(...edited) && runs.find((r) => r.at < Math.min(...edited) && r.f.runner === after.f.runner);
+  if (!before) return { ok: true, text: `Changed ${where} (the number of tests couldn’t be compared)` };
+  return after.f.total > before.f.total
+    ? { ok: true, text: `Added tests: ${before.f.total} → ${after.f.total} (${where})` }
+    : { ok: false, text: `Changed ${where}, but no more tests ran than before (${before.f.total} → ${after.f.total})` };
+}
+
+/** No new dependencies (see LOCKFILE above). */
+function noNewDeps(steps, changed) {
+  const ran = steps.filter((s) => s.kind === 'run' && s.status !== 'failed').flatMap((s) => parts(commandOf(s)));
+  const added = ran.find(addsPackage);
+  if (added) return { ok: false, text: `Added a package: \`${clean(added, 70)}\`` };
+  const locks = changed.filter((f) => LOCKFILE.test(f));
+  if (locks.length) return { ok: false, text: `Changed ${locks.slice(0, 3).join(', ')}` };
+  const manifest = changed.find((f) => MANIFEST.test(f));
+  if (manifest && ran.some((p) => INSTALL.test(p))) return { ok: false, text: `Changed ${manifest} and ran an install` };
+  return { ok: true, text: 'No new dependencies' };
+}
+
+// What a command that had to run says, by how it ran (ranAfterLastChange in ui/story.js).
+const RAN = {
+  command: (c) => ({ passed: `\`${c}\` passed after the last change`, failed: `\`${c}\` failed`, stale: `\`${c}\` didn’t run after the last change`, 'not-run': `\`${c}\` didn’t run`, unclear: `\`${c}\` unclear` }),
+  committed: () => ({ passed: 'Committed', failed: '`git commit` failed', stale: 'Changed code after the last commit', 'not-run': 'Not committed', unclear: 'Commit unclear' }),
+  pushed: () => ({ passed: 'Pushed', failed: '`git push` failed', stale: 'Changed code after the last push', 'not-run': 'Not pushed', unclear: 'Push unclear' }),
+};
+
+/** The definition of done's own checks (the tests are readiness()'s): [{ ok: true | false | null, text }]. */
+function doneChecks(task, turns, steps, changed) {
+  const checks = [];
+  for (const d of task.done) {
+    if (d.kind === 'untouched') {
+      const hit = changed.filter((f) => under(f, d.path));
+      checks.push({ ok: !hit.length, text: hit.length ? `Changed ${hit.slice(0, 3).join(', ')} in ${d.path}` : `Nothing in ${d.path} changed` });
+    } else if (d.kind === 'only') {
+      const out = changed.filter((f) => !d.paths.some((p) => under(f, p)));
+      checks.push({ ok: !out.length, text: out.length ? `Changed ${out.slice(0, 3).join(', ')} outside ${d.paths.join(' or ')}` : `Only files in ${d.paths.join(' or ')} changed` });
+    } else if (RAN[d.kind]) {
+      const r = ranAfterLastChange(steps, { command: d.command, committed: 'git commit', pushed: 'git push' }[d.kind]);
+      // A commit git saw that no step shows (a script made it): committed all the same.
+      if (d.kind === 'committed' && r.state === 'not-run' && turns.some((t) => gitTruth(t)?.committed)) checks.push({ ok: true, text: 'Committed (git saw a new commit)' });
+      else checks.push({ ok: r.state === 'passed' ? true : r.state === 'unclear' ? null : false, text: `${RAN[d.kind](d.command)[r.state]}${r.state === 'unclear' && r.note ? `: ${r.note}` : ''}` });
+    } else if (d.kind === 'tests-added') checks.push(testsAdded(steps, changed, task.project.path));
+    else if (d.kind === 'no-deps') checks.push(noNewDeps(steps, changed));
+    else if (d.kind === 'manual') checks.push({ ok: null, text: `Not checked by Blu: ${d.text}` });
+  }
+  return checks;
+}
+
 /**
  * Where a task stands, from its session's entries (any order):
  *   { state: 'starting' | 'working' | 'ready' | 'not-ready' | 'no-changes' | 'stopped',
@@ -382,16 +519,12 @@ export function evaluate(task, entries) {
   }
   const ready = readiness(merged);
   const changed = changedFiles(merged, task.project.path);
-  if (!ready) return { state: 'no-changes', sentence, changed, at: last.end.at };
+  // No code changed: still say how the rest went ("`npm run lint` passed", "Pushed"), but it isn't ready or not.
+  if (!ready) return { state: 'no-changes', sentence, changed, checks: doneChecks(task, turns, steps, changed), at: last.end.at };
   // "Test result unclear" says why, as the session's test line does ("Tests unclear: it didn't finish").
   const tests = testLine(steps)?.text;
   const checks = ready.checks.map((c) => (c.text === 'Test result unclear' && /unclear/i.test(tests ?? '') ? { ...c, text: tests.split(' · ')[0] } : c));
-  for (const d of task.done) {
-    if (d.kind === 'untouched') {
-      const hit = changed.filter((f) => under(f, d.path));
-      checks.push({ ok: !hit.length, text: hit.length ? `Changed ${hit.slice(0, 3).join(', ')} in ${d.path}` : `Nothing in ${d.path} changed` });
-    } else if (d.kind === 'manual') checks.push({ ok: null, text: `Not checked by Blu: ${d.text}` });
-  }
+  checks.push(...doneChecks(task, turns, steps, changed));
   const problems = checks.filter((c) => c.ok === false).map((c) => c.text);
   return { state: problems.length ? 'not-ready' : 'ready', sentence, checks, problems, changed, tests, at: last.end.at, turn: merged };
 }
