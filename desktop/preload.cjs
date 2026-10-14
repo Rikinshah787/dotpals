@@ -102,6 +102,43 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
     ipcRenderer.removeAllListeners('notch:talk-text');
     ipcRenderer.on('notch:talk-text', (_, said) => callback(said));
   },
+  // -- Blu, the screen buddy (bridge/buddy.js, desktop/hands.js) ------------------------------
+  /** The notch: onTalkShot(shot), the screenshot taken as Talk's shortcut was pressed ({ path, w, h, x, y } or null). */
+  onTalkShot(callback) {
+    ipcRenderer.removeAllListeners('notch:talk-shot');
+    ipcRenderer.on('notch:talk-shot', (_, shot) => callback(shot));
+  },
+  /** The notch: onTalkCircle({ shot, circled }), you circled something (Ctrl+Alt+C): ask about it. */
+  onTalkCircle(callback) {
+    ipcRenderer.removeAllListeners('notch:talk-circle');
+    ipcRenderer.on('notch:talk-circle', (_, data) => callback(data));
+  },
+  /** A fresh screenshot of the screen you're on → { path, w, h, x, y } or null. */
+  bluShot: () => ipcRenderer.invoke('blu:shot'),
+  /** Draw Blu's marks over the screen a screenshot showed: { marks, shot: its path, keep }. */
+  bluDraw: (data) => ipcRenderer.send('blu:draw', data),
+  /** Take Blu's drawings off the screen. */
+  bluClear: () => ipcRenderer.send('blu:clear'),
+  /** Do these actions on the computer → a receipt for each [{ act, ok, words, error? }]. `shot`: the screenshot's path, for clicks. */
+  bluDo: (data) => ipcRenderer.invoke('blu:do', data),
+  /** The music card: 'info' → what's playing { title, artist, playing, app } or null; 'play' | 'pause' | 'playpause' | 'next' | 'previous' | 'louder' | 'quieter' → a receipt. */
+  bluMedia: (what) => ipcRenderer.invoke('blu:media', what),
+  /** Music that's playing goes quieter (true) while Blu listens, and back (false). */
+  bluDuck: (on) => ipcRenderer.send('blu:duck', !!on),
+  /** Get Blu's hands ready (Windows: its helper starts), while you're still talking. */
+  bluWarm: () => ipcRenderer.send('blu:warm'),
+  /** onBluDrawing(on): Blu's marks came on screen, or all went away. */
+  onBluDrawing(callback) {
+    ipcRenderer.removeAllListeners('notch:drawing');
+    ipcRenderer.on('notch:drawing', (_, on) => callback(on));
+  },
+  /** The drawing window (bridge/draw.html): onDrawCmd({ type: 'marks' | 'clear' | 'circle' | 'cancel', … }). */
+  onDrawCmd(callback) {
+    ipcRenderer.removeAllListeners('draw:cmd');
+    ipcRenderer.on('draw:cmd', (_, cmd) => callback(cmd));
+  },
+  /** The drawing window tells the app: 'empty' (nothing left on screen), 'circled' ({ box, image }). */
+  drawEvent: (type, data) => ipcRenderer.send('draw:event', type, data ?? null),
   /** onIdle(seconds): how long since the last keyboard or mouse input (every 2 s). */
   onIdle(callback) {
     ipcRenderer.removeAllListeners('notch:idle');

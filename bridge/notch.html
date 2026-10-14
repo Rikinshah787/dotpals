@@ -175,6 +175,14 @@
     .card-head .grow { flex: 1; }
     .card-head .mark { font-weight: 800; font-size: 12.5px; }
     .card p { margin: 0; }
+    /* What's playing, with its buttons. */
+    .card.music { display: flex; align-items: center; gap: 10px; padding: 9px 10px; }
+    .music .art { flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(135deg, #ff375f, #bf5af2); color: #fff; font-size: 17px; }
+    .music .what { flex: 1; min-width: 0; display: grid; }
+    .music .what b, .music .what small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .music .what b { font-size: 12.5px; } .music .what small { color: var(--muted); font-size: 11px; }
+    .music .ctl { flex: none; display: flex; gap: 4px; }
+    .music .ctl .btn { padding: 4px 9px; }
     /* Settings (the gear): the ones you may want to change mid-task. */
     .prefs label { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; cursor: pointer; font-size: 12.5px; font-weight: 600; }
     .prefs small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 400; }
@@ -266,6 +274,7 @@
     .btn:active { transform: scale(.95); }
     .btn kbd { padding: 0 5px; border-radius: 5px; font: 600 9.5px/1.6 var(--mono); color: inherit; opacity: .75; box-shadow: inset 0 0 0 1px currentColor; }
     .btn.allow { background: var(--ok); border-color: var(--ok); color: #06140a; }
+    .btn.stop { background: var(--bad); border-color: var(--bad); color: #fff; }
     .btn.allow:hover { background: #55b867; }
     .risky .btn.allow { background: var(--warn); border-color: var(--warn); }
     .gone { opacity: .5; pointer-events: none; }
@@ -381,6 +390,7 @@
     import { diffOf, language } from './ui/notch-diff.js';
     import { continueMenu } from './ui/handoff-menu.js';
     import { createVoice } from './ui/voice.js';
+    import { aboutScreen, drewWords, route } from './ui/buddy.js';
 
     const $ = (id) => document.getElementById(id);
     const desktop = window.dotpalsDesktop;
@@ -526,6 +536,7 @@
         schedule();
       } else if (type === 'config') {
         settings = data;
+        setTimeout(loadKeys, 2500); // a shortcut changed in Settings: the app has registered it by then
         if (data.storyView === 'simple' || data.storyView === 'detailed') defaultView = data.storyView;
         if (data.custom) { registerCustom(data.custom); DotPal.refresh('custom'); customName = data.custom.name ?? customName; }
         if (DotPal.characters.includes(data.character) && data.character !== first) {
@@ -583,13 +594,20 @@
     // Ctrl+Shift+Space (or the mic) opens the notch on Talk and listens (ui/voice.js). Blu turns
     // what you say into a plan with a definition of done, Claude does it in a new terminal, and
     // Blu checks the result (bridge/tasks.js). Each step keeps the notch open another minute.
-    const talk = { on: false, mode: 'idle', note: '', bad: false, said: '', answer: '', plan: null, task: null, pr: null, pal: 'idle' };
+    const talk = { on: false, mode: 'idle', note: '', bad: false, said: '', answer: '', plan: null, task: null, pr: null, pal: 'idle',
+      shot: null, shotAt: 0, circled: null, acts: null, drawing: false, // the screen buddy's: the screenshot, what you circled, what Blu did, its marks on screen
+      turn: 0 }; // goes up when you stop Blu: an answer for an older turn is dropped
     // mode: idle | plan (waiting for "send it") | pr-offer | pr-confirm
     const voice = createVoice({
       status: (text, bad = false) => { talk.note = text; talk.bad = bad; keepOpen(); },
       live: (text) => { if (text) talk.said = text; schedule(); },
-      pal: (state) => { talk.pal = state; schedule(); },
+      pal: (state) => {
+        // Music that's playing goes quieter while Blu listens (desktop/hands.js duck), and back after.
+        if ((state === 'listening') !== (talk.pal === 'listening')) desktop?.bluDuck?.(state === 'listening');
+        talk.pal = state; schedule();
+      },
       heard: (text) => talkHeard(text),
+      hearing: () => settings?.blu?.hearing, // Settings → Hearing: which Whisper listens
     });
     const keepOpen = () => { if (talk.on) send({ type: 'click' }); schedule(); };
     const choose = (list) => list[Math.floor(Math.random() * list.length)];
@@ -602,9 +620,18 @@
     function startTalk() {
       talk.on = true;
       tabPick = null;
-      talk.shot = null; // said here, not pointing at anything
+      buddy.follow = 0; // you asked: a new conversation
+      talk.shot = null; // said here, not pointing at anything (the shortcut's screenshot comes right after)
+      talk.circled = null;
       keepOpen();
+      getReady();
       if (!voice.listening()) voice.listen();
+    }
+    // While you talk: Blu's hands get ready (Windows starts its helper), and so does its brain
+    // when that's Claude Code on your subscription (it starts about 3 s sooner; nothing is sent until you ask).
+    function getReady() {
+      desktop?.bluWarm?.();
+      if (settings?.blu?.mode !== 'developer') api('/api/brain/warm', { pal: palName() }).catch(() => {});
     }
     // "Blu, …" said to Dictate (Ctrl+Alt+D): the same as saying it here, with a screenshot of
     // what was on screen (so "what's this?" and "fix this" can point).
@@ -612,14 +639,54 @@
       if (!text) return;
       talk.on = true;
       tabPick = null;
-      talk.shot = shot ?? null;
+      Object.assign(talk, { shot: shot ?? null, shotAt: Date.now(), circled: null });
       keepOpen();
       talkHeard(text);
     });
-    async function speak(text) { await voice.say(text); talk.pal = 'idle'; schedule(); }
+    // Talk's shortcut: what was on screen as you pressed it (sent to Blu's brain only if you ask about it).
+    desktop?.onTalkShot?.((shot) => { if (shot) Object.assign(talk, { shot, shotAt: Date.now() }); });
+    // You circled something (Ctrl+Alt+C): Blu listens for what you want to know about it.
+    desktop?.onTalkCircle?.(({ shot, circled } = {}) => {
+      if (!shot) return;
+      Object.assign(talk, { on: true, shot, shotAt: Date.now(), circled, mode: 'idle', plan: null, answer: 'What about it?', said: '', acts: null, bad: false });
+      tabPick = null;
+      buddy.follow = 0;
+      keepOpen();
+      getReady();
+      if (!voice.listening()) voice.listen();
+    });
+    desktop?.onBluDrawing?.((on) => { talk.drawing = !!on; schedule(); });
+    async function speak(text) { const turn = talk.turn; await voice.say(text); if (turn === talk.turn) { talk.pal = 'idle'; schedule(); } }
+    // Stop (the Stop button, or "stop", "be quiet", "that's all"): Blu stops listening and talking,
+    // an answer still on its way is dropped, and the conversation ends until you talk again.
+    function stopTalk(note = 'Stopped.') {
+      talk.turn++;
+      voice.stop({ discard: true, quiet: true });
+      voice.stopSpeaking();
+      buddy.follow = 0;
+      Object.assign(talk, { note, pal: 'idle', bad: false });
+      desktop?.bluDuck?.(false);
+      keepOpen();
+    }
+    const STOP = /^(?:(?:hey|ok|okay)\s+)?(?:blu(?:e)?[,.]?\s+)?(stop|stop (it|that|talking|listening|now)|be quiet|quiet|shut up|hush|that'?s (all|it|enough)|enough|nothing|never ?mind|go away|thanks?,? that'?s all|thank you,? that'?s all)[.!]?$/i;
     /** A step that talks to the bridge: on failure, show and say why. */
     async function attempt(fn) {
-      try { await fn(); } catch (err) { talk.note = err.message; talk.bad = true; talk.pal = 'error'; keepOpen(); speak(err.message); }
+      try { await fn(); } catch (err) {
+        if (talk.mode === 'plan' && !talk.plan) talk.mode = 'idle'; // the plan never came: what you say next is a new request
+        talk.note = err.message; talk.bad = true; talk.pal = 'error'; keepOpen(); speak(err.message);
+      }
+    }
+    // A conversation: after Blu answers, it listens for your next words (Settings → Keep listening).
+    // A question is waited for; otherwise, if you say nothing, it just stops. Not while music
+    // plays (it would hear the song, not you), and at most 3 in a row until you talk to it again.
+    async function followUp(reply) {
+      const turn = talk.turn;
+      if (/\?\s*$/.test(reply)) return voice.listen();
+      if (settings?.blu?.conversation === false || /\b(bye|see you|good night)\b/i.test(reply) || !talk.on || buddy.follow >= 3) return;
+      await checkMusic();
+      if (music.now?.playing || turn !== talk.turn || voice.listening()) return;
+      buddy.follow++;
+      voice.listen({ quiet: true });
     }
     // Talk the way you would to a person: "yeah, go for it", "wait", "yes, but also…".
     const YES = /^(?:um+,?\s*|uh+,?\s*|so,?\s*)?(yes|yeah|yep|yup|sure|ok|okay|alright|all right|send|go|do it|ship it|sounds good|looks good|perfect|great|let'?s go|go for it|go ahead|please|absolutely|correct|right)\b/i;
@@ -628,51 +695,183 @@
     const few = (t) => t.split(/\s+/).filter(Boolean).length <= 4;
     function talkHeard(text) {
       const t = text.trim();
+      if (talk.mode === 'plan' && !talk.plan) talk.mode = 'idle'; // a plan that never came
       if (talk.mode === 'plan') {
         if (YES.test(t) && !MORE.test(t)) return sendPlan();
         if (NO.test(t) && few(t)) { talk.mode = 'idle'; talk.plan = null; talk.note = 'Cancelled.'; keepOpen(); return speak(choose(['Okay, scrapped it.', 'No problem, cancelled.'])); }
-        if (talk.plan.shot) talk.shot = { path: talk.plan.shot }; // the same screenshot as the plan it changes
-        return makePlan(`${talk.plan.said}. Also: ${t}`, talk.plan.project.path); // "yes, but also…" changes the plan
+        // "yes, but also…" changes the plan (with the same screenshot as the plan it changes; work in
+        // your apps has no project folder). Anything else is a new request, and the plan is dropped.
+        if (MORE.test(t)) return makePlan(`${talk.plan.said}. Also: ${t}`, talk.plan.code === false ? undefined : talk.plan.project.path, talk.plan.shot ? { path: talk.plan.shot } : null);
+        talk.mode = 'idle';
       }
       if (talk.mode === 'pr-offer' || talk.mode === 'pr-confirm') {
         if (YES.test(t)) return talk.mode === 'pr-offer' ? preparePr() : openPr();
         if (NO.test(t) && few(t)) { talk.mode = 'idle'; talk.pr = null; keepOpen(); return speak(choose(['Okay, no PR for now.', 'Sure, I’ll leave it.'])); }
       }
+      if (talk.mode === 'apps' && talk.appsAsk) { // "Shall I add it to your calendar?"
+        const ask = talk.appsAsk;
+        talk.mode = 'idle'; talk.appsAsk = null;
+        if (YES.test(t) && !MORE.test(t)) return askApps({ ...ask, confirmed: true });
+        if (NO.test(t) && few(t)) { keepOpen(); return speak(choose(['Okay, I won’t.', 'Sure, left it.'])); }
+      }
+      if (STOP.test(t)) return stopTalk('Okay, I stopped.');
       talk.mode = 'idle';
       // Hello, thanks, bye: answered at once, without asking Claude.
       // What's left without hellos and names: "Hey, hi, Blu. How are you?" → "how are you".
       const skip = new Set(['hey', 'hi', 'hello', 'yo', 'hiya', 'there', 'blu', 'blue', 'buddy', 'pal', 'um', 'uh', 'okay', 'ok', palName().toLowerCase()]);
       const core = t.toLowerCase().replace(/[^a-z' ]/g, ' ').split(/\s+/).filter((w) => w && !skip.has(w)).join(' ');
       const quick = QUICK.find(([re]) => re.test(core));
-      if (quick) { const reply = choose(quick[1]).replace('{name}', palName()); Object.assign(talk, { answer: reply, plan: null, note: '' }); keepOpen(); return speak(reply).then(() => { if (/\?$/.test(reply)) voice.listen(); }); }
+      if (quick) {
+        const everyday = settings?.blu?.mode === 'everyday';
+        const reply = choose(quick[1]).replace('{name}', palName()).replace('{you}', everyday ? 'I can look at your screen with you, explain it and draw on it, and play music or move windows for you' : settings?.blu?.mode === 'developer' ? 'Tell me what you want done, Claude does it, and I check the work before you merge' : 'I look at your screen with you, draw on it and do things on your computer; and I hand work to Claude and check it before you merge').replace(/What should Claude work on\?|What are we building today\?/, (m) => (settings?.blu?.mode === 'developer' ? m : 'What can I help with?'));
+        Object.assign(talk, { answer: reply, plan: null, note: '', acts: null }); keepOpen(); return speak(reply).then(() => followUp(reply));
+      }
+      // Blu answers itself; work for an agent (you name one, or ask for coding work) goes to the plan.
+      if (route(t, { mode: settings?.blu?.mode }) === 'buddy') return askBuddy(t);
       return makePlan(t);
     }
     const QUICK = [
       [/^(good (morning|afternoon|evening))?$/, ['Hey! What should Claude work on?', 'Hi there! Ready when you are. What do you need?', 'Hey! What are we building today?']],
       [/^(how are you( doing)?|how's it going|how is it going|what's up|what is up)$/, ['I’m good, thanks! What should Claude work on?', 'Doing great. What do you need?']],
-      [/^((thanks|thank you)( so much| a lot)?|cheers|nice|great|awesome|perfect|cool)$/, ['Anytime!', 'Happy to help!', 'You got it.']],
+      [/^((thanks|thank you)( so much| a lot)?|cheers|nice|great|awesome|perfect|cool|good job)$/, ['Anytime!', 'Happy to help!', 'You got it.']],
       [/^(bye|goodbye|see you|see ya|later|good night)$/, ['See you!', 'Bye for now!']],
-      [/^(who are you|what's your name|what is your name|what can you do)$/, ['I’m {name}. Tell me what you want done, Claude does it, and I check the work before you merge. What should we start with?']],
+      [/^(who are you|what's your name|what is your name|what can you do)$/, ['I’m {name}. {you}. What should we start with?']],
     ];
-    function makePlan(text, project) {
+
+    // -- Blu, the screen buddy (bridge/buddy.js) ---------------------------------------------------
+    // It looks at your screen (only when you ask about it), says what it sees, draws on the screen
+    // (desktop: bridge/draw.html) and does what you asked on your computer (desktop/hands.js), and
+    // shows a receipt for each thing it did. Work for an agent goes on to the plan. The last few
+    // exchanges ride along, so "circle each of them" knows what "them" is.
+    const buddy = { history: [], at: 0 };
+    function askBuddy(text) {
+      const turn = talk.turn;
       return attempt(async () => {
-        Object.assign(talk, { plan: null, pr: null, answer: '', bad: false, note: 'Thinking…', pal: 'thinking' });
+        Object.assign(talk, { mode: 'idle', plan: null, pr: null, answer: '', bad: false, acts: null, note: 'Thinking…', pal: 'thinking' });
+        keepOpen();
+        if (Date.now() - buddy.at > 5 * 60_000) buddy.history = []; // a new conversation
+        // A look at the screen only when it's about the screen: the shortcut's screenshot while it's fresh, else a new one.
+        let shot = null;
+        if ((talk.circled || aboutScreen(text)) && settings?.blu?.see !== false) {
+          shot = talk.shot && Date.now() - (talk.shotAt ?? 0) < 20_000 ? talk.shot : await desktop?.bluShot?.() ?? null;
+          if (shot) Object.assign(talk, { shot, shotAt: Date.now(), note: 'Looking…' });
+          keepOpen();
+        }
+        const circled = talk.circled;
+        talk.circled = null;
+        const r = await api('/api/talk/buddy', { text, pal: palName(), history: buddy.history, ...(shot ? { shot: { path: shot.path, w: shot.w, h: shot.h, x: shot.x, y: shot.y } } : {}), ...(circled ? { circled } : {}) });
+        if (turn !== talk.turn) return; // you stopped Blu meanwhile
+        // Not meant for Blu (a song's words, a video, someone else): nothing to say, and the conversation ends.
+        if (!r.say && !r.do.length && !r.draw.length && !r.task && !r.apps) { Object.assign(talk, { note: '', said: '', pal: 'idle' }); buddy.follow = 3; keepOpen(); return; }
+        buddy.at = Date.now();
+        buddy.history = [...buddy.history, { said: text, reply: r.say, drew: drewWords(r.draw) }].slice(-6);
+        if (r.clear && !r.draw.length) desktop?.bluClear?.();
+        if (r.draw.length && shot) desktop?.bluDraw?.({ marks: r.draw, shot: shot.path, keep: r.keep });
+        const actions = r.do.map((a, i) => ({ ...a, words: r.words[i] }));
+        Object.assign(talk, { answer: r.say, note: '', acts: actions.map((a) => ({ words: a.words, ok: null })) });
+        keepOpen();
+        // Doing and talking at once: "Alright, it's on now" while the song starts.
+        const doing = actions.length ? desktop?.bluDo?.({ actions, shot: shot?.path }) : null;
+        const speaking = r.say ? speak(r.say) : Promise.resolve();
+        const receipts = await doing;
+        if (receipts) {
+          talk.acts = receipts;
+          keepOpen();
+          if (receipts.some((x) => x.ok && ['play', 'media', 'volume'].includes(x.act))) setTimeout(checkMusic, 1500); // the music card shows what's on now
+          const failed = receipts.find((x) => !x.ok);
+          if (failed) { await speaking; await speak(`I couldn't do that: ${failed.error}.`); }
+        }
+        await speaking;
+        if (turn !== talk.turn) return;
+        // One of your apps: a look goes ahead now; a change waits for your "yes".
+        if (r.apps) {
+          if (!r.apps.change) return askApps(r.apps);
+          Object.assign(talk, { mode: 'apps', appsAsk: r.apps, note: `Say “yes” and I’ll do it in ${r.apps.app}, or “no”.` });
+          keepOpen();
+          return voice.listen();
+        }
+        // Work for an agent: on to the plan, with the same screenshot ("fix this").
+        if (r.task) return makePlan(r.task, undefined, shot);
+        followUp(r.say);
+      });
+    }
+    /** Claude looks (or, once you said yes, does one thing) in one of your apps; Blu says what it found. */
+    function askApps(ask) {
+      const turn = talk.turn;
+      return attempt(async () => {
+        Object.assign(talk, { note: `Checking ${ask.app} with Claude… (it can take a few seconds)`, pal: 'thinking', bad: false, acts: [{ words: `${ask.change ? 'Change' : 'Look'} in ${ask.app}`, ok: null }] });
+        keepOpen();
+        const r = await api('/api/talk/apps', ask);
+        if (turn !== talk.turn) return;
+        Object.assign(talk, { answer: r.say, note: '', acts: [{ words: `${ask.change ? 'Changed' : 'Looked'} in ${r.app}, through Claude`, ok: true }] });
+        buddy.history = [...buddy.history, { said: ask.ask, reply: r.say, drew: '' }].slice(-6);
+        keepOpen();
+        await speak(r.say);
+        if (turn === talk.turn) followUp(r.say);
+      });
+    }
+    // -- music: what's playing, with its buttons (desktop/hands.js nowPlaying) ---------------------
+    // Looked up every few seconds while the notch is open. The buttons are yours, so they work
+    // with Blu's hands off too.
+    const music = { now: null, sig: '' };
+    async function checkMusic() {
+      let now = null;
+      try { now = (await desktop?.bluMedia?.('info')) ?? null; } catch {}
+      const sig = now ? JSON.stringify(now) : '';
+      if (sig === music.sig) return;
+      Object.assign(music, { now, sig });
+      schedule();
+    }
+    if (desktop?.bluMedia) setInterval(() => { if (shown.v?.mode === 'open') checkMusic(); }, 3000);
+    const musicButton = (what) => () => desktop?.bluMedia?.(what).then(() => setTimeout(checkMusic, 400));
+    function musicCard() {
+      const m = music.now;
+      const card = el('div', 'card music');
+      const what = el('div', 'what');
+      what.append(el('b', '', m.title), el('small', '', [m.artist, m.app].filter(Boolean).join(' · ')));
+      const ctl = el('div', 'ctl');
+      ctl.append(
+        button('btn', '⏮', musicButton('previous'), 'Previous'),
+        button('btn', m.playing ? '❚❚' : '▶', musicButton(m.playing ? 'pause' : 'play'), m.playing ? 'Pause' : 'Play'),
+        button('btn', '⏭', musicButton('next'), 'Next'),
+        button('btn', '−', musicButton('quieter'), 'Quieter'),
+        button('btn', '+', musicButton('louder'), 'Louder'),
+      );
+      card.append(el('span', 'art', '♪'), what, ctl);
+      return card;
+    }
+    // The shortcuts that work right now (the desktop app registers them; yours from Settings).
+    let keysNow = {};
+    const loadKeys = () => fetch('/api/shortcuts').then((r) => r.json()).then((k) => { keysNow = k ?? {}; schedule(); }).catch(() => {});
+    loadKeys();
+    /** "CommandOrControl+Shift+Space" → "Ctrl+Shift+Space" (or ⌘⇧Space on a Mac). */
+    function keyLabel(accel, fallback) {
+      if (!accel) return fallback;
+      const mac = keysNow.platform === 'darwin';
+      return accel.split('+').map((k) => ({ CommandOrControl: mac ? '⌘' : 'Ctrl', CmdOrCtrl: mac ? '⌘' : 'Ctrl', Control: mac ? '⌃' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Shift: mac ? '⇧' : 'Shift', Super: mac ? '⌘' : 'Win' }[k] ?? k)).join(mac ? '' : '+');
+    }
+
+    /** `shot`: the screenshot that goes with it; by default the one you pointed at, when you talk about the screen ("fix this"). */
+    function makePlan(text, project, shot = talk.shot && aboutScreen(text) ? talk.shot : null) {
+      const turn = talk.turn;
+      return attempt(async () => {
+        Object.assign(talk, { mode: 'idle', plan: null, pr: null, answer: '', bad: false, acts: null, note: 'Thinking…', pal: 'thinking' });
         keepOpen();
         // The screenshot goes with this request only (a plan keeps it for "yes, but also…").
-        const shot = talk.shot;
         talk.shot = null;
         const { plan, reply } = await api('/api/talk/plan', { text, project, pal: palName(), ...(shot ? { shot } : {}) });
-        if (reply) { // just talk: say it back, and listen if it asked you something
+        if (turn !== talk.turn) return; // you stopped Blu meanwhile
+        if (reply) { // just talk: say it back, and listen for what you say next
           Object.assign(talk, { answer: reply, note: '' });
           keepOpen();
           await speak(reply);
-          if (/\?\s*$/.test(reply) && !talk.plan) voice.listen();
+          if (!talk.plan) followUp(reply);
           return;
         }
         Object.assign(talk, { plan, mode: 'plan', note: 'Say “send it”, add something, or “cancel”.' });
         keepOpen();
         const crit = plan.done.filter((d) => d.kind !== 'manual').map((d) => d.text.replace(/`/g, '').replace(/^Nothing in/, 'nothing in')).join(', and ');
-        await speak(`${choose(['Got it.', 'Okay.', 'Sure thing.'])} Claude will ${plan.title.charAt(0).toLowerCase()}${plan.title.slice(1)}, in ${plan.project.name}${plan.guessedProject ? ', where you were working last' : ''}. I'll call it done when ${crit}. ${choose(['Want me to send it?', 'Shall I send it?', 'Good to go?'])}`);
+        await speak(`${choose(['Got it.', 'Okay.', 'Sure thing.'])} Claude will ${plan.title.charAt(0).toLowerCase()}${plan.title.slice(1)}, in ${plan.project.name}${plan.guessedProject ? ', where you were working last' : ''}.${crit ? ` I'll call it done when ${crit}.` : ''} ${choose(['Want me to send it?', 'Shall I send it?', 'Good to go?'])}`);
         if (talk.mode === 'plan' && talk.plan?.id === plan.id) voice.listen(); // asked by voice: answered by voice
       });
     }
@@ -1186,9 +1385,9 @@
           }
           return tabs;
         } },
-        { key: `count|${agents.length}|${summaryLine(agents)}`, make: () => {
-          const n = agents.length;
-          return el('span', 'count', n ? `${plural(n, 'agent')} · ${summaryLine(agents)}` : 'No agents running right now');
+        { key: `count|${agents.length}|${summaryLine(agents)}|${music.sig}`, make: () => {
+          const n = agents.length, m = music.now;
+          return el('span', 'count', n ? `${plural(n, 'agent')} · ${summaryLine(agents)}` : m ? `${m.playing ? '♪' : '❚❚'} ${m.title}${m.artist ? ` · ${m.artist}` : ''}` : 'No agents running right now');
         } },
         queued > 0 && { key: `queue|${queued}|${needs}`, make: () => {
           const q = el('span', `queue${needs ? ' need' : ''}`, `+${queued} waiting`);
@@ -1250,7 +1449,39 @@
         actions.append(button('btn', 'All settings…', () => desktop?.openDashboard?.()), button('btn', 'Done', () => { settingsOpen = false; render(); }));
         card.append(head, row, el('div', 'card-head', 'Double-check unclear test results'), seg, ...(note ? [el('p', 'warn', note)] : []), actions);
         return card;
-      } }]);
+      } }, { key: `blu|${settings.blu?.conversation}|${settings.blu?.hearing}|${appsNow.sig}`, make: bluSettings }]);
+      if (Date.now() - appsNow.at > 30_000) loadApps();
+    }
+    // Blu, in the gear: keep listening, hearing, and the apps it can reach (the rest in the dashboard).
+    const appsNow = { list: null, at: 0, sig: '' };
+    const loadApps = () => { appsNow.at = Date.now(); fetch('/api/apps').then((r) => r.json()).then((a) => { appsNow.list = a; appsNow.sig = JSON.stringify([a.connected, a.signIn]); schedule(); }).catch(() => {}); };
+    function bluSettings() {
+      const card = el('div', 'card prefs');
+      const head = el('div', 'card-head');
+      head.append(el('b', '', palName()), el('span', 'grow'));
+      const row = el('label');
+      const text = el('span', '', 'Keep listening');
+      text.append(el('small', '', 'After it answers, it listens for what you say next. Say nothing, “stop”, or press ■ Stop, and it stops.'));
+      const box = el('input');
+      box.type = 'checkbox';
+      box.checked = settings.blu?.conversation !== false;
+      box.onchange = () => saveSetting({ blu: { conversation: box.checked } });
+      row.append(text, box);
+      const seg = el('div', 'seg');
+      seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-label', 'Hearing');
+      for (const [value, label] of [['quick', 'Quick'], ['better', 'Better (any language)'], ['best', 'Best']]) {
+        const b = button('btn', label, () => saveSetting({ blu: { hearing: value } }));
+        b.setAttribute('aria-pressed', String((settings.blu?.hearing ?? 'quick') === value));
+        seg.append(b);
+      }
+      const a = appsNow.list;
+      const apps = !a ? 'Looking…' : a.connected?.length ? `✓ ${a.connected.join(', ')}` : 'None yet.';
+      const actions = el('div', 'actions');
+      actions.append(button('btn', 'Connect apps…', () => desktop?.openDashboard?.()));
+      card.append(head, row, el('div', 'card-head', 'Hearing'), seg, el('div', 'card-head', 'Connected apps (through Claude)'), el('p', 'asked', apps),
+        ...(a?.signIn?.length ? [el('p', 'warn', `Sign in with /mcp in Claude Code: ${a.signIn.join(', ')}`)] : []), actions);
+      return card;
     }
 
     // The big pal of the agent in focus, with its name and state.
@@ -1585,18 +1816,25 @@
     const TASK_WORDS = { starting: 'starting', working: 'working', ready: '✓ ready to merge', 'not-ready': '⚠ not ready', 'no-changes': 'no code changed', done: '✓ done', 'no-actions': 'nothing done in your apps', stopped: 'stopped' };
     function fillTalk(main) {
       const t = talk.task, p = talk.plan;
-      const key = JSON.stringify([voice.listening(), talk.mode, talk.note, talk.bad, talk.said, talk.answer, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url]);
+      const key = JSON.stringify([voice.listening(), talk.pal, talk.mode, talk.note, talk.bad, talk.said, talk.answer, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url, talk.acts, talk.drawing, settings?.blu?.mode]);
       keyed(main, [{ key: `talk|${key}`, make: () => {
         const card = el('div', `card ${talk.bad ? 'tone-error' : 'tone-work'}`);
         const head = el('div', 'card-head');
         const on = voice.listening();
-        head.append(el('b', '', `Talk to ${palName()}`), el('span', 'grow'), button(`btn${on ? ' allow' : ''}`, on ? 'Listening… stop' : 'Talk', () => (on ? voice.stop() : startTalk())));
+        // Stop: while Blu listens, thinks or talks, it stops it all and the conversation ends.
+        const busy = on || ['thinking', 'speaking'].includes(talk.pal);
+        if (on) head.append(button('btn allow', 'Done', () => voice.stop(), 'Finish: Blu answers what you said'));
+        head.prepend(el('b', '', `Talk to ${palName()}`), el('span', 'grow'));
+        head.append(busy ? button('btn stop', '■ Stop', () => stopTalk(), 'Stop listening and talking') : button('btn', 'Talk', startTalk));
         card.append(head);
         if (talk.note) card.append(el('p', 'asked', talk.note));
         if (talk.said) card.append(el('p', 'said', `“${talk.said}”`));
         if (talk.answer) card.append(el('p', '', `${palName()}: ${talk.answer}`));
         const checks = (rows) => { const ul = el('ul', 'tchecks'); for (const [mark, cls, text] of rows) { const li = el('li', cls); li.append(el('b', '', mark), el('span', '', text)); ul.append(li); } return ul; };
         const actions = el('div', 'actions');
+        // What Blu did on your computer, each with how it went: the receipts.
+        if (talk.acts?.length) card.append(checks(talk.acts.map((a) => [a.ok === true ? '✓' : a.ok === false ? '✗' : '…', a.ok === true ? 'y' : a.ok === false ? 'n' : 'm', a.ok === false && a.error ? `${a.words}: ${a.error}` : a.words])));
+        if (talk.drawing) actions.append(button('btn', 'Clear drawing', () => desktop?.bluClear?.()));
         if (p) {
           card.append(el('p', '', `${p.title} · ${p.project.name}${p.guessedProject ? ' (where you worked last)' : ''}`));
           card.append(checks(p.done.map((d) => [d.kind === 'tests' ? '🧪' : d.kind === 'untouched' ? '🚫' : '✍', 'm', d.text.replace(/`/g, '')])));
@@ -1610,10 +1848,17 @@
             actions.append(button('btn allow', 'Open the PR', openPr), button('btn', 'Not now', () => { Object.assign(talk, { pr: null, mode: 'idle' }); schedule(); }));
           } else if (t.state === 'ready' && !t.pr) actions.append(button('btn allow', 'Open a PR…', preparePr));
           if (t.state === 'not-ready') actions.append(button('btn', 'Fix it…', () => fixIt(t)));
-        } else if (!talk.note) card.append(el('p', 'asked', 'Say what you want done, like “Have Claude fix the failing checkout test in shop.”'));
+        } else if (!talk.note && !talk.answer) {
+          const mode = settings?.blu?.mode;
+          const keys = `Hold ${keyLabel(keysNow.talk, 'Ctrl+Shift+Space')} while you talk, or tap it. ${keyLabel(keysNow.circle, 'Ctrl+Alt+C')}: circle something and ask.`;
+          card.append(el('p', 'asked', mode === 'developer' ? 'Say what you want done, like “Have Claude fix the failing checkout test in shop.”'
+            : mode === 'everyday' ? 'Ask about anything on your screen (“explain this like I’m 12”), or “play Billie Jean”, “turn it down a bit”, “make this window smaller”.'
+              : 'Ask about your screen (“what’s this error?”), “play some jazz in Chrome”, “make this window smaller”, or “have Claude fix the failing test”.'));
+          if (mode !== 'developer') card.append(el('p', 'asked', keys));
+        }
         if (actions.children.length) card.append(actions);
         return card;
-      } }]);
+      } }, music.now && { key: `music|${music.sig}`, make: musicCard }]);
     }
 
     /** A Talk to Blu task, checked: the verdict, each check, and where to go next. */
@@ -1986,6 +2231,8 @@
     }
     desktop?.onNotchKey?.((key) => {
       if (key === 'talk') { startTalk(); return; } // Ctrl+Shift+Space
+      if (key === 'talk-hold') { voice.hold(); return; } // …held while you talk: until you let go
+      if (key === 'talk-release') { voice.release(); return; }
       if (key === 'escape') { send({ type: 'close' }); return; }
       if (key !== 'allow' && key !== 'deny') return;
       const { v, kind, tab, focus } = shown;

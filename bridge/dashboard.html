@@ -543,7 +543,7 @@
 
           <div class="card">
             <h2>Blu’s brain</h2>
-            <div class="row"><div class="text">Your AI<small>What Blu thinks with: cleaning up what you dictate (Ctrl+Alt+D) and planning what you ask Talk. Bring any you have: a subscription (Claude Code, Codex, Gemini CLI, Cursor), an API key, or Ollama on this computer.</small><small id="b-uses"></small></div>
+            <div class="row"><div class="text">Your AI<small>What Blu thinks with: cleaning up what you dictate (Ctrl+Alt+D), planning what you ask Talk, and looking at your screen with you. Bring any you have: a subscription (Claude Code, Codex, Gemini CLI, Cursor), an API key, or Ollama on this computer.</small><small id="b-uses"></small></div>
               <select id="b-choice" aria-label="Your AI"><option value="auto">Auto</option></select></div>
             <div class="row" id="b-model-row" hidden><div class="text">Model<small>Leave it empty for the usual one.</small></div>
               <input type="text" class="field" id="b-model" spellcheck="false" autocomplete="off" aria-label="Model"></div>
@@ -558,6 +558,58 @@
               <select id="b-polish" aria-label="Clean up dictation"><option value="auto">Auto</option><option value="always">Always</option><option value="off">Off</option></select></div>
             <div class="row"><div class="text">Your words<small>Separated by commas. A name or word spelled your way (Rikin, dotpals), or a fix for a word it keeps mishearing, made every time: Regan → Rikin, Kokoa → coucou.</small></div>
               <input type="text" class="field" id="b-dictionary" spellcheck="false" autocomplete="off" aria-label="Your words"></div>
+          </div>
+
+          <div class="card">
+            <h2>Blu’s eyes and hands</h2>
+            <p class="muted" style="margin:4px 0 0">Talk to Blu about your screen: “explain this like I’m 12”, “what’s this error?”, “circle the part I should click”. Blu answers out loud and draws on your screen. It also does things on your computer: “play Billie Jean”, “turn it down a little”, “make this window smaller”. Shortcuts: <b>Ctrl+Shift+Space</b> to talk, <b>Ctrl+Alt+C</b> to circle something and ask about it (again, or Esc, to cancel).</p>
+            <div class="row"><div class="text">What Blu is for<small>Blu answers you itself. Coding: what you say goes to your coding agents, and Blu checks their work. Everyday: Blu helps with your whole computer, and only hands work to Claude when you name it. Both: work goes to Claude when you name an agent or ask for coding work; it always asks before sending.</small></div>
+              <select id="u-mode" aria-label="What Blu is for"><option value="both">Both</option><option value="developer">Coding</option><option value="everyday">Everyday</option></select></div>
+            <div class="row"><div class="text">Hearing<small>How Blu hears you, on this computer. Quick: English only, about 80 MB. Better: any accent, and names and songs in any language (“play Honey Singh”), about 600 MB. Best: the most accurate, about 760 MB, for a good graphics card. Downloaded once, the first time you talk. Dictate uses it too.</small></div>
+              <select id="u-hearing" aria-label="Hearing"><option value="quick">Quick</option><option value="better">Better</option><option value="best">Best</option></select></div>
+            <div class="row"><div class="text">Keep listening<small>After Blu answers, it listens for what you say next, like a conversation. Say nothing and it stops.</small></div><input type="checkbox" class="switch" id="u-conversation" aria-label="Keep listening"></div>
+            <div class="row"><div class="text">Look at my screen when I ask about it<small>Talk’s shortcut takes a screenshot of what you were looking at. It stays on this computer (the newest 20, in <span class="mono">~/.dotpals/shots</span>) unless what you say is about the screen; then Blu’s brain looks at it. With an API key, the picture goes to that provider with your words.</small></div><input type="checkbox" class="switch" id="u-see" aria-label="Look at my screen when I ask about it"></div>
+            <div class="row"><div class="text">Let Blu do things on my computer<small>Play, pause and skip; the volume; opening apps, pages and songs; moving and sizing windows. Nothing that closes, deletes, sends or buys. Each thing it does shows on the Talk card, ✓ or ✗.</small></div><input type="checkbox" class="switch" id="u-hands" aria-label="Let Blu do things on my computer"></div>
+            <div class="row"><div class="text">Let Blu click and type for me<small>Off unless you turn it on. Blu clicks, types or presses keys only when you ask, but it goes by what it sees on screen, so turn this on only if you’re happy with that.</small></div><input type="checkbox" class="switch" id="u-click" aria-label="Let Blu click and type for me"></div>
+            <div class="row"><div class="text">Play music on<small>YouTube and YouTube Music open the song in your browser, nothing to set up. Spotify opens the app on the song with a Spotify key (below), else on a search. Apple Music plays from your library (macOS).</small></div>
+              <select id="u-music" aria-label="Play music on"><option value="youtube">YouTube</option><option value="youtubemusic">YouTube Music</option><option value="spotify">Spotify</option><option value="applemusic">Apple Music (macOS)</option></select></div>
+            <div class="row" id="u-spotify-row"><div class="text">Spotify key<small id="u-spotify-state">No key saved.</small><small>Make an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com ↗</a> (free), then paste its Client ID and Client secret as <span class="mono">id:secret</span>. It’s only used to find the track; it can’t see your account.</small></div>
+              <form class="keyform" id="u-spotify-form" autocomplete="off">
+                <input type="password" class="field" id="u-spotify" autocomplete="new-password" spellcheck="false" placeholder="client id:client secret" aria-label="Spotify key">
+                <button type="submit">Save</button>
+                <button type="button" class="danger" id="u-spotify-remove" hidden>Remove key</button>
+              </form></div>
+            <div class="row"><div class="text">What Blu looks with<small id="u-apps"></small></div></div>
+          </div>
+
+          <div class="card" id="apps-card">
+            <h2>Connected apps</h2>
+            <p class="muted" style="margin:4px 0 0">Blu looks things up and makes small changes in these apps through Claude: “what’s on my calendar today?”, “any email from Sam?”, “add lunch with Sam tomorrow at 1”. It always asks before a change, and never sends an email or a message (it drafts). An app that isn’t connected, Blu says so.</p>
+            <div class="row"><div class="text">Connected to Claude<small id="a-none">Checking…</small></div></div>
+            <div class="chips" id="a-chips" style="margin:2px 0 6px"></div>
+            <div class="row" id="a-signin-row" hidden><div class="text warn-text">Waiting for you to sign in<small id="a-signin"></small><small>Open Claude Code and run <span class="mono">/mcp</span> to sign in to them.</small></div></div>
+            <div class="row"><div class="text">Google Calendar, Gmail, Google Drive and more<small>Connect them once at claude.ai and they work in Claude everywhere, and here. They show up above after Claude Code next starts.</small></div>
+              <button type="button" id="a-claudeai">claude.ai connectors ↗</button></div>
+            <div class="row"><div class="text">Add an app<small>Added to Claude Code for you. Then sign in once: run <span class="mono">/mcp</span> in Claude Code.</small></div>
+              <div class="keyform"><button type="button" data-app="notion">Notion</button><button type="button" data-app="linear">Linear</button><button type="button" data-app="sentry">Sentry</button></div></div>
+            <div class="row"><div class="text">Your own app<small>Any MCP server: its address (<span class="mono">https://…</span>) or the command that starts it (<span class="mono">npx -y some-mcp-server</span>).</small></div>
+              <form class="keyform" id="a-form" autocomplete="off">
+                <input type="text" class="field" id="a-name" spellcheck="false" placeholder="name" aria-label="App name" style="max-width:120px">
+                <input type="text" class="field" id="a-where" spellcheck="false" placeholder="https://… or a command" aria-label="Address or command">
+                <button type="submit">Add</button>
+              </form></div>
+          </div>
+
+          <div class="card">
+            <h2>Shortcuts</h2>
+            <p class="muted" style="margin:4px 0 0">Click a box and press the keys you want (with Ctrl, Alt, Shift or Win). They work at once. If another app has them, a notification says so and the usual one stays.</p>
+            <div class="row"><div class="text">Talk to Blu<small>Hold it while you talk, and let go when you’re done (Windows); or tap it, and Blu listens until you pause.</small><small id="k-talk-now"></small></div>
+              <div class="keyform"><input type="text" class="field keybox" id="k-talk" data-key="talkShortcut" readonly placeholder="Ctrl+Shift+Space" aria-label="Talk shortcut"><button type="button" data-reset="talkShortcut">Usual</button></div></div>
+            <div class="row"><div class="text">Circle something and ask<small>Draw around anything on screen, then ask about it. Again, or Esc, to cancel.</small><small id="k-circle-now"></small></div>
+              <div class="keyform"><input type="text" class="field keybox" id="k-circle" data-key="circleShortcut" readonly placeholder="Ctrl+Alt+C" aria-label="Circle shortcut"><button type="button" data-reset="circleShortcut">Usual</button></div></div>
+            <div class="row"><div class="text">Dictate<small>Type with your voice anywhere. Start with “Blu, …” to ask Blu instead.</small><small id="k-dictate-now"></small></div>
+              <div class="keyform"><input type="text" class="field keybox" id="k-dictate" data-key="dictateShortcut" readonly placeholder="Ctrl+Alt+D" aria-label="Dictate shortcut"><button type="button" data-reset="dictateShortcut">Usual</button></div></div>
+            <div class="row"><div class="text">Show or hide the pal<small id="k-pal-now">Ctrl+Alt+P</small></div></div>
           </div>
 
           <div class="card">
@@ -1762,7 +1814,121 @@
       }
       $('b-polish').value = b.polish ?? 'auto';
       if (document.activeElement !== $('b-dictionary')) $('b-dictionary').value = (b.dictionary ?? []).join(', ');
+      renderBlu();
     }
+    // -- Blu's eyes and hands (bridge/buddy.js, desktop/hands.js) ----------------------------
+    function renderBlu() {
+      const u = config.blu ?? {};
+      $('u-mode').value = u.mode ?? 'both';
+      $('u-see').checked = u.see !== false;
+      $('u-hands').checked = u.hands !== false;
+      $('u-click').checked = u.click === true;
+      $('u-click').disabled = u.hands === false;
+      $('u-music').value = u.music ?? 'youtube';
+      $('u-hearing').value = u.hearing ?? 'quick';
+      $('u-conversation').checked = u.conversation !== false;
+      $('u-spotify-row').hidden = u.music !== 'spotify';
+      const last4 = config.brainKeys?.spotify;
+      $('u-spotify-state').textContent = last4 ? `Saved: …${last4}` : 'No key saved.';
+      $('u-spotify-remove').hidden = !last4;
+      const name = (id) => brainInfo?.brains?.find((x) => x.id === id)?.name;
+      if (brainInfo) $('u-apps').textContent = brainInfo.screen ? `${name(brainInfo.screen)}, from Blu’s brain above. Your apps: see Connected apps below.` : 'No AI that can see is ready: pick one in Blu’s brain above.';
+    }
+    $('u-mode').onchange = (e) => save({ blu: { mode: e.target.value } });
+    $('u-hearing').onchange = (e) => save({ blu: { hearing: e.target.value } });
+    $('u-conversation').onchange = (e) => save({ blu: { conversation: e.target.checked } });
+
+    // -- Connected apps (bridge/buddy.js agentApps; your own ones go in with `claude mcp add`) -----
+    // Remote MCP servers that sign you in with your browser; their address is all Claude Code needs.
+    const APP_PRESETS = { notion: 'https://mcp.notion.com/mcp', linear: 'https://mcp.linear.app/mcp', sentry: 'https://mcp.sentry.dev/mcp' };
+    async function renderApps() {
+      let a = null;
+      try { a = await api('/api/apps'); } catch {}
+      $('a-chips').replaceChildren(...(a?.connected ?? []).map((name) => {
+        const chip = el('span', 'pill on', `● ${name}`);
+        const id = a.servers?.[name] ?? name;
+        if (a.mine?.includes(id)) {
+          const x = el('button', '', '×');
+          Object.assign(x, { type: 'button', title: `Remove ${name} from Claude Code`, onclick: () => removeApp(id) });
+          x.style.cssText = 'padding:0 4px;border:0;background:none;color:inherit;cursor:pointer';
+          chip.append(x);
+        }
+        return chip;
+      }));
+      $('a-none').textContent = !a ? 'Couldn’t ask. Is the bridge running?' : !a.claude ? 'Claude Code isn’t installed here: Blu reaches your apps through it.'
+        : a.connected?.length ? `Blu can use ${a.connected.length === 1 ? 'this app' : `these ${a.connected.length} apps`}. Your own have a ×.` : 'None yet: connect one below.';
+      $('a-signin-row').hidden = !a?.signIn?.length;
+      $('a-signin').textContent = (a?.signIn ?? []).join(', ');
+      for (const b of document.querySelectorAll('[data-app]')) b.disabled = !!a?.connected?.some((n) => n.toLowerCase() === b.dataset.app);
+    }
+    async function addApp(body) {
+      try { await api('/api/apps/add', body); toast(`Added ${body.name}. Sign in once: run /mcp in Claude Code.`); await renderApps(); return true; }
+      catch (err) { toast(err.message || 'Couldn’t add it'); return false; }
+    }
+    async function removeApp(name) {
+      if (!confirm(`Remove ${name} from Claude Code?`)) return;
+      try { await api('/api/apps/remove', { name }); toast(`Removed ${name}`); renderApps(); } catch (err) { toast(err.message || 'Couldn’t remove it'); }
+    }
+    for (const b of document.querySelectorAll('[data-app]')) b.onclick = () => addApp({ name: b.dataset.app, url: APP_PRESETS[b.dataset.app] });
+    $('a-claudeai').onclick = () => window.open('https://claude.ai/settings/connectors', '_blank');
+    $('a-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = $('a-name').value.trim(), where = $('a-where').value.trim();
+      if (!name || !where) { toast('Give it a name, and its address or the command that starts it'); return; }
+      if (await addApp(/^https?:\/\//i.test(where) ? { name, url: where } : { name, command: where })) { $('a-name').value = ''; $('a-where').value = ''; }
+    };
+    renderApps();
+
+    // -- Shortcuts: press the keys in a box; "Usual" goes back to the usual one -----------------
+    const keyLabel = (accel) => String(accel ?? '').replace(/CommandOrControl|CmdOrCtrl|Control/g, 'Ctrl').replace(/Super/g, 'Win');
+    async function renderKeys() {
+      let now = {};
+      try { now = await (await fetch('/api/shortcuts')).json(); } catch {}
+      for (const [id, key, usual] of [['k-talk', 'talkShortcut', 'Ctrl+Shift+Space'], ['k-circle', 'circleShortcut', 'Ctrl+Alt+C'], ['k-dictate', 'dictateShortcut', 'Ctrl+Alt+D']]) {
+        if (document.activeElement !== $(id)) $(id).value = keyLabel(config[key]);
+        $(id).placeholder = usual;
+        const which = id.slice(2);
+        $(`k-${which}-now`).textContent = now[which] ? `Working now: ${keyLabel(now[which])}` : now.platform ? 'Not working: every choice is taken by another app.' : 'The desktop app isn’t running.';
+      }
+      if (now.pal) $('k-pal-now').textContent = keyLabel(now.pal);
+    }
+    for (const box of document.querySelectorAll('.keybox')) {
+      box.onkeydown = (e) => {
+        e.preventDefault();
+        if (e.key === 'Escape' || e.key === 'Tab') { box.blur(); return; }
+        const mods = [e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+        const k = e.code === 'Space' ? 'Space' : /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^Digit\d$/.test(e.code) ? e.code.slice(5) : /^F([1-9]|1\d|2[0-4])$/.test(e.code) ? e.code : null;
+        if (!k) { box.value = `${mods.map(keyLabel).join('+')}${mods.length ? '+' : ''}…`; return; }
+        if (!mods.length) { toast('Add Ctrl, Alt, Shift or Win, so it doesn’t get in the way of typing'); return; }
+        const accel = [...mods, k].join('+');
+        box.value = keyLabel(accel);
+        box.blur();
+        save({ [box.dataset.key]: accel }).then(() => setTimeout(renderKeys, 2500));
+      };
+    }
+    for (const b of document.querySelectorAll('[data-reset]')) b.onclick = () => save({ [b.dataset.reset]: '' }).then(() => setTimeout(renderKeys, 2500));
+    renderKeys();
+    $('u-see').onchange = (e) => save({ blu: { see: e.target.checked } });
+    $('u-hands').onchange = (e) => save({ blu: { hands: e.target.checked } });
+    $('u-click').onchange = (e) => save({ blu: { click: e.target.checked } });
+    $('u-music').onchange = (e) => save({ blu: { music: e.target.value } });
+    $('u-spotify-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const key = $('u-spotify').value.trim();
+      if (!key) return;
+      if (!/^[^:\s]+:[^:\s]+$/.test(key)) { toast('Paste it as client id:client secret'); return; }
+      try {
+        config = await api('/api/config', { brainKeys: { spotify: key } });
+        $('u-spotify').value = '';
+        toast('Spotify key saved');
+        renderBlu();
+      } catch (err) { toast(err.message || 'Couldn’t save the key'); }
+    };
+    $('u-spotify-remove').onclick = async () => {
+      if (!confirm('Remove the Spotify key?')) return;
+      await save({ brainKeys: { spotify: null } });
+      toast('Key removed');
+    };
     $('b-choice').onchange = async (e) => { await save({ brain: { choice: e.target.value } }); loadBrain(); };
     $('b-model').onchange = (e) => { if ($('b-choice').value !== 'auto') save({ brain: { models: { [$('b-choice').value]: e.target.value.trim() } } }); };
     $('b-polish').onchange = (e) => save({ brain: { polish: e.target.value } });

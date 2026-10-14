@@ -1,18 +1,25 @@
 // Blu's ears and voice, for Talk in the notch. Both run on this computer: listening is
-// Whisper (Transformers.js, about 80 MB once), speaking is Kokoro (about 330 MB once), with
-// the system's voice until Kokoro is ready. Only the models are downloaded; your voice
-// never leaves the computer.
+// Whisper (Transformers.js), speaking is Kokoro (about 330 MB once), with the system's voice
+// until Kokoro is ready. Only the models are downloaded; your voice never leaves the computer.
 //
-//   const voice = createVoice({ status, live, pal, heard });
+//   const voice = createVoice({ status, live, pal, heard, hearing });
 //   voice.listen()   listen until you pause (or call it again to stop); heard(text) gets what you said
+//   voice.listen({ quiet: true })   the same, but if you say nothing it just stops (a follow-up)
 //   voice.say(text)  speak; resolves when done
 //
-// Options for listening only (Dictate, bridge/dictate.html): `pause` (ms of quiet that ends
-// it), `longest` (ms), `speaks: false` (don't get the speaking voice ready), `level(rms)`
-// (how loud the microphone is, as it comes in), `liveSeconds` (the live words come from only
-// the last this many seconds: quicker, so the final words don't wait long behind them).
+// `hearing()`: which Whisper (Settings → Blu's eyes and hands → Hearing), read each time it
+// listens: 'quick' (English only, about 80 MB), 'better' (Whisper small: any accent, names in
+// any language, about 600 MB) or 'best' (Whisper large-v3 turbo, about 760 MB, for a good
+// graphics card). Options for listening only (Dictate, bridge/dictate.html): `pause` (ms of
+// quiet that ends it), `longest` (ms), `speaks: false` (don't get the speaking voice ready),
+// `level(rms)` (how loud the microphone is, as it comes in), `liveSeconds` (the live words come
+// from only the last this many seconds: quicker, so the final words don't wait long behind them).
 
-const WHISPER = 'onnx-community/whisper-base.en';
+export const HEARING = {
+  quick: { model: 'onnx-community/whisper-base.en', gpu: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, cpu: 'q8', size: 'about 80 MB', english: true },
+  better: { model: 'onnx-community/whisper-small', gpu: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, cpu: 'q8', size: 'about 600 MB' },
+  best: { model: 'onnx-community/whisper-large-v3-turbo', gpu: { encoder_model: 'q4', decoder_model_merged: 'q4' }, cpu: null, size: 'about 760 MB' },
+};
 const KOKORO = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const TRANSFORMERS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0';
 const KOKORO_JS = 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js';
@@ -28,7 +35,7 @@ const sentences = (t) => t.split(/(?<=[.!?])\s+/).filter(Boolean);
 const joined = (chunks) => { const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let at = 0; for (const c of chunks) { out.set(c, at); at += c.length; } return out; };
 const heardText = (r) => String(r?.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
 
-export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, voiceId = 'af_heart', pause = 1000, longest = 60_000, speaks = true, level = () => {}, liveSeconds = 0 } = {}) {
+export function createVoice({ status = () => {}, live = () => {}, pal = () => {}, heard = () => {}, hearing = () => 'quick', voiceId = 'af_heart', pause = 1000, longest = 60_000, speaks = true, level = () => {}, liveSeconds = 0 } = {}) {
   // -- speaking ----------------------------------------------------------------------------
   let kokoro = null, kokoroLoading = null, kokoroBroken = false;
   function loadVoice() {
@@ -92,19 +99,34 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
   speechSynthesis.getVoices();
 
   // -- listening ---------------------------------------------------------------------------
-  let asr = null, asrLoading = null;
+  let asr = null, asrKind = null, asrLoading = null;
+  /** The Whisper you chose, loaded (again, when you chose another). → { run(audio), kind } */
   function recognizer() {
-    if (asr) return Promise.resolve(asr);
+    const want = HEARING[hearing()] ? hearing() : 'quick';
+    if (asr && asrKind === want) return Promise.resolve(asr);
     asrLoading ??= (async () => {
       const { pipeline, env } = await import(TRANSFORMERS);
       env.allowLocalModels = false;
-      const progress_callback = (p) => { if (p.status === 'progress' && p.total) status(`Getting the speech model ready (once, about 80 MB)… ${Math.round((p.loaded / p.total) * 100)}%`); };
-      if (navigator.gpu) {
-        try { asr = await pipeline('automatic-speech-recognition', WHISPER, { device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, progress_callback }); console.log('[voice] speech model on the graphics card'); return asr; }
-        catch (err) { console.log(`[voice] graphics card didn’t work (${err.message}); using the processor`); }
-      }
-      asr = await pipeline('automatic-speech-recognition', WHISPER, { device: 'wasm', dtype: 'q8', progress_callback });
-      console.log('[voice] speech model on the processor');
+      try { await asr?.dispose?.(); } catch {}
+      asr = null;
+      const load = async (kind) => {
+        const h = HEARING[kind];
+        const progress_callback = (p) => { if (p.status === 'progress' && p.total) status(`Getting the speech model ready (once, ${h.size})… ${Math.round((p.loaded / p.total) * 100)}%`); };
+        if (navigator.gpu) {
+          try { const a = await pipeline('automatic-speech-recognition', h.model, { device: 'webgpu', dtype: h.gpu, progress_callback }); console.log(`[voice] speech model (${kind}) on the graphics card`); return a; }
+          catch (err) { console.log(`[voice] graphics card didn’t work for ${kind} (${err.message})`); }
+        }
+        if (!h.cpu) return null; // too big for the processor
+        const a = await pipeline('automatic-speech-recognition', h.model, { device: 'wasm', dtype: h.cpu, progress_callback });
+        console.log(`[voice] speech model (${kind}) on the processor`);
+        return a;
+      };
+      let kind = want, a = await load(want);
+      if (!a) { kind = 'quick'; a = await load('quick'); }
+      // Whisper for any language writes what you said in English letters ("Honey Singh"), not in another script.
+      const opts = HEARING[kind].english ? {} : { language: 'english', task: 'transcribe' };
+      asr = Object.assign((audio) => a(audio, opts), { dispose: () => a.dispose?.() });
+      asrKind = want;
       return asr;
     })().finally(() => { asrLoading = null; });
     return asrLoading;
@@ -119,7 +141,8 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
   }
 
   let rec = null; // the recording in progress
-  async function listen() {
+  let holdNext = false; // the shortcut is held, and listening hasn't started yet
+  async function listen({ quiet = false } = {}) {
     if (rec) return stop();
     stopSpeaking();
     let stream;
@@ -134,7 +157,8 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
     const chunks = [];
     const started = performance.now();
     let floor = 0, samples = 0, said = false, lastLoud = started;
-    const r = rec = { stream, ctx, node, chunks, peak: 0, device: stream.getAudioTracks()[0]?.label ?? '' };
+    const r = rec = { stream, ctx, node, chunks, peak: 0, device: stream.getAudioTracks()[0]?.label ?? '', quiet, held: holdNext };
+    holdNext = false;
     node.port.onmessage = ({ data: d }) => {
       if (rec !== r) return;
       chunks.push(d);
@@ -146,8 +170,11 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       const now = performance.now();
       if (rms > Math.max(0.015, Math.min(floor, 0.02) * 2.5)) { said = true; lastLoud = now; }
       level(rms);
-      // Stop after a pause once you've spoken, after 7 s of nothing, or after a minute.
-      if ((said && now - lastLoud > pause) || (!said && now - started > 7000) || now - started > longest) stop();
+      // Stop after a pause once you've spoken, after 7 s of nothing, or after a minute. A
+      // follow-up (quiet) that heard nothing just ends, without "didn't catch that".
+      // Held (you hold the shortcut while you talk): only letting go ends it.
+      if (!said && r.quiet && !r.held && now - started > 6000) stop({ discard: true, quiet: true });
+      else if ((!r.held && ((said && now - lastLoud > pause) || (!said && now - started > 7000))) || now - started > longest) stop();
     };
     source.connect(node); node.connect(ctx.destination);
     // Your words as you speak, about once a second.
@@ -157,18 +184,18 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
       try { const t = heardText(await transcribe(liveSeconds ? all.subarray(Math.max(0, all.length - liveSeconds * 16000)) : all)); if (rec === r && t) live(t); } catch {}
     }, 1000);
     pal('listening');
-    status('Listening… pause when you’re done.');
+    status(r.held ? 'Listening… let go when you’re done.' : quiet ? 'Listening… (say nothing and I’ll stop)' : 'Listening… pause when you’re done.');
     recognizer().catch(() => {}); // warm up while you talk
     if (speaks) loadVoice();
   }
-  /** Stop listening and act on what was said; `discard`: throw it away (the notch closed). */
-  async function stop({ discard = false } = {}) {
+  /** Stop listening and act on what was said; `discard`: throw it away (the notch closed); `quiet`: and say nothing about it. */
+  async function stop({ discard = false, quiet = false } = {}) {
     const r = rec;
     if (!r) return;
     rec = null;
     clearInterval(r.live);
     r.node.disconnect(); r.stream.getTracks().forEach((t) => t.stop()); r.ctx.close();
-    if (discard) { pal('idle'); return; }
+    if (discard) { pal('idle'); if (quiet) status(''); return; }
     const audio = joined(r.chunks);
     const mic = r.device ? ` (${r.device})` : '';
     if (!audio.length) { status(`No sound reached Blu from the microphone${mic}.`, true); pal('idle'); return; }
@@ -189,5 +216,8 @@ export function createVoice({ status = () => {}, live = () => {}, pal = () => {}
   // Ready ahead of time: loaded, and run once on a moment of silence (the first run on the
   // graphics card is about three times slower than the ones after it).
   const warm = () => transcribe(new Float32Array(16000)).catch(() => {});
-  return { listen, stop, listening: () => !!rec, say, stopSpeaking, warm };
+  /** You're holding the shortcut: a pause doesn't end it, letting go (release) does. It can come before listening starts. */
+  const hold = () => { if (rec) { rec.held = true; status('Listening… let go when you’re done.'); } else holdNext = true; };
+  const release = () => { holdNext = false; if (rec?.held) return stop(); };
+  return { listen, stop, hold, release, listening: () => !!rec, say, stopSpeaking, warm };
 }

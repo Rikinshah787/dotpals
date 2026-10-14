@@ -678,6 +678,54 @@ test('/api/status says whether the desktop pal and notch follow the events (for 
   browser.destroy();
 });
 
+test('Blu and your apps: a look goes to Claude with that app only; a change needs your yes; your own apps go in with claude mcp', async (t) => {
+  const { BRAINS } = await import('../bridge/brain.js');
+  const brains = async () => BRAINS.map((b) => ({ ...b, ready: b.id === 'anthropic', why: '' }));
+  let reply = '{"say":"Let me check your Gmail.","apps":{"app":"Gmail","ask":"any email from Sam today?","change":false}}';
+  const fakeAsk = async () => ({ text: reply, by: 'Anthropic', ms: 5 });
+  const looked = [];
+  const askApps = async (opts) => { looked.push(opts); return { text: 'Sam wrote at 9 **about** lunch.', by: 'Claude Code', ms: 7 }; };
+  const ran = [];
+  const runner = async (file, args) => { ran.push(args); return { code: 0, stdout: 'Added', stderr: '' }; };
+  const apps = () => ({ connected: ['Gmail', 'wpvibe'], signIn: ['sentry'], servers: { Gmail: 'claude.ai Gmail', wpvibe: 'wpvibe' }, mine: ['wpvibe'] });
+  let port, server;
+  for (let tries = 0; !server; tries++) {
+    port = freshPort();
+    try { server = await startBridge({ port, log: () => {}, handoff: { brains, ask: fakeAsk, askApps, runner, apps, find: () => '/usr/bin/claude', has: () => true } }); }
+    catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
+  }
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const post = async (path, body) => { const r = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) }); return { status: r.status, ...(await r.json()) }; };
+  // Blu answers with a look in one of your connected apps…
+  const r = await post('/api/talk/buddy', { text: 'any email from Sam today?' });
+  assert.deepEqual(r.apps, { app: 'Gmail', ask: 'any email from Sam today?', change: false });
+  // …but never one Claude isn't connected to.
+  reply = '{"say":"Slack isn’t connected yet.","apps":{"app":"Slack","ask":"post it","change":true}}';
+  assert.equal((await post('/api/talk/buddy', { text: 'post it to Slack' })).apps, null);
+  // The look: Claude with that app's tools only, told to only look.
+  const look = await post('/api/talk/apps', { app: 'Gmail', ask: 'any email from Sam today?' });
+  assert.deepEqual([look.status, look.say, look.app], [200, 'Sam wrote at 9 about lunch.', 'Gmail']);
+  assert.equal(looked[0].tools, 'mcp__claude_ai_Gmail');
+  assert.match(looked[0].system, /Only look: never add, change, send or delete anything/);
+  // A change waits for your yes, and still never sends.
+  assert.equal((await post('/api/talk/apps', { app: 'Gmail', ask: 'reply to Sam', change: true })).status, 409);
+  assert.equal((await post('/api/talk/apps', { app: 'Gmail', ask: 'reply to Sam', change: true, confirmed: true })).status, 200);
+  assert.match(looked[1].system, /Never send an email or a message: write a draft/);
+  assert.equal((await post('/api/talk/apps', { app: 'Slack', ask: 'hi' })).status, 400);
+  // Your own apps: added to Claude Code's user settings, by address or by command; removed only if yours.
+  assert.equal((await post('/api/apps/add', { name: 'notion', url: 'https://mcp.notion.com/mcp' })).status, 200);
+  assert.deepEqual(ran[0], ['mcp', 'add', '-s', 'user', '-t', 'http', 'notion', 'https://mcp.notion.com/mcp']);
+  assert.equal((await post('/api/apps/add', { name: 'cal', command: 'npx -y "my calendar-mcp"' })).status, 200);
+  assert.deepEqual(ran[1], ['mcp', 'add', '-s', 'user', 'cal', '--', 'npx', '-y', 'my calendar-mcp']);
+  assert.equal((await post('/api/apps/add', { name: 'bad name!', url: 'https://x.dev' })).status, 400);
+  assert.equal((await post('/api/apps/add', { name: 'plain', url: 'http://example.com/mcp' })).status, 400); // http only on this computer
+  assert.equal((await post('/api/apps/remove', { name: 'wpvibe' })).status, 200);
+  assert.deepEqual(ran[2], ['mcp', 'remove', '-s', 'user', 'wpvibe']);
+  assert.equal((await post('/api/apps/remove', { name: 'Gmail' })).status, 404); // a claude.ai connector: removed at claude.ai
+  const listed = await (await fetch(`http://127.0.0.1:${port}/api/apps`)).json();
+  assert.deepEqual([listed.connected, listed.signIn, listed.claude], [['Gmail', 'wpvibe'], ['sentry'], true]);
+});
+
 test('Blu’s brain: polish uses the AI you brought, falls back to your words, and plans use it too', async (t) => {
   const { BRAINS } = await import('../bridge/brain.js');
   const ready = (ids) => async () => BRAINS.map((b) => ({ ...b, ready: ids.includes(b.id), why: '' }));

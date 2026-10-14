@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BRAINS, ask, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem } from '../bridge/brain.js';
+import { BRAINS, ask, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem, sees, streamResult, warmUp } from '../bridge/brain.js';
 
 const brain = (id) => BRAINS.find((b) => b.id === id);
 /** A fetch that answers with `body` and remembers what it was asked. */
@@ -94,6 +94,78 @@ test('ask: Claude Code runs lean, the instructions in a file and what was said o
   await assert.rejects(ask(brain('codex'), { system: 's', text: 't', runner, find: () => null }), /isn’t installed/);
   const failing = async () => ({ code: 1, stdout: '', stderr: 'Not logged in' });
   await assert.rejects(ask(brain('gemini'), { system: 's', text: 't', runner: failing, find: () => '/bin/gemini' }), /Gemini CLI: Not logged in/);
+});
+
+test('screen: the brains that can see, keys first; never one running with its tools', () => {
+  const here = BRAINS.map((b) => ({ ...b, ready: ['claude', 'cursor', 'gemini'].includes(b.id) }));
+  assert.equal(pickBrain(here, { job: 'screen' }).id, 'claude');
+  assert.equal(pickBrain(here, { choice: 'cursor', job: 'screen' }).id, 'claude'); // Cursor runs with its tools: not for what's on your screen
+  assert.equal(pickBrain(BRAINS.map((b) => ({ ...b, ready: ['claude', 'google'].includes(b.id) })), { job: 'screen' }).id, 'google');
+  assert.equal(pickBrain(BRAINS.map((b) => ({ ...b, ready: b.id === 'gemini' })), { job: 'screen' }), null);
+  assert.equal(sees(brain('anthropic')), true);
+  assert.equal(sees(brain('cursor')), false);
+});
+
+test('ask with a picture: each provider in its own shape', async () => {
+  const images = [{ type: 'image/jpeg', data: 'QUJD' }];
+  const anthropic = fakeFetch({ content: [{ type: 'text', text: '{}' }] });
+  await ask(brain('anthropic'), { system: 's', text: 'what is this', images, key: 'k', fetchFn: anthropic });
+  assert.deepEqual(anthropic.calls[0].body.messages[0].content, [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } }, { type: 'text', text: 'what is this' }]);
+  const openai = fakeFetch({ choices: [{ message: { content: '{}' } }] });
+  await ask(brain('openai'), { system: 's', text: 't', images, key: 'k', fetchFn: openai });
+  assert.deepEqual(openai.calls[0].body.messages[1].content[1], { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,QUJD' } });
+  const google = fakeFetch({ candidates: [{ content: { parts: [{ text: '{}' }] } }] });
+  await ask(brain('google'), { system: 's', text: 't', images, key: 'k', fetchFn: google });
+  assert.deepEqual(google.calls[0].body.contents[0].parts[0], { inline_data: { mime_type: 'image/jpeg', data: 'QUJD' } });
+  const ollama = fakeFetch({ message: { content: '{}' } });
+  await ask(brain('ollama'), { system: 's', text: 't', images, model: 'gemma3', fetchFn: ollama });
+  assert.deepEqual(ollama.calls[0].body.messages[1].images, ['QUJD']);
+  await assert.rejects(ask(brain('cursor'), { system: 's', text: 't', images }), /can’t look at your screen/);
+});
+
+test('ask with a picture: Claude Code takes it in stream-json, still with no tools; its result line is the answer', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-brain-'));
+  process.env.DOTPALS_HOME = dir;
+  t.after(async () => { delete process.env.DOTPALS_HOME; await rm(dir, { recursive: true, force: true }); });
+  const seen = [];
+  const out = [JSON.stringify({ type: 'system', subtype: 'init' }), JSON.stringify({ type: 'assistant', message: {} }), JSON.stringify({ type: 'result', result: '{"say":"Billie Jean."}', is_error: false })].join('\n');
+  const runner = async (file, args, opts) => { seen.push({ args, opts }); return { code: 0, stdout: out, stderr: '' }; };
+  const r = await ask(brain('claude'), { system: 's', text: 'what song', images: [{ type: 'image/jpeg', data: 'QUJD' }], runner, find: () => '/usr/bin/claude' });
+  assert.equal(r.text, '{"say":"Billie Jean."}');
+  const { args, opts } = seen[0];
+  assert.deepEqual(args.slice(args.indexOf('--input-format'), args.indexOf('--input-format') + 2), ['--input-format', 'stream-json']);
+  assert.equal(args[args.indexOf('--tools') + 1], '');
+  const message = JSON.parse(opts.input);
+  assert.deepEqual(message.message.content.map((c) => c.type), ['image', 'text']);
+  assert.equal(streamResult('not json\n{"type":"result","result":"x"}').result, 'x');
+  assert.equal(streamResult(''), null);
+  const failing = async () => ({ code: 1, stdout: JSON.stringify({ type: 'result', is_error: true, result: 'Not logged in' }), stderr: '' });
+  await assert.rejects(ask(brain('claude'), { system: 's', text: 't', images: [{ type: 'image/jpeg', data: 'QUJD' }], runner: failing, find: () => '/usr/bin/claude' }), /Claude Code: Not logged in/);
+});
+
+test('warmUp: Claude Code started while you talk gets the question when it comes; other instructions start their own; unused, it gets nothing and stops', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-brain-'));
+  process.env.DOTPALS_HOME = dir;
+  t.after(async () => { delete process.env.DOTPALS_HOME; await rm(dir, { recursive: true, force: true }); });
+  const started = [];
+  const runner = (file, args, opts) => {
+    const run = { args, input: null };
+    started.push(run);
+    return Promise.resolve(opts.input).then((input) => { run.input = input; return { code: 0, stdout: input ? JSON.stringify({ type: 'result', result: 'warm answer' }) : '', stderr: '' }; });
+  };
+  const find = () => '/usr/bin/claude';
+  assert.equal(await warmUp(brain('claude'), { system: 'look', runner, find }), true);
+  assert.equal(await warmUp(brain('claude'), { system: 'look', runner, find }), true); // already one
+  assert.equal(started.length, 1);
+  assert.ok(started[0].args.includes('stream-json'));
+  const r = await ask(brain('claude'), { system: 'look', text: 'play jazz', runner, find });
+  assert.equal(r.text, 'warm answer');
+  assert.equal(started.length, 1); // no second start
+  assert.equal(JSON.parse(started[0].input).message.content[0].text, 'play jazz');
+  assert.equal(await warmUp(brain('openai'), { system: 'look' }), false); // only a command line starts slowly
+  await warmUp(brain('claude'), { system: 'look', runner, find, waitMs: 20 });
+  await new Promise((r2) => setTimeout(r2, 60));
+  assert.equal(started[1].input, ''); // nothing came: it's told there's nothing to do
 });
 
 test('polish: the dictionary goes in the instructions; a reply that answered instead of cleaning is dropped', () => {

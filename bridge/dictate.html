@@ -87,7 +87,9 @@
     // read again each time it starts, so a change in Settings counts at once.
     let palName = 'Blu';
     let dictionary = [];
+    let hearing = 'quick'; // Settings → Hearing: which Whisper listens (bridge/ui/voice.js)
     const loadSettings = () => fetch('/api/config', { headers: { 'x-dotpals': '1' } }).then((r) => r.json()).then((c) => {
+      hearing = c.blu?.hearing ?? 'quick';
       if (c.custom) { registerCustom(c.custom); DotPal.refresh?.('custom'); }
       if (DotPal.characters?.includes(c.character)) pal.character = c.character;
       palName = (c.character === 'custom' ? c.custom?.name : null) || (c.character ? c.character.charAt(0).toUpperCase() + c.character.slice(1) : 'Blu');
@@ -138,6 +140,7 @@
     // Tapped (not held), a longer pause than Talk's ends it: when you dictate you stop to think.
     const voice = createVoice({
       speaks: false,
+      hearing: () => hearing,
       pause: 1500,
       longest: 120_000,
       liveSeconds: 6, // the pill shows the newest words only

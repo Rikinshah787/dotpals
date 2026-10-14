@@ -7,13 +7,15 @@
 // hides it from anywhere. Quit from the tray menu.
 import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, shell, systemPreferences, Tray } from 'electron';
 import { execFile, spawn } from 'node:child_process';
-import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { appendFileSync, readFileSync, statSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startBridge } from '../bridge/server.js';
-import { home, loadConfig, saveConfig } from '../bridge/config.js';
+import { configPath, home, loadConfig, saveConfig } from '../bridge/config.js';
 import { readUsage } from '../bridge/usage.js';
+import { action } from '../bridge/buddy.js';
+import { createHands } from './hands.js';
 
 const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
 const bridge = `http://127.0.0.1:${port}`;
@@ -29,6 +31,8 @@ const TALK_SHORTCUTS = ['CommandOrControl+Shift+Space', 'CommandOrControl+Alt+T'
 // Dictate: your own (dictateShortcut in the settings), else the first of these that's free.
 // Control, not Command, on macOS too: ⌘⌥D hides the Dock.
 const DICTATE_SHORTCUTS = ['Control+Alt+D', 'Control+Alt+Shift+D'];
+// Circle something on screen and ask Blu about it: your own (circleShortcut), else the first that's free.
+const CIRCLE_SHORTCUTS = ['Control+Alt+C', 'Control+Alt+Shift+C'];
 const icon = nativeImage.createFromPath(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
 app.setName('dotpals');
@@ -96,6 +100,8 @@ if (!app.requestSingleInstanceLock()) {
     if (!globalShortcut.register(SHORTCUT, toggle)) console.warn(`[dotpals] ${SHORTCUT} is taken by another app`);
     registerTalkShortcut();
     registerDictateShortcut();
+    registerCircleShortcut();
+    watchShortcuts();
     watchCursor();
   });
 
@@ -141,20 +147,64 @@ if (!app.requestSingleInstanceLock()) {
   }
   ipcMain.on('dashboard:open', openDashboard);
 
-  // Talk (the notch's Talk tab): the shortcut shows the notch and it listens.
-  function talkInNotch() {
+  // Talk (the notch's Talk tab): the shortcut shows the notch and it listens. It takes a
+  // screenshot first, of what you were looking at before the notch opens over it; it stays on
+  // this computer unless what you say is about the screen (then Blu's brain looks at it).
+  // Held while you talk (Windows): Blu listens until you let go, pauses and all; tapped, until you pause.
+  let talkDown = 0;
+  async function talkInNotch() {
+    if (talkDown) return; // the shortcut repeating while you hold it
+    talkDown = Date.now();
+    const held = setTimeout(() => { if (talkDown) toNotch('notch:key', 'talk-hold'); }, HOLD);
+    keys.released(talkShortcut).then((ms) => {
+      talkDown = 0;
+      clearTimeout(held);
+      if (ms > HOLD) toNotch('notch:key', 'talk-release');
+    });
+    const shot = loadConfig().blu?.see !== false ? await Promise.race([takeShot(), new Promise((r) => setTimeout(() => r(null), 1500))]) : null;
     createNotch();
-    const go = () => notch?.webContents.send('notch:key', 'talk');
+    const go = () => { notch?.webContents.send('notch:key', 'talk'); notch?.webContents.send('notch:talk-shot', shot); };
     if (notch.webContents.isLoading()) notch.webContents.once('did-finish-load', () => setTimeout(go, 300)); else go();
   }
   let talkShortcut = null; // the one that's registered
   function registerTalkShortcut() {
-    const own = loadConfig().talkShortcut;
-    for (const key of [...(own ? [own] : []), ...TALK_SHORTCUTS]) {
-      try { if (globalShortcut.register(key, talkInNotch)) { talkShortcut = key; return; } } catch {}
+    talkShortcut = registerShortcut('Talk', loadConfig().talkShortcut, TALK_SHORTCUTS, talkInNotch);
+  }
+  /**
+   * Your own shortcut for `what` (Settings → Shortcuts), else the first of `defaults` that's
+   * free; when yours is taken by another app, a notification says so. → the one registered, or null.
+   */
+  function registerShortcut(what, own, defaults, fn) {
+    let got = null;
+    for (const key of [...(own ? [own] : []), ...defaults]) {
+      try { if (globalShortcut.register(key, fn)) { got = key; break; } } catch {}
       console.warn(`[dotpals] ${key} is taken by another app`);
     }
+    if (own && got !== own && Notification.isSupported()) new Notification({ title: 'dotpals', body: `${own} is taken by another app. ${what} is on ${got ?? 'no shortcut'} for now (Dashboard → Settings → Shortcuts).`, icon, silent: true }).show();
+    setTimeout(writeShortcuts, 0); // once the caller has it
+    return got;
   }
+  /** The shortcuts that work right now, for Settings and the notch (GET /api/shortcuts). */
+  function writeShortcuts() {
+    try { writeFileSync(join(home(), 'shortcuts.json'), JSON.stringify({ pal: SHORTCUT, talk: talkShortcut, dictate: dictateShortcut, circle: circleShortcut, platform: process.platform })); } catch {}
+  }
+  // Your own shortcuts take effect at once: the settings file is watched for them.
+  const ownShortcuts = () => { const c = loadConfig(); return JSON.stringify([c.talkShortcut, c.dictateShortcut, c.circleShortcut]); };
+  let shortcutsSeen = null;
+  function watchShortcuts() {
+    shortcutsSeen = ownShortcuts();
+    watchFile(configPath(), { interval: 1500 }, () => {
+      const now = ownShortcuts();
+      if (now === shortcutsSeen) return;
+      shortcutsSeen = now;
+      for (const key of [talkShortcut, dictateShortcut, circleShortcut]) if (key) { try { globalShortcut.unregister(key); } catch {} }
+      talkShortcut = dictateShortcut = circleShortcut = null;
+      registerTalkShortcut();
+      registerDictateShortcut();
+      registerCircleShortcut();
+    });
+  }
+  app.on('will-quit', () => unwatchFile(configPath()));
 
   // -- Dictate: say it, and it's typed where your cursor is ------------------------------------
   // The shortcut shows a pill at the bottom of the screen (bridge/dictate.html). It listens with
@@ -213,17 +263,8 @@ if (!app.requestSingleInstanceLock()) {
     });
   }
   function registerDictateShortcut() {
-    const own = loadConfig().dictateShortcut;
-    for (const key of [...(own ? [own] : []), ...DICTATE_SHORTCUTS]) {
-      try {
-        if (globalShortcut.register(key, dictateKey)) {
-          dictateShortcut = key;
-          if (process.platform === 'win32') setTimeout(() => keys.windows(), 5000); // ready before the first time
-          return;
-        }
-      } catch {}
-      console.warn(`[dotpals] ${key} is taken by another app`);
-    }
+    dictateShortcut = registerShortcut('Dictate', loadConfig().dictateShortcut, DICTATE_SHORTCUTS, dictateKey);
+    if (process.platform === 'win32') setTimeout(() => keys.windows(), 5000); // ready before the first time (Talk's hold too)
   }
   function releaseDictateEsc() {
     if (!dictateEsc) return;
@@ -253,26 +294,53 @@ if (!app.requestSingleInstanceLock()) {
     const go = () => notch?.webContents.send('notch:talk-text', { text: text.slice(0, 2000), shot });
     if (notch.webContents.isLoading()) notch.webContents.once('did-finish-load', () => setTimeout(go, 300)); else go();
   });
-  /** The screen under your pointer, as a PNG under ~/.dotpals/shots (the newest 20 are kept): { path, x, y } or null. */
+  /** Screenshots taken here, by path: their size and the screen they showed, so Blu's marks and clicks land on it. The newest 20. */
+  const shots = new Map();
+  /**
+   * The screen under your pointer, as a JPEG under ~/.dotpals/shots (the newest 20 are kept), at
+   * the size Blu's brain looks at: about 1.15 megapixels, at most 1568 across. Vision models
+   * shrink anything bigger, and the places they point at would be off.
+   * → { path, w, h, x, y } (x, y: your pointer, in its pixels) or null.
+   */
+  let toldScreen = false; // macOS: said once that dotpals needs Screen Recording
   async function takeShot() {
     try {
+      // macOS without Screen Recording gives a picture of the wallpaper: Blu would look at (and click on) nothing.
+      const allowed = process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('screen') === 'granted';
+      if (!allowed) {
+        if (systemPreferences.getMediaAccessStatus('screen') === 'not-determined') await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }).catch(() => {}); // asks you
+        logDictate('screenshot: dotpals isn’t allowed to record the screen');
+        if (!toldScreen && Notification.isSupported()) { toldScreen = true; new Notification({ title: 'dotpals', body: 'To see your screen, allow dotpals (it may be listed as Electron, or as your terminal) under System Settings → Privacy & Security → Screen & System Audio Recording, then reopen it.', icon, silent: true }).show(); }
+        return null;
+      }
       const point = screen.getCursorScreenPoint();
       const display = screen.getDisplayNearestPoint(point);
       const k = display.scaleFactor || 1;
-      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(display.size.width * k), height: Math.round(display.size.height * k) } });
-      const source = sources.find((s) => String(s.display_id) === String(display.id)) ?? sources[0];
+      const pw = display.size.width * k, ph = display.size.height * k;
+      const f = Math.min(1, 1568 / Math.max(pw, ph), Math.sqrt(1_150_000 / (pw * ph)));
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(pw * f), height: Math.round(ph * f) } });
+      // The screen you're on; another screen's picture would put marks and clicks in the wrong place.
+      const source = sources.find((s) => String(s.display_id) === String(display.id)) ?? (sources.length === 1 ? sources[0] : null);
       if (!source || source.thumbnail.isEmpty()) return null;
-      const dir = join(home(), 'shots');
-      await mkdir(dir, { recursive: true });
-      const old = (await readdir(dir)).filter((f) => /^shot-\d+\.png$/.test(f)).sort();
-      for (const f of old.slice(0, Math.max(0, old.length - 19))) await rm(join(dir, f), { force: true }).catch(() => {});
-      const path = join(dir, `shot-${Date.now()}.png`);
-      await writeFile(path, source.thumbnail.toPNG());
-      return { path, x: Math.round((point.x - display.bounds.x) * k), y: Math.round((point.y - display.bounds.y) * k) };
+      const { width: w, height: h } = source.thumbnail.getSize();
+      const path = await saveShot(source.thumbnail.toJPEG(85));
+      const shot = { path, w, h, x: Math.round(((point.x - display.bounds.x) / display.bounds.width) * w), y: Math.round(((point.y - display.bounds.y) / display.bounds.height) * h) };
+      shots.set(path, { ...shot, display: { id: display.id, bounds: display.bounds, scale: k } });
+      while (shots.size > 20) shots.delete(shots.keys().next().value);
+      return shot;
     } catch (err) {
       logDictate(`screenshot failed: ${err.message}`);
       return null;
     }
+  }
+  async function saveShot(jpeg) {
+    const dir = join(home(), 'shots');
+    await mkdir(dir, { recursive: true });
+    const old = (await readdir(dir)).filter((f) => /^shot-\d+\.(png|jpg)$/.test(f)).sort();
+    for (const f of old.slice(0, Math.max(0, old.length - 19))) await rm(join(dir, f), { force: true }).catch(() => {});
+    const path = join(dir, `shot-${Date.now()}.jpg`);
+    await writeFile(path, jpeg);
+    return path;
   }
 
   /**
@@ -353,7 +421,7 @@ if (!app.requestSingleInstanceLock()) {
       if (process.platform === 'darwin') {
         if (!systemPreferences.isTrustedAccessibilityClient(false)) {
           systemPreferences.isTrustedAccessibilityClient(true); // asks you
-          return Promise.reject(new Error('allow dotpals under Privacy & Security → Accessibility'));
+          return Promise.reject(new Error('allow dotpals (listed as Electron, or as your terminal) under Privacy & Security → Accessibility'));
         }
         return run('osascript', ['-e', 'tell application "System Events" to keystroke "v" using command down']);
       }
@@ -367,6 +435,133 @@ if (!app.requestSingleInstanceLock()) {
   };
   const run = (file, args) => new Promise((ok, fail) => execFile(file, args, { timeout: 4000 }, (err) => (err ? fail(err) : ok())));
   app.on('will-quit', () => { try { keys.proc?.kill(); } catch {} });
+
+  // -- Blu, the screen buddy: it draws on your screen and does things on your computer ------------
+  // Talk asks Blu's brain (bridge/buddy.js), then hands us the marks to draw (bridge/draw.html, a
+  // see-through window over the screen that clicks go through) and the actions to do
+  // (desktop/hands.js). Circle mode (Ctrl+Alt+C): you draw around something, then ask about it.
+  const hands = createHands({ shell, screen, typeOut, log: logDictate });
+  app.on('will-quit', () => { hands.duck(false); hands.stop(); });
+  let draw = null;
+  let drawEsc = false;       // Esc is ours while you circle
+  let pendingCircle = null;  // the screenshot you're circling on
+  let circleShortcut = null; // the one that's registered
+  /** The drawing window, over the screen with these bounds. */
+  function drawWindow(bounds) {
+    if (!draw || draw.isDestroyed()) {
+      draw = new BrowserWindow({
+        ...bounds, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+        alwaysOnTop: true, resizable: false, movable: false, maximizable: false, minimizable: false, fullscreenable: false,
+        focusable: false, skipTaskbar: true, show: false, title: 'dotpals draw', enableLargerThanScreen: true,
+        // macOS: a panel, and the first press of a circle reaches the page though the window isn't active.
+        type: process.platform === 'darwin' ? 'panel' : undefined, acceptFirstMouse: true,
+        webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), sandbox: true, contextIsolation: true },
+      });
+      draw.setAlwaysOnTop(true, 'screen-saver');
+      draw.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+      draw.setIgnoreMouseEvents(true);
+      draw.on('closed', () => { draw = null; releaseDrawEsc(); });
+      draw.loadURL(`${bridge}/bridge/draw.html`).catch(() => draw?.loadFile(fileURLToPath(new URL('../bridge/draw.html', import.meta.url))));
+    }
+    draw.setBounds(bounds);
+    if (!draw.isVisible()) draw.showInactive();
+    return draw;
+  }
+  function toDraw(cmd) {
+    if (!draw || draw.isDestroyed()) return;
+    const go = () => draw?.webContents.send('draw:cmd', cmd);
+    if (draw.webContents.isLoading()) draw.webContents.once('did-finish-load', go); else go();
+  }
+  const toNotch = (channel, data) => { if (notch && !notch.isDestroyed()) notch.webContents.send(channel, data); };
+  const fromNotch = (event) => !!notch && !notch.isDestroyed() && event.sender === notch.webContents;
+  function releaseDrawEsc() {
+    if (!drawEsc) return;
+    globalShortcut.unregister('Escape');
+    drawEsc = false;
+  }
+
+  // The notch asks: a fresh screenshot, marks to draw, drawings off, actions to do.
+  ipcMain.handle('blu:shot', (event) => (fromNotch(event) && loadConfig().blu?.see !== false ? takeShot() : null));
+  ipcMain.on('blu:draw', (event, { marks, shot, keep } = {}) => {
+    const s = shots.get(shot);
+    if (!fromNotch(event) || !s || !Array.isArray(marks) || !marks.length) return;
+    drawWindow(s.display.bounds);
+    toDraw({ type: 'marks', marks: marks.slice(0, 8), w: s.w, h: s.h, keep: !!keep });
+    toNotch('notch:drawing', true);
+  });
+  ipcMain.on('blu:clear', (event) => { if (fromNotch(event)) toDraw({ type: 'clear' }); });
+  ipcMain.on('blu:warm', (event) => { if (fromNotch(event) && loadConfig().blu?.hands !== false) hands.warm(); });
+  // Music quieter while Blu listens, and back after (desktop/hands.js duck).
+  ipcMain.on('blu:duck', (event, on) => { if (fromNotch(event) && loadConfig().blu?.hands !== false) hands.duck(!!on); });
+  ipcMain.handle('blu:do', async (event, { actions, shot } = {}) => {
+    if (!fromNotch(event) || !Array.isArray(actions)) return [];
+    // Checked again here: only actions from the list, as the bridge sent them.
+    const list = actions.slice(0, 6).map((a) => {
+      const ok = action(a);
+      if (ok?.act === 'play') Object.assign(ok, { url: typeof a.url === 'string' ? a.url : undefined, applemusic: typeof a.applemusic === 'string' ? a.applemusic.slice(0, 120) : undefined });
+      return ok && { ...ok, words: typeof a.words === 'string' ? a.words.slice(0, 80) : undefined };
+    }).filter(Boolean);
+    const blu = loadConfig().blu ?? {};
+    const receipts = await hands.run(list, { shot: shots.get(shot) ?? null, allow: { hands: blu.hands !== false, click: blu.click === true } });
+    logDictate(`Blu did: ${receipts.map((r) => `${r.ok ? '✓' : '✗'} ${r.words}${r.error ? ` (${r.error})` : ''}`).join(' · ')}`);
+    return receipts;
+  });
+
+  // You circle: the shortcut freezes nothing; you draw around something on the live screen, and
+  // Blu gets the screenshot taken as you pressed it, with your circle drawn on it.
+  async function circleKey() {
+    if (pendingCircle) return cancelCircle();
+    if (loadConfig().blu?.see === false) { talkInNotch(); return; } // Blu can't look: just talk
+    const shot = await takeShot();
+    const s = shot && shots.get(shot.path);
+    if (!s) return;
+    pendingCircle = shot;
+    drawWindow(s.display.bounds);
+    draw.setIgnoreMouseEvents(false);
+    toDraw({ type: 'circle', w: shot.w, h: shot.h, image: `data:image/jpeg;base64,${(await readFile(shot.path)).toString('base64')}` });
+    if (!drawEsc && !globalShortcut.isRegistered('Escape')) { try { drawEsc = globalShortcut.register('Escape', cancelCircle); } catch {} }
+  }
+  function cancelCircle() {
+    pendingCircle = null;
+    releaseDrawEsc();
+    if (!draw || draw.isDestroyed()) return;
+    draw.setIgnoreMouseEvents(true);
+    toDraw({ type: 'cancel' });
+  }
+  ipcMain.on('draw:event', async (event, type, data) => {
+    if (!draw || draw.isDestroyed() || event.sender !== draw.webContents) return;
+    if (type === 'empty') {
+      draw.hide();
+      draw.setIgnoreMouseEvents(true);
+      toNotch('notch:drawing', false);
+    } else if (type === 'circled' && pendingCircle) {
+      const shot = pendingCircle;
+      pendingCircle = null;
+      releaseDrawEsc();
+      draw.setIgnoreMouseEvents(true);
+      // The screenshot with your circle on it, in place of the plain one.
+      let path = shot.path;
+      const jpeg = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(data?.image ?? ''))?.[1];
+      if (jpeg) { path = await saveShot(Buffer.from(jpeg, 'base64')); shots.set(path, { ...shots.get(shot.path), path }); }
+      const b = data?.box;
+      const circled = b && [b.x, b.y, b.w, b.h].every(Number.isFinite) ? { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) } : null;
+      createNotch();
+      const go = () => { toNotch('notch:talk-circle', { shot: { ...shot, path }, circled }); toNotch('notch:drawing', true); };
+      if (notch.webContents.isLoading()) notch.webContents.once('did-finish-load', () => setTimeout(go, 300)); else go();
+    }
+  });
+  function registerCircleShortcut() {
+    circleShortcut = registerShortcut('Circle and ask', loadConfig().circleShortcut, CIRCLE_SHORTCUTS, circleKey);
+  }
+
+  // The notch's music card: what's playing, and its buttons (they're yours, so they work with Blu's hands off too).
+  ipcMain.handle('blu:media', async (event, what) => {
+    if (!fromNotch(event)) return null;
+    if (what === 'info') return hands.nowPlaying();
+    const a = what === 'louder' || what === 'quieter' ? { act: 'volume', by: what === 'louder' ? 10 : -10 } : action({ act: 'media', key: what });
+    if (!a) return null;
+    return (await hands.run([a], { allow: { hands: true, click: false } }))[0];
+  });
 
   function createTray() {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
@@ -387,6 +582,7 @@ if (!app.requestSingleInstanceLock()) {
       { label: 'Dashboard', click: openDashboard },
       { label: 'Talk to Blu', ...(talkShortcut ? { accelerator: talkShortcut } : {}), click: talkInNotch },
       { label: 'Dictate (type with your voice)', ...(dictateShortcut ? { accelerator: dictateShortcut } : {}), click: dictateKey },
+      { label: 'Circle something, ask Blu', ...(circleShortcut ? { accelerator: circleShortcut } : {}), click: circleKey },
       // Chat is optional (Dashboard → Settings → Chat with your agents).
       ...(loadConfig().chat ? [{ label: 'Start working…', click: sayHello }] : []),
       { type: 'separator' },

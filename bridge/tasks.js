@@ -202,7 +202,11 @@ export function agentEnv(env = process.env) {
   return out;
 }
 
-/** Run a program without a shell: { code, stdout, stderr }. A .cmd/.bat goes through cmd with each word quoted (and refused if it can't be). */
+/**
+ * Run a program without a shell: { code, stdout, stderr }. A .cmd/.bat goes through cmd with each
+ * word quoted (and refused if it can't be). `input` can come later, as a promise: the program
+ * starts now and gets it then (Blu's brain starts Claude Code while you're still talking).
+ */
 export function run(file, args, { cwd, input, timeoutMs = 60_000, env = agentEnv(), spawn = nodeSpawn } = {}) {
   return new Promise((ok, fail) => {
     let child;
@@ -217,7 +221,9 @@ export function run(file, args, { cwd, input, timeoutMs = 60_000, env = agentEnv
     child.stderr?.on('data', (d) => { stderr += d; });
     child.once('error', (err) => { clearTimeout(timer); fail(err); });
     child.once('close', (code) => { clearTimeout(timer); ok({ code, stdout, stderr }); });
-    if (input != null) child.stdin?.end(input); else child.stdin?.end();
+    child.stdin?.on('error', () => {}); // it may have stopped before reading
+    if (input && typeof input.then === 'function') input.then((s) => child.stdin?.end(s ?? undefined), () => child.stdin?.end());
+    else if (input != null) child.stdin?.end(input); else child.stdin?.end();
   });
 }
 
