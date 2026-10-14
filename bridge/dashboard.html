@@ -383,6 +383,125 @@
       .rc th, .rc td { padding: 10px 12px; }
     }
 
+    /* -- replay: one request, step by step ----------------------------------- */
+    .tone-bad { --tone: var(--bad); } .tone-ok { --tone: var(--ok); } .tone-warn { --tone: var(--warn); } .tone-muted { --tone: var(--muted); }
+    .rp-back { font-size: 13px; color: var(--muted); width: fit-content; margin-bottom: -10px; }
+    .rp-body { display: grid; gap: 18px; }
+    .rp-ask { border-left: 3px solid var(--h); padding: 2px 0 2px 14px; }
+    .rp-ask small { color: var(--faint); font-size: 12px; display: block; }
+    .rp-ask p { margin: 2px 0 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .rp-scrub { display: grid; gap: 8px; }
+    .rp-ctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .rp-ctl button { min-width: 38px; padding: 5px 10px; }
+    .rp-ctl .rp-play { min-width: 88px; font-weight: 600; }
+    .rp-ctl .rp-play[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+    .rp-ctl .gap { width: 8px; }
+    .rp-pos { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .rp-pos b { color: var(--text); font-weight: 600; }
+    /* The track: one notch per step (not per second), so quick steps don't pile up on one pixel. */
+    .rp-track { --p: 0; position: relative; height: 24px; margin-top: 4px; border-radius: 8px; }
+    .rp-track::before { content: ""; position: absolute; left: 7px; right: 7px; top: 10px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+    .rp-fill { position: absolute; left: 7px; top: 10px; height: 4px; border-radius: 2px; width: calc((100% - 14px) * var(--p)); background: var(--h, var(--text)); }
+    .rp-track input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+    .rp-track input:focus-visible { outline: none; }
+    .rp-track:has(input:focus-visible) { outline: 2px solid var(--link); outline-offset: 3px; }
+    .rp-track input::-webkit-slider-runnable-track { height: 24px; background: transparent; }
+    .rp-track input::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: 5px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 4px color-mix(in srgb, var(--h, var(--text)) 40%, transparent); }
+    .rp-track input::-moz-range-track { background: transparent; }
+    .rp-track input::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 4px color-mix(in srgb, var(--h, var(--text)) 40%, transparent); }
+    .rp-ticks { position: relative; height: 24px; }
+    .rp-tick { position: absolute; top: 0; transform: translateX(-50%); width: 20px; height: 20px; padding: 0; display: grid; place-items: center; font-size: 11px; line-height: 1; border-radius: 6px; color: var(--tone); background: color-mix(in srgb, var(--tone) 16%, var(--panel)); border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent); }
+    .rp-tick::before { content: ""; position: absolute; left: 50%; top: -7px; width: 1px; height: 6px; background: color-mix(in srgb, var(--tone) 60%, transparent); }
+    .rp-tick:hover { border-color: var(--tone); background: color-mix(in srgb, var(--tone) 30%, var(--panel)); }
+    .rp-tick[aria-current="true"] { outline: 2px solid var(--tone); outline-offset: 1px; z-index: 1; }
+    .rp-line { margin: 0; color: var(--muted); font-size: 12.5px; }
+    .rp-split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+    .rp-detail { display: grid; gap: 12px; align-content: start; min-height: 240px; }
+    .rp-dhead { display: flex; gap: 10px; align-items: baseline; }
+    .rp-dhead h2 { flex: 1; min-width: 0; font-size: 16px; overflow-wrap: anywhere; }
+    .rp-detail .label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: -6px; }
+    .rp-detail pre.code { max-height: 360px; }
+    .rp-tag { font: 600 10px/18px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--k, var(--muted)); background: color-mix(in srgb, var(--k, var(--muted)) 14%, transparent); border-radius: 5px; padding: 0 6px; flex: none; }
+    .rp-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .rp-meta .ok { color: var(--ok); } .rp-meta .bad { color: var(--bad); } .rp-meta .wait { color: var(--warn); }
+    .rp-marks { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rp-badge { display: inline-flex; gap: 6px; align-items: baseline; font-size: 12.5px; padding: 3px 9px; border-radius: 6px; color: var(--tone); background: color-mix(in srgb, var(--tone) 13%, transparent); overflow-wrap: anywhere; }
+    .rp-claims { border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); background: color-mix(in srgb, var(--bad) 8%, transparent); border-radius: 10px; padding: 10px 14px; }
+    .rp-claims h3 { color: var(--bad); margin-bottom: 6px; }
+    .rp-claims ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+    .rp-said { margin: 0; padding: 12px 14px; border-left: 3px solid var(--h); background: var(--sunk); border-radius: 0 10px 10px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8de; }
+    .rp-files { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rp-files a { font: 12px var(--mono); padding: 2px 9px; border-radius: 999px; background: var(--raise); color: var(--text); }
+    .rp-files a small { color: var(--faint); margin-right: 6px; font-family: ui-rounded, "Segoe UI Variable Text", system-ui, sans-serif; }
+    .rp-listcard { padding: 8px; position: sticky; top: 0; }
+    .rp-listcard h2 { padding: 6px 8px 8px; }
+    .rp-list { position: relative; list-style: none; margin: 0; padding: 0; max-height: min(68vh, 620px); overflow-y: auto; display: grid; gap: 1px; }
+    .rp-list button { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; background: none; border: 0; border-radius: 8px; padding: 5px 8px; font-size: 12.5px; color: var(--muted); }
+    .rp-list button:hover { background: rgb(255 255 255 / .03); color: var(--text); }
+    .rp-list button[aria-current="step"] { background: var(--raise); color: var(--text); box-shadow: inset 2px 0 0 var(--h, var(--text)); }
+    .rp-list .n { font: 11px var(--mono); color: var(--faint); text-align: right; }
+    .rp-list .ttl { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .rp-list .ttl i { width: 8px; height: 8px; border-radius: 2px; background: var(--k, var(--faint)); flex: none; }
+    .rp-list .c-prompt i, .rp-list .c-end i { background: var(--h); border-radius: 50%; }
+    .rp-list .ttl span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rp-list .side { display: inline-flex; gap: 5px; align-items: center; color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .rp-list .side .g { color: var(--tone); font-size: 11px; }
+    .rp-empty { display: grid; gap: 4px; padding: 30px 20px; text-align: center; }
+    .rp-empty b { font-weight: 600; }
+    @media (prefers-reduced-motion: no-preference) { .rp-fill { transition: width .18s ease-out; } }
+    @media (max-width: 1000px) {
+      .rp-split { grid-template-columns: 1fr; }
+      .rp-listcard { position: static; }
+      .rp-list { max-height: 360px; }
+    }
+    /* -- rewind: restore points ---------------------------------------------- */
+    .rw-state { display: inline-flex; align-items: center; gap: 6px; color: var(--warn); }
+    .turn footer .rw-state button { margin-left: 0; }
+    dialog.rw { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel); color: var(--text); box-shadow: 0 24px 64px rgb(0 0 0 / .55); }
+    dialog.rw[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+    dialog.rw::backdrop { background: rgb(5 5 8 / .66); backdrop-filter: blur(2px); }
+    .rw-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); border-top: 3px solid var(--bad); border-radius: 16px 16px 0 0; }
+    .rw-head h2 { font-size: 17px; }
+    .rw-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .rw-body { overflow-y: auto; padding: 14px 20px; display: grid; gap: 14px; align-content: start; min-height: 120px; }
+    .rw-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--sunk); border-radius: 0 0 16px 16px; }
+    .rw-status { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); }
+    .rw-status.bad { color: var(--bad); }
+    /* Destructive: red, with dark text for contrast. */
+    button.rw-go { background: var(--bad); border-color: var(--bad); color: var(--bg); font-weight: 650; }
+    button.rw-go:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--bad); }
+    .rw-loading { color: var(--muted); display: flex; align-items: center; gap: 10px; padding: 20px 0; }
+    .rw-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--text); }
+    @media (prefers-reduced-motion: no-preference) {
+      .rw-spin { animation: rw-spin .8s linear infinite; }
+      @keyframes rw-spin { to { transform: rotate(1turn); } }
+      dialog.rw[open] { animation: rw-in .16s ease-out; }
+      @keyframes rw-in { from { opacity: 0; transform: translateY(6px) scale(.99); } }
+    }
+    .rw-notice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--tone, var(--warn)) 10%, transparent); border: 1px solid color-mix(in srgb, var(--tone, var(--warn)) 40%, transparent); }
+    .rw-notice > b { color: var(--tone, var(--warn)); flex: none; }
+    .rw-notice.bad { --tone: var(--bad); } .rw-notice.info { --tone: var(--link); }
+    .rw-notice button { margin-left: auto; flex: none; padding: 3px 10px; font-size: 12px; }
+    .rw-files { border: 0; margin: 0; padding: 0; min-width: 0; }
+    .rw-files legend { display: flex; width: 100%; align-items: baseline; gap: 10px; padding: 0 0 6px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .rw-files legend label { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+    .rw-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; max-height: 240px; overflow-y: auto; }
+    .rw-list li + li { border-top: 1px solid var(--line); }
+    .rw-file { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 10px; padding: 8px 12px; cursor: pointer; align-items: start; }
+    .rw-file:hover { background: rgb(255 255 255 / .025); }
+    .rw-file input { margin: 3px 0 0; width: 15px; height: 15px; accent-color: var(--bad); padding: 0; }
+    .rw-file .p { font: 12.5px var(--mono); overflow-wrap: anywhere; }
+    .rw-file .what { grid-column: 2; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+    .rw-file .what .del { color: var(--bad); }
+    .rw-file .since { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); border-radius: 5px; padding: 1px 7px; font-size: 11.5px; }
+    .rw-file:has(input:not(:checked)) .p, .rw-file:has(input:not(:checked)) .what { opacity: .5; }
+    .rw-diff .label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .rw-diff pre.code { max-height: 280px; }
+    .rw-note { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); background: var(--text); color: var(--bg); padding: 6px 6px 6px 14px; border-radius: 10px; font-weight: 600; font-size: 13px; box-shadow: 0 10px 30px rgb(0 0 0 / .45); }
+    .rw-note.bad { background: #3a1517; color: #ffd9da; border: 1px solid var(--bad); }
+    .rw-note button { background: transparent; color: inherit; border: 1px solid currentColor; padding: 3px 10px; font-size: 12.5px; font-weight: 650; }
+    .rw-note #rw-note-x { border: 0; opacity: .7; padding: 3px 8px; }
+
     .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 9px; font-weight: 600; font-size: 13px; }
     .toast[hidden] { display: none; }
 
@@ -499,6 +618,19 @@
         </div>
       </section>
 
+      <!-- Replay: one request, step by step (reached from a request's Replay button) -->
+      <section class="view rp" id="view-replay" aria-labelledby="t-replay" hidden>
+        <a href="#sessions" id="rp-back" class="rp-back">← Back to the session</a>
+        <div class="head">
+          <h1 id="t-replay">Replay</h1>
+          <span id="rp-agent"></span>
+          <span class="spacer"></span>
+          <span class="faint" id="rp-when"></span>
+        </div>
+        <div id="replay" class="rp-body"></div>
+        <div class="sr-only" id="rp-live" aria-live="polite" aria-atomic="true"></div>
+      </section>
+
       <!-- Map ----------------------------------------------------------------- -->
       <section class="view" id="view-map" aria-labelledby="t-map" hidden>
         <div class="head">
@@ -600,6 +732,12 @@
             <h2>Fix failing tests</h2>
             <div class="row"><div class="text">Make agents fix failing tests before they finish<small>Claude Code only. dotpals tells Claude when a test run fails, and sends it back (at most twice per request) if it tries to finish, commit or push while the tests fail or weren’t run after its last change. Projects without tests are never held up.</small></div><input type="checkbox" class="switch" id="s-fixloop" aria-label="Make agents fix failing tests before they finish"></div>
             <div class="row"><div class="text">Tell me when an agent seems stuck<small>Any agent. A ping when the same test, command or edit fails 3 times in a row, a file keeps being changed back and forth, or nothing has worked for 10 minutes while it keeps trying. Once per request; a step still running (a long build) never counts.</small></div><input type="checkbox" class="switch" id="s-stuck" aria-label="Tell me when an agent seems stuck"></div>
+            <div class="row"><div class="text">Morning brief<small>The first time the pal opens each day, it says what your agents did since yesterday, what’s unfinished and what’s failing. Any assistant can ask for it too, or for the week (MCP: brief).</small></div><input type="checkbox" class="switch" id="s-brief" aria-label="Morning brief"></div>
+          </div>
+
+          <div class="card">
+            <h2>Restore points</h2>
+            <div class="row"><div class="text">Save restore points so you can rewind a request<small>When a request starts and ends, dotpals saves your project’s files in git’s own object store (no branch, no commit, your index untouched). Then <b>Rewind…</b> on a request puts the files it changed back as they were. Only requests from then on can be rewound. Off by default.</small></div><input type="checkbox" class="switch" id="s-restore" aria-label="Save restore points so you can rewind a request"></div>
           </div>
 
           <div class="card">
@@ -659,6 +797,22 @@
     </main>
   </div>
   <div class="toast" id="toast" role="status" hidden></div>
+  <!-- A notice with an action (Rewound 3 files · Undo). Stays longer than the plain toast. -->
+  <div class="rw-note" id="rw-note" role="status" hidden><span id="rw-note-text"></span><button type="button" id="rw-note-act" hidden>Undo</button><button type="button" id="rw-note-x" aria-label="Dismiss">✕</button></div>
+
+  <!-- Rewind a request: what goes back, then do it. -->
+  <dialog class="rw" id="rw" aria-labelledby="rw-title" aria-describedby="rw-desc">
+    <div class="rw-head">
+      <h2 id="rw-title">Rewind this request?</h2>
+      <p id="rw-desc">Puts the files it changed back as they were before it started. You can undo it right after.</p>
+    </div>
+    <div class="rw-body" id="rw-body"></div>
+    <div class="rw-foot">
+      <span class="rw-status" id="rw-status" role="status"></span>
+      <button type="button" id="rw-cancel">Cancel</button>
+      <button type="button" class="rw-go" id="rw-go" disabled>Rewind</button>
+    </div>
+  </dialog>
 
   <script type="module">
     import { DotPal, registerCustom, CUSTOM_OPTIONS, DEFAULT_CUSTOM, cleanCustom } from '/src/index.js';
@@ -669,6 +823,7 @@
     import { checkOf, minorChapter, overlaps, readiness, readinessLine, gitTruth, gitLine, recapMarkdown, retries, simple, stepType, story, testVerdict, testWords, turnMarkdown, whyStopped } from '/bridge/ui/story.js';
     import { continueMenu } from '/bridge/ui/handoff-menu.js';
     import { reportCard, reportRows, reportMarkdown } from '/bridge/ui/report.js';
+    import { replay, replayLine } from '/bridge/ui/replay.js';
 
     const $ = (id) => document.getElementById(id);
     const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -732,21 +887,26 @@
     // -- routing --------------------------------------------------------------------
     let current = 'overview';
     function route() {
-      const [view, id] = (location.hash.slice(1) || 'overview').split('/');
+      const [view, id, sub] = (location.hash.slice(1) || 'overview').split('/');
       current = VIEWS.includes(view) ? view : 'overview';
-      if (current === 'sessions' && id) picked = decodeURIComponent(id);
+      const dec = (s) => { try { return decodeURIComponent(s ?? ''); } catch { return ''; } };
+      if (current === 'sessions' && id) picked = dec(id);
+      // #replay/<session>/<request id>
+      if (current === 'replay') rpOpen(dec(id), dec(sub)); else rpPause();
       for (const v of VIEWS) $(`view-${v}`).hidden = v !== current;
-      for (const a of document.querySelectorAll('nav a')) a.setAttribute('aria-current', a.dataset.view === current ? 'page' : 'false');
+      const navView = current === 'replay' ? 'sessions' : current; // a replay lives under Sessions
+      for (const a of document.querySelectorAll('nav a')) a.setAttribute('aria-current', a.dataset.view === navView ? 'page' : 'false');
       if (current === 'settings' || current === 'agents') refreshStatus();
       render();
     }
-    const VIEWS = ['overview', 'report', 'sessions', 'map', 'agents', 'settings'];
+    const VIEWS = ['overview', 'report', 'sessions', 'replay', 'map', 'agents', 'settings'];
     addEventListener('hashchange', route);
 
     function render() {
       if (current === 'overview') renderOverview();
       if (current === 'report') renderReport();
       if (current === 'sessions') renderSessions();
+      if (current === 'replay') renderReplay();
       if (current === 'settings') renderSettings();
       if (current === 'agents') renderAgents();
       if (current === 'map') renderMap();
@@ -1354,7 +1514,10 @@
         const c = el('button', '', 'Copy'); c.type = 'button'; c.onclick = () => copy(easy ? [t.prompt ? `### ${t.prompt.title.split(/\n/)[0]}` : '', easy.text, ...easy.warnings.map((w) => `- ⚠ ${w}`)].filter(Boolean).join('\n\n') : turnMarkdown(t, { live }));
         const steps = el('button', '', openRows.has(t.id) ? 'Hide steps' : `Show ${plural(t.steps.length, 'step')}`); steps.type = 'button';
         steps.onclick = () => { openRows.has(t.id) ? openRows.delete(t.id) : openRows.add(t.id); renderDetail(s); };
-        foot.append(c, ...(t.steps.length ? [steps] : []));
+        const rp = el('button', '', 'Replay'); rp.type = 'button';
+        rp.title = 'Step through this request';
+        rp.onclick = () => { location.hash = `replay/${encodeURIComponent(t.session)}/${encodeURIComponent(t.id)}`; };
+        foot.append(c, ...(t.steps.length || t.end ? [rp] : []), ...(t.steps.length ? [steps] : []), ...rewindControls(t));
         card.append(foot);
         if (openRows.has(t.id)) {
           const list = el('div'); list.style.padding = '4px 14px 10px';
@@ -1466,6 +1629,16 @@
       return table;
     }
 
+    /** A patch with added, removed and hunk lines colored (the Log's and the replay's). */
+    function patchPre(patch) {
+      const pre = el('pre', 'code');
+      for (const line of String(patch).split('\n')) {
+        const cls = line.startsWith('+') && !line.startsWith('+++') ? 'add' : line.startsWith('-') && !line.startsWith('---') ? 'del' : /^(@@|\*\*\*)/.test(line) ? 'hunk' : '';
+        pre.append(cls ? el('span', cls, line) : document.createTextNode(`${line}\n`));
+      }
+      return pre;
+    }
+
     function bodyRow(e, chain) {
       const tr = el('tr', 'body-row');
       const td = el('td'); td.colSpan = 4;
@@ -1497,20 +1670,485 @@
       if (e.summary) body.append(el('div', 'label', 'summary'), el('pre', 'code', plain(e.summary)));
       const b = e.body ?? {};
       if (b.command) body.append(el('div', 'label', 'command'), el('pre', 'code', `$ ${b.command}`));
-      if (b.patch) {
-        const pre = el('pre', 'code');
-        for (const line of b.patch.split('\n')) {
-          const cls = line.startsWith('+') && !line.startsWith('+++') ? 'add' : line.startsWith('-') && !line.startsWith('---') ? 'del' : /^(@@|\*\*\*)/.test(line) ? 'hunk' : '';
-          pre.append(cls ? el('span', cls, line) : document.createTextNode(`${line}\n`));
-        }
-        body.append(el('div', 'label', 'changes'), pre);
-      }
+      if (b.patch) body.append(el('div', 'label', 'changes'), patchPre(b.patch));
       if (b.args) body.append(el('div', 'label', 'input'), el('pre', 'code', b.args));
       if (b.output) body.append(el('div', 'label', 'output'), el('pre', 'code', b.output));
       td.append(body);
       tr.append(td);
       return tr;
     }
+
+    // -- replay: one request, frame by frame (frames and marks from bridge/ui/replay.js) --
+    // The track is spaced by step, not by clock time: agents fire bursts of steps within a
+    // second and then think for minutes, so a time scale would stack most ticks on one spot.
+    // The clock time is still shown for every frame (+1m 20s from the prompt).
+    const RP_TONE = { fail: 'bad', claim: 'bad', risky: 'warn', fixed: 'ok', retry: 'muted' };
+    const RP_GLYPH = { bad: '✕', warn: '⚠', ok: '✓', muted: '↻' };
+    const RP_RANK = { bad: 0, warn: 1, ok: 2, muted: 3 };
+    const RP_TYPE = {
+      prompt: 'You asked', end: 'End', change: 'Change', test: 'Test', run: 'Command', explore: 'Look', look: 'Look', ship: 'Ship',
+      build: 'Build', install: 'Install', web: 'Web', agent: 'Helper', skill: 'Skill', mcp: 'Tool', plan: 'Plan', ask: 'Question', memory: 'Memory',
+    };
+    const rpTone = (m, f) => RP_TONE[m.kind] ?? (m.kind === 'tested' ? ({ passed: 'ok', failed: 'bad' }[f?.test?.state] ?? 'warn') : 'muted');
+    const rpPlus = (t) => (t < 1000 ? '+0s' : `+${secs(t)}`);
+    let rp = { key: '', session: '', id: '', i: 0, r: null, turn: null, timer: null, ui: null };
+
+    function rpOpen(session, id) {
+      const key = `${session}/${id}`;
+      if (rp.key !== key) { rpPause(); rp = { ...rp, key, session, id, i: 0, r: null, turn: null, ui: null, sig: '' }; }
+    }
+    function rpPause() {
+      clearInterval(rp.timer);
+      rp.timer = null;
+      rp.ui?.play && (rp.ui.play.textContent = '▶ Play', rp.ui.play.setAttribute('aria-pressed', 'false'));
+    }
+    function rpPlay() {
+      if (!rp.r) return;
+      if (rp.timer) return rpPause();
+      if (rp.i >= rp.r.frames.length - 1) rpGo(0, { quiet: true });
+      rp.timer = setInterval(() => { if (rp.i >= rp.r.frames.length - 1) rpPause(); else rpGo(rp.i + 1); }, 800);
+      rp.ui.play.textContent = '❚❚ Pause';
+      rp.ui.play.setAttribute('aria-pressed', 'true');
+    }
+    const rpMarkAt = (dir) => {
+      const at = [...new Set(rp.r.marks.map((m) => m.i))];
+      return dir > 0 ? at.find((i) => i > rp.i) : at.reverse().find((i) => i < rp.i);
+    };
+    function rpGo(i, { quiet = false, pause = false } = {}) {
+      if (!rp.r || i == null) return;
+      if (pause) rpPause();
+      const next = Math.max(0, Math.min(rp.r.frames.length - 1, i));
+      const changed = next !== rp.i;
+      rp.i = next;
+      rpShow();
+      // While playing, only frames with marks are announced (one every 0.8 s would drown it out).
+      if (changed && !quiet && (!rp.timer || rp.r.frames[rp.i].marks.length)) {
+        const f = rp.r.frames[rp.i];
+        $('rp-live').textContent = `Step ${rp.i + 1} of ${rp.r.frames.length}: ${f.title}${f.marks.length ? `. ${f.marks.map((m) => m.text).join('. ')}` : ''}`;
+      }
+    }
+
+    function renderReplay() {
+      const box = $('replay');
+      const back = $('rp-back');
+      back.href = `#sessions/${encodeURIComponent(rp.session)}`;
+      const turn = buildTurns([...entries.values()].filter((e) => e.session === rp.session)).find((t) => String(t.id) === rp.id);
+      back.onclick = turn ? (ev) => { ev.preventDefault(); openTurn(turn); } : null;
+      $('rp-agent').replaceChildren(...(turn ? [agentChip(turn.harness, turn.label)] : []));
+      const r = turn ? replay(turn) : null;
+      if (!r || !r.frames.length) {
+        rpPause();
+        rp.r = null; rp.ui = null;
+        $('rp-when').textContent = '';
+        const empty = el('div', 'card rp-empty');
+        empty.append(el('b', '', replaying ? 'Loading…' : 'This request isn’t here.'),
+          el('span', 'faint', replaying ? 'Reading the history.' : 'It may be older than the history you keep, or the link is wrong.'));
+        return box.replaceChildren(empty);
+      }
+      // Live data redraws the page often; only rebuild when this request actually changed
+      // (so a drag on the scrubber or a focused button survives).
+      const sig = `${r.frames.length}|${r.marks.length}|${r.frames.at(-1).status}|${turn.end?.id ?? ''}`;
+      rp.turn = turn;
+      if (rp.ui && rp.sig === sig && box.isConnected && box.querySelector('.rp-scrub')) { rp.r = r; return rpShow(); }
+      rp.sig = sig;
+      rp.r = r;
+      rp.i = Math.min(rp.i, r.frames.length - 1);
+      $('rp-when').textContent = `${when(r.start)}${turn.end ? '' : ' · still going or interrupted'}`;
+      box.className = `rp-body ${harnessClass(turn.harness)}`;
+      const keep = document.activeElement?.dataset?.rp; // put focus back after a redraw
+
+      const btn = (text, label, onclick, key) => { const b = el('button', '', text); b.type = 'button'; b.setAttribute('aria-label', label); b.title = label; b.onclick = onclick; b.dataset.rp = key; return b; };
+      const ui = {};
+      const parts = [];
+      if (turn.prompt) { const ask = el('div', 'rp-ask'); ask.append(el('small', '', 'You asked'), el('p', '', turn.prompt.title)); parts.push(ask); }
+
+      // Controls and the scrubber.
+      const scrub = el('div', 'card rp-scrub');
+      const ctl = el('div', 'rp-ctl');
+      ctl.setAttribute('role', 'toolbar');
+      ctl.setAttribute('aria-label', 'Replay controls');
+      ui.first = btn('⇤', 'First step (Home)', () => rpGo(0, { pause: true }), 'first');
+      ui.prevMark = btn('⟨⚑', 'Previous thing worth a look (Shift+←)', () => rpGo(rpMarkAt(-1), { pause: true }), 'pm');
+      ui.prev = btn('‹', 'Previous step (←)', () => rpGo(rp.i - 1, { pause: true }), 'prev');
+      ui.play = el('button', 'rp-play'); ui.play.type = 'button'; ui.play.dataset.rp = 'play';
+      ui.play.title = 'Play or pause (Space)';
+      ui.play.setAttribute('aria-pressed', String(!!rp.timer));
+      ui.play.textContent = rp.timer ? '❚❚ Pause' : '▶ Play';
+      ui.play.onclick = rpPlay;
+      ui.next = btn('›', 'Next step (→)', () => rpGo(rp.i + 1, { pause: true }), 'next');
+      ui.nextMark = btn('⚑⟩', 'Next thing worth a look (Shift+→)', () => rpGo(rpMarkAt(1), { pause: true }), 'nm');
+      ui.last = btn('⇥', 'Last step (End)', () => rpGo(r.frames.length - 1, { pause: true }), 'last');
+      ui.pos = el('span', 'rp-pos');
+      ctl.append(ui.first, ui.prevMark, ui.prev, ui.play, ui.next, ui.nextMark, ui.last, ui.pos);
+
+      const track = el('div', 'rp-track');
+      ui.track = track;
+      const fill = el('div', 'rp-fill');
+      ui.slider = el('input');
+      Object.assign(ui.slider, { type: 'range', min: '0', max: String(r.frames.length - 1), step: '1' });
+      ui.slider.dataset.rp = 'slider';
+      ui.slider.setAttribute('aria-label', 'Step');
+      ui.slider.oninput = () => rpGo(Number(ui.slider.value), { pause: true });
+      track.append(fill, ui.slider);
+
+      // One tick per frame with marks, colored by the most serious one; a button you can jump to.
+      const ticks = el('div', 'rp-ticks');
+      ticks.setAttribute('role', 'group');
+      ticks.setAttribute('aria-label', 'Things worth a look');
+      ui.ticks = new Map();
+      const pos = (i) => (r.frames.length > 1 ? i / (r.frames.length - 1) : 0);
+      for (const f of r.frames.filter((x) => x.marks.length)) {
+        const tone = f.marks.map((m) => rpTone(m, f)).sort((a, b) => RP_RANK[a] - RP_RANK[b])[0];
+        const tk = el('button', `rp-tick tone-${tone}`, RP_GLYPH[tone]);
+        tk.type = 'button';
+        tk.dataset.rp = `m${f.i}`;
+        tk.style.left = `calc(7px + (100% - 14px) * ${pos(f.i)})`; // lines up with the slider thumb's center
+        const label = `Step ${f.i + 1}: ${f.marks.map((m) => m.text).join('; ')}`;
+        tk.setAttribute('aria-label', label);
+        tk.title = label;
+        tk.onclick = () => rpGo(f.i, { pause: true });
+        ticks.append(tk);
+        ui.ticks.set(f.i, tk);
+      }
+      scrub.append(ctl, track, ...(ui.ticks.size ? [ticks] : []), el('p', 'rp-line', replayLine(r)));
+      parts.push(scrub);
+
+      // The frame in detail, and every frame in a list.
+      const split = el('div', 'rp-split');
+      ui.detail = el('div', 'card rp-detail');
+      const side = el('div', 'card rp-listcard');
+      const list = el('ol', 'rp-list');
+      list.setAttribute('aria-label', 'All steps');
+      ui.list = list;
+      ui.rows = r.frames.map((f) => {
+        const li = el('li');
+        const b = el('button'); b.type = 'button'; b.dataset.rp = `f${f.i}`;
+        const ttl = el('span', `ttl c-${f.type}`); ttl.append(el('i'), el('span', '', f.title));
+        const meta = el('span', 'side');
+        for (const m of f.marks) { const tone = rpTone(m, f); const g = el('span', `g tone-${tone}`, RP_GLYPH[tone]); g.setAttribute('aria-hidden', 'true'); meta.append(g); }
+        if (f.marks.length) meta.append(el('span', 'sr-only', f.marks.map((m) => m.text).join('; ')));
+        if (f.status === 'failed') meta.append(el('span', 'sr-only', 'failed'));
+        meta.append(rpPlus(f.t));
+        b.append(el('span', 'n', String(f.i + 1)), ttl, meta);
+        b.onclick = () => rpGo(f.i, { pause: true });
+        li.append(b);
+        list.append(li);
+        return b;
+      });
+      side.append(el('h2', '', `Steps (${r.frames.length})`), list);
+      split.append(ui.detail, side);
+      parts.push(split);
+
+      rp.ui = ui;
+      box.replaceChildren(...parts);
+      rpShow();
+      if (keep) box.querySelector(`[data-rp="${keep}"]`)?.focus({ preventScroll: true });
+    }
+
+    /** Point everything at the current frame (no redraw of the page). */
+    function rpShow() {
+      const { r, ui } = rp;
+      if (!r || !ui) return;
+      const f = r.frames[rp.i];
+      const n = r.frames.length;
+      const p = n > 1 ? rp.i / (n - 1) : 0;
+      ui.track.style.setProperty('--p', String(p));
+      ui.slider.value = String(rp.i);
+      ui.slider.setAttribute('aria-valuetext', `Step ${rp.i + 1} of ${n}: ${f.title}`);
+      ui.pos.replaceChildren('Step ', el('b', '', String(rp.i + 1)), ` of ${n} · ${rpPlus(f.t)}`);
+      ui.first.disabled = ui.prev.disabled = rp.i === 0;
+      ui.last.disabled = ui.next.disabled = rp.i === n - 1;
+      ui.prevMark.disabled = rpMarkAt(-1) == null;
+      ui.nextMark.disabled = rpMarkAt(1) == null;
+      for (const [i, tk] of ui.ticks) tk.setAttribute('aria-current', String(i === rp.i));
+      ui.rows.forEach((b, i) => { if (i === rp.i) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
+      // Keep the current row in view inside the list (not by scrolling the page).
+      const row = ui.rows[rp.i].parentElement;
+      if (row.offsetTop < ui.list.scrollTop) ui.list.scrollTop = row.offsetTop;
+      else if (row.offsetTop + row.offsetHeight > ui.list.scrollTop + ui.list.clientHeight) ui.list.scrollTop = row.offsetTop + row.offsetHeight - ui.list.clientHeight;
+      // Only when the frame (or what it shows) changed: a live update that changes nothing here
+      // keeps the reader's scroll inside the patch and output, their selection and their focus.
+      const sig = `${rp.i}|${f.step}|${f.status}|${f.marks.map((m) => m.kind + m.text).join(',')}|${f.test?.words ?? ''}|${(f.output ?? '').length}|${(f.patch ?? '').length}|${(f.summary ?? '').length}`;
+      if (ui.detailSig === sig) return;
+      ui.detailSig = sig;
+      ui.detail.replaceChildren(...rpFrame(f));
+    }
+
+    /** One frame: what happened, its result, the marks, files, test verdict, patch, output. */
+    function rpFrame(f) {
+      const out = [];
+      const head = el('div', 'rp-dhead');
+      head.append(el('span', `rp-tag c-${f.type}`, f.type === 'prompt' ? 'Prompt' : RP_TYPE[f.type] ?? 'Step'), el('h2', '', f.type === 'prompt' ? 'You asked' : f.title));
+      out.push(head);
+
+      const meta = el('div', 'rp-meta');
+      const st = { ok: ['ok', '✓ Worked'], failed: ['bad', '✕ Failed'], running: ['wait', '… Still running'], waiting: ['wait', '⏸ Waited for your OK'] }[f.status];
+      if (st && f.type !== 'prompt' && !(f.type === 'end' && f.kind === 'error')) meta.append(el('span', st[0], f.type === 'end' && f.kind === 'done' ? '✓ Finished' : st[1]));
+      if (f.type === 'end' && f.kind === 'error') meta.append(el('span', 'bad', '✕ Stopped with an error'));
+      meta.append(el('span', '', `${rpPlus(f.t)} · ${shortTime(f.at)}`));
+      if (f.ms != null) meta.append(el('span', '', `took ${secs(f.ms)}`));
+      out.push(meta);
+
+      if (f.type === 'prompt') out.push(el('p', 'rp-said', String(rp.turn?.prompt?.title ?? f.title)));
+
+      // The end: claims that didn't happen first, then what the agent said.
+      const claims = f.marks.filter((m) => m.kind === 'claim');
+      if (claims.length) {
+        const c = el('div', 'rp-claims');
+        c.setAttribute('role', 'note');
+        const ul = el('ul');
+        for (const m of claims) ul.append(el('li', '', m.text));
+        c.append(el('h3', '', `⚠ ${plural(claims.length, 'claim that didn’t happen', 'claims that didn’t happen')}`), ul);
+        out.push(c);
+      }
+      const marks = f.marks.filter((m) => m.kind !== 'claim');
+      if (marks.length) {
+        const box = el('div', 'rp-marks');
+        box.setAttribute('aria-label', 'Worth a look');
+        for (const m of marks) { const tone = rpTone(m, f); const b = el('span', `rp-badge tone-${tone}`); b.append(el('span', '', RP_GLYPH[tone]), el('span', '', m.text)); box.append(b); }
+        out.push(box);
+      }
+      if (f.summary) {
+        const said = el('p', 'rp-said');
+        said.append(el('b', '', `${harnessName(rp.turn?.harness)} said: `), plain(f.summary));
+        out.push(el('div', 'label faint', 'Its summary'), said);
+      } else if (f.type === 'end' && f.kind === 'done') out.push(el('div', 'faint', 'It didn’t leave a summary.'));
+
+      if (f.files.length) {
+        const files = el('div', 'rp-files');
+        for (const x of f.files) { const a = el('a'); a.href = fileUrl(x.path); a.title = `Open ${x.path} in VS Code`; a.append(el('small', '', x.change), x.name); files.append(a); }
+        out.push(files);
+      }
+      const e = entries.get(f.step);
+      if (e?.body?.command) out.push(el('div', 'label faint', 'Command'), el('pre', 'code', `$ ${e.body.command}`));
+      if (e?.error && f.type !== 'end') out.push(el('div', 'note bad', e.error));
+      if (f.test) out.push(el('div', 'label faint', 'Test result'), el('div', { passed: 'note ok', failed: 'note bad' }[f.test.state] ?? 'warn-text', `${{ passed: '✓', failed: '✕' }[f.test.state] ?? '?'} ${f.test.words}`));
+      if (f.patch) out.push(el('div', 'label faint', 'Changes'), patchPre(f.patch));
+      if (f.output) out.push(el('div', 'label faint', 'Output'), el('pre', 'code', f.output));
+      return out;
+    }
+
+    // Keys: ←/→ a step, Shift+←/→ the next thing worth a look, Space play/pause, Home/End.
+    addEventListener('keydown', (ev) => {
+      if (current !== 'replay' || !rp.r || ev.altKey || ev.ctrlKey || ev.metaKey) return;
+      const t = ev.target;
+      if (t.closest?.('input:not([type="range"]), select, textarea, [contenteditable="true"]')) return;
+      const onButton = t.tagName === 'BUTTON' || t.tagName === 'A';
+      let done = true;
+      if (ev.key === 'ArrowRight') ev.shiftKey ? rpGo(rpMarkAt(1), { pause: true }) : rpGo(rp.i + 1, { pause: true });
+      else if (ev.key === 'ArrowLeft') ev.shiftKey ? rpGo(rpMarkAt(-1), { pause: true }) : rpGo(rp.i - 1, { pause: true });
+      else if (ev.key === 'Home') rpGo(0, { pause: true });
+      else if (ev.key === 'End') rpGo(rp.r.frames.length - 1, { pause: true });
+      else if (ev.key === ' ' && !onButton) rpPlay(); // on a button, Space presses that button
+      else done = false;
+      if (done) ev.preventDefault();
+    });
+
+    // -- rewind a request (restore points: bridge/server.js rewind(), bridge/ground.js) --
+    // `id` everywhere: the request's done entry (t.end.id), which carries git.trees when a
+    // restore point exists and `rewound` after a rewind.
+    const RW_WHAT = { restore: 'Put back as before', delete: 'Delete (the request created it)', recreate: 'Bring back (the request deleted it)' };
+    let rw = { id: null, plan: null, working: false, skip: new Set() };
+
+    /** Like api(), but the error keeps its HTTP status (404: no restore point, 409: try again). */
+    async function rwPost(path, body) {
+      const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
+      let data = null;
+      try { data = await res.json(); } catch {}
+      if (!res.ok) throw Object.assign(new Error(data?.error ?? `${res.status}`), { status: res.status, code: data?.code });
+      return data ?? {};
+    }
+
+    /** The request card's footer: "Rewind…", or "Rewound · Undo" after a rewind. */
+    function rewindControls(t) {
+      const end = t.end;
+      if (!end?.git?.trees) return [];
+      if (end.rewound && !end.rewound.undone) {
+        const box = el('span', 'rw-state');
+        const n = end.rewound.paths?.length ?? 0;
+        box.append(el('span', '', `↶ Rewound${n ? ` ${plural(n, 'file')}` : ''}`));
+        const u = el('button', '', 'Undo'); u.type = 'button'; u.dataset.rw = end.id;
+        u.setAttribute('aria-label', 'Undo the rewind');
+        u.onclick = () => rwUndo(end.id, u);
+        box.append(u);
+        return [box];
+      }
+      const b = el('button', '', 'Rewind…'); b.type = 'button'; b.dataset.rw = end.id;
+      b.title = 'Put the files this request changed back as they were';
+      b.onclick = () => rwOpen(end.id);
+      return [b];
+    }
+
+    function rwOpen(id) {
+      rw = { id, plan: null, working: false, skip: new Set() };
+      $('rw-status').textContent = '';
+      $('rw-status').className = 'rw-status';
+      $('rw').showModal();
+      rwPreview();
+    }
+
+    async function rwPreview(notice) {
+      const id = rw.id;
+      const body = $('rw-body');
+      const loading = el('div', 'rw-loading');
+      loading.append(el('span', 'rw-spin'), 'Checking what would change…');
+      body.replaceChildren(loading);
+      body.setAttribute('aria-busy', 'true');
+      rw.plan = null;
+      rwButton();
+      try {
+        const plan = await rwPost('/api/rewind/preview', { id });
+        if (rw.id !== id) return;
+        rw.plan = plan;
+        rwRender(notice);
+      } catch (err) {
+        if (rw.id !== id) return;
+        const box = el('div', 'rw-notice bad');
+        if (err.status === 404) {
+          const text = el('div');
+          const a = el('a', '', 'Turn on restore points in Settings'); a.href = '#settings';
+          a.onclick = () => $('rw').close();
+          text.append('There’s no restore point for this request: restore points were off when it ran. ', a, '. Requests after that can be rewound.');
+          box.append(el('b', '', 'No restore point'), text);
+        } else {
+          const again = el('button', '', 'Try again'); again.type = 'button'; again.onclick = () => rwPreview();
+          box.append(el('b', '', '✕'), el('div', '', err.message || 'Couldn’t check this request.'), again);
+        }
+        body.replaceChildren(box);
+      } finally {
+        if (rw.id === id) body.removeAttribute('aria-busy');
+      }
+    }
+
+    function rwRender(notice) {
+      const { plan } = rw;
+      const parts = [];
+      const note = (cls, mark, text, extra) => { const n = el('div', `rw-notice ${cls}`); n.append(el('b', '', mark), el('div', '', text), ...(extra ? [extra] : [])); return n; };
+      if (notice) parts.push(note('info', 'ℹ', notice));
+      if (plan.busy) parts.push(note('', '⚠', `${plan.busy}. You can rewind when it’s done.`));
+      if (plan.canUndo) {
+        const u = el('button', '', 'Undo the rewind'); u.type = 'button';
+        u.onclick = () => { const id = rw.id; $('rw').close(); rwUndo(id); };
+        parts.push(note('info', '↶', 'This request was already rewound.', u));
+      }
+
+      const files = plan.files ?? [];
+      if (!files.length) parts.push(el('div', 'none', 'Nothing to put back: the files are already as they were before this request.'));
+      else {
+        const set = el('fieldset', 'rw-files');
+        const legend = el('legend');
+        const all = el('input'); all.type = 'checkbox'; all.id = 'rw-all';
+        const allLabel = el('label'); allLabel.append(all, 'All');
+        legend.append(el('span', '', `The request’s files (${files.length})`), allLabel);
+        const ul = el('ul', 'rw-list');
+        const boxes = files.map((f, i) => {
+          const li = el('li');
+          const label = el('label', 'rw-file');
+          const cb = el('input'); cb.type = 'checkbox'; cb.value = f.path; cb.checked = !rw.skip.has(f.path);
+          cb.id = `rw-f${i}`;
+          const what = el('span', 'what');
+          what.id = `rw-w${i}`;
+          what.append(el('span', f.change === 'delete' ? 'del' : '', RW_WHAT[f.change] ?? f.change));
+          if (f.since) what.append(el('span', 'since', '⚠ Changed again after the request: your later changes to it will be lost too'));
+          cb.setAttribute('aria-describedby', what.id);
+          cb.onchange = () => { cb.checked ? rw.skip.delete(f.path) : rw.skip.add(f.path); sync(); };
+          label.append(cb, el('span', 'p', f.path), what);
+          li.append(label);
+          ul.append(li);
+          return cb;
+        });
+        const sync = () => {
+          const n = boxes.filter((b) => b.checked).length;
+          all.checked = n === boxes.length;
+          all.indeterminate = n > 0 && n < boxes.length;
+          rwButton();
+        };
+        all.onchange = () => { for (const b of boxes) { b.checked = all.checked; all.checked ? rw.skip.delete(b.value) : rw.skip.add(b.value); } sync(); };
+        set.append(legend, ul);
+        parts.push(set);
+        const lost = files.filter((f) => f.since).length;
+        if (lost) parts.push(note('', '⚠', `${plural(lost, 'file')} changed again after the request. Untick ${lost === 1 ? 'it' : 'them'} to keep those changes.`));
+        const diff = el('div', 'rw-diff');
+        diff.append(el('div', 'label', 'What changes (from now back to before)'));
+        diff.append(plan.patch ? patchPre(plan.patch) : el('div', 'faint', 'Too many files to show the diff.'));
+        parts.push(diff);
+        queueMicrotask(sync);
+      }
+      $('rw-body').replaceChildren(...parts);
+      rwButton();
+    }
+
+    const rwPicked = () => [...$('rw-body').querySelectorAll('.rw-list input:checked')].map((b) => b.value);
+    function rwButton() {
+      const go = $('rw-go');
+      const n = rw.plan ? rwPicked().length : 0;
+      go.textContent = rw.working ? 'Rewinding…' : n ? `Rewind ${plural(n, 'file')}` : 'Rewind';
+      go.disabled = rw.working || !rw.plan || !!rw.plan.busy || n === 0;
+    }
+
+    $('rw-go').onclick = async () => {
+      const paths = rwPicked();
+      if (!paths.length || !rw.plan) return;
+      const id = rw.id;
+      rw.working = true;
+      rwButton();
+      $('rw-status').className = 'rw-status';
+      $('rw-status').textContent = 'Putting the files back…';
+      try {
+        const out = await rwPost('/api/rewind', { id, paths, now: rw.plan.now });
+        rw.working = false;
+        $('rw').close();
+        const n = (out.restored?.length ?? 0) + (out.deleted?.length ?? 0);
+        // Some files left as they were (behind a link out of the project, or couldn't be deleted): say which.
+        rwNote(`Rewound ${plural(n, 'file')}${out.skipped?.length ? `. ${out.error}` : ''}`, out.undo ? () => rwUndo(id) : null, !!out.skipped?.length);
+      } catch (err) {
+        rw.working = false;
+        if (err.status === 409 && err.code === 'stale') {
+          $('rw-status').textContent = '';
+          return rwPreview('The files changed since you opened this. Here’s how things are now: check it again.');
+        }
+        $('rw-status').className = 'rw-status bad';
+        $('rw-status').textContent = `✕ ${err.message}`;
+        rwButton();
+      }
+    };
+    $('rw-cancel').onclick = () => $('rw').close();
+    // Esc closes it (the native cancel), except while the files are being written.
+    $('rw').addEventListener('cancel', (ev) => { if (rw.working) ev.preventDefault(); });
+    $('rw').addEventListener('close', () => {
+      const id = rw.id;
+      rw.id = null; // late answers from the preview are dropped
+      // Back to the button that opened it (the card may have been redrawn meanwhile).
+      if (id) setTimeout(() => document.querySelector(`[data-rw="${CSS.escape(id)}"]`)?.focus(), 0);
+    });
+
+    async function rwUndo(id, button) {
+      if (button) button.disabled = true;
+      try {
+        const out = await rwPost('/api/rewind/undo', { id });
+        const n = (out.restored?.length ?? 0) + (out.deleted?.length ?? 0);
+        rwNote(`Undone: ${plural(n, 'file')} back as they were before the rewind${out.skipped?.length ? `. ${out.error}` : ''}`, null, !!out.skipped?.length);
+      } catch (err) {
+        rwNote(err.message || 'Couldn’t undo the rewind.', null, true);
+        if (button?.isConnected) button.disabled = false;
+      }
+    }
+
+    /** A notice with an optional Undo. Stays 10 s (longer than a toast), or until dismissed. */
+    function rwNote(text, undo, bad = false) {
+      const n = $('rw-note');
+      clearTimeout(rwNote.t);
+      n.className = `rw-note${bad ? ' bad' : ''}`;
+      n.setAttribute('role', bad ? 'alert' : 'status');
+      $('rw-note-text').textContent = text;
+      const act = $('rw-note-act');
+      act.hidden = !undo;
+      act.onclick = () => { n.hidden = true; undo(); };
+      n.hidden = false;
+      // Focus stays on the card's button (it becomes "Undo" on the card once the rewind shows up).
+      rwNote.t = setTimeout(() => { if (!n.contains(document.activeElement)) n.hidden = true; else rwNote.t = setTimeout(() => (n.hidden = true), 6000); }, 10_000);
+    }
+    $('rw-note-x').onclick = () => { $('rw-note').hidden = true; };
 
     // -- map: what the agents touched, and where they crossed paths -------------------
     let mapRange = 'today';
@@ -1802,6 +2440,8 @@
     $('s-share').onchange = (e) => save({ shareRecap: e.target.checked });
     $('s-fixloop').onchange = (e) => save({ fixLoop: e.target.checked });
     $('s-stuck').onchange = (e) => save({ stuckAlerts: e.target.checked });
+    $('s-restore').onchange = (e) => save({ restorePoints: e.target.checked });
+    $('s-brief').onchange = (e) => save({ morningBrief: e.target.checked });
     $('s-approval-wait').onchange = (e) => save({ approvalWait: Number(e.target.value) });
     $('s-history').onchange = (e) => save({ history: e.target.checked });
     // Two agents, one file (bridge/guard.js): kept in step with the settings as they arrive.
@@ -2085,6 +2725,8 @@
       $('s-share').checked = !!config.shareRecap;
       $('s-fixloop').checked = config.fixLoop !== false;
       $('s-stuck').checked = config.stuckAlerts !== false;
+      $('s-restore').checked = !!config.restorePoints;
+      $('s-brief').checked = config.morningBrief !== false;
       if (![...$('s-approval-wait').options].some((o) => o.value === String(config.approvalWait))) $('s-approval-wait').add(new Option(`${config.approvalWait} seconds`, String(config.approvalWait)));
       $('s-approval-wait').value = String(config.approvalWait ?? 30);
       $('s-approval-wait').disabled = !config.approvals;

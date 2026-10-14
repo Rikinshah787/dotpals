@@ -12,16 +12,192 @@
 // It can't tell who changed a file: another agent working in the same repository at the
 // same time shows up too, so the bridge notes which other sessions were active there.
 import { execFile } from 'node:child_process';
-import { stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { copyFile, lstat, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 const LIMIT = 5000; // more changed files than this: too many to compare (a build into a tracked folder)
 
-/** Run git in `cwd`: resolves stdout, or null when it fails (not a repository, no git, too slow). */
-export function runGit(args, cwd, { timeoutMs = 10_000 } = {}) {
+/**
+ * Run git in `cwd`: resolves stdout, or null when it fails (not a repository, no git, too slow).
+ * `env`: extra variables. `input`: written to its stdin (for --stdin lists, never the command line).
+ */
+export function runGit(args, cwd, { timeoutMs = 10_000, env, input } = {}) {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true, encoding: 'utf8' }, (err, out) => resolve(err ? null : out));
+    const child = execFile('git', args, { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true, encoding: 'utf8', ...(env ? { env: { ...process.env, ...env } } : {}) }, (err, out) => resolve(err ? null : out));
+    if (input != null) { child.stdin?.on('error', () => {}); child.stdin?.end(input); }
   });
+}
+
+// -- Restore points (Settings: restorePoints) ---------------------------------------------
+// The whole working tree as git sees it (tracked and new files, not ignored ones), saved as a
+// git tree object when a request starts and when it ends, so a request can be rewound: its
+// files put back as they were before it. Built in a private index (a copy of yours, so only
+// changed files are read again): your index, your branches and your files are never touched,
+// and nothing points at the trees, so git's own clean-up removes them in a couple of weeks.
+
+// Files go in and come back as they are: with core.autocrlf on (Windows' default) git would
+// save "a\n" and put back "a\r\n". The repository's own .gitattributes still apply both ways.
+// And no program a repository's own config names (core.fsmonitor, hooks) runs for it: the
+// folder comes from an agent's event, not from you.
+const EXACT = ['-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath='];
+// Paths are file names, never patterns: a file called `*.js` or `:(top)x` is only itself.
+const LITERAL = ['--literal-pathspecs'];
+const HASH = /^[0-9a-f]{40,64}$/;
+const BIG_FILE = 10 * 1024 * 1024;   // a new file this big (a build, a dump): no restore point
+const BIG_TOTAL = 100 * 1024 * 1024; // new files this big in all: no restore point
+
+/** Run `fn(env)` with a private index for the repository at `root` (a copy of its own, when it has one). */
+async function withIndex(root, git, fn) {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-index-'));
+  const env = { GIT_INDEX_FILE: join(dir, 'index') };
+  try {
+    const own = (await git(['rev-parse', '--git-path', 'index'], root))?.trim();
+    if (own) await copyFile(isAbsolute(own) ? own : join(root, own), env.GIT_INDEX_FILE).catch(() => {});
+    return await fn(env);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Save the working tree of the repository at `root` as a tree object: its hash, or null (no
+ * git, too slow). `snap` (a snapshot()): skipped when it has too many changed files, or new
+ * files too big to keep (see BIG_FILE): those aren't worth copying into the repository.
+ */
+export async function checkpoint(root, { git = runGit, snap } = {}) {
+  if (!root || snap?.tooMany) return null;
+  if (snap?.files) {
+    let total = 0;
+    for (const { code, sig } of Object.values(snap.files)) {
+      if (code !== '??') continue;
+      const size = Number(String(sig).split(':')[0]) || 0;
+      if (size > BIG_FILE || (total += size) > BIG_TOTAL) return null;
+    }
+  }
+  return withIndex(root, git, async (env) => {
+    if ((await git([...EXACT, 'add', '-A', '--', '.'], root, { env, timeoutMs: 30_000 })) === null) return null;
+    const tree = (await git(['write-tree'], root, { env }))?.trim();
+    return HASH.test(tree ?? '') ? tree : null;
+  });
+}
+
+/** The files that differ between two saved trees: what a request changed, however (tools, commands, commits). */
+export async function treeChanges(root, a, b, { git = runGit } = {}) {
+  if (!HASH.test(a ?? '') || !HASH.test(b ?? '')) return null;
+  const out = await git(['-c', 'core.quotepath=off', 'diff', '--name-only', '-z', '--no-renames', a, b], root, { timeoutMs: 20_000 });
+  return out === null ? null : out.split('\0').filter(Boolean).sort();
+}
+
+/**
+ * Every file in a saved tree, or null when it isn't one (not a hash, cleaned up by git, git
+ * failed). Read whole and filtered here: a list of paths on the command line can be too long
+ * (Windows), and a failure must never read as "the tree has none of them".
+ */
+async function treeFiles(root, tree, git) {
+  if (!HASH.test(tree ?? '')) return null;
+  if ((await git(['cat-file', '-e', `${tree}^{tree}`], root)) === null) return null;
+  const out = await git(['-c', 'core.quotepath=off', 'ls-tree', '-r', '--name-only', '-z', tree], root, { timeoutMs: 30_000 });
+  return out === null ? null : new Set(out.split('\0').filter(Boolean));
+}
+
+/** A path from git (relative to the repository, forward slashes) that stays inside `root`, as a full path; else null. */
+function inside(root, path) {
+  if (!path || isAbsolute(path) || String(path).split(/[\\/]/).includes('..')) return null;
+  const full = resolve(root, path);
+  return full.startsWith(resolve(root) + sep) ? full : null;
+}
+
+/**
+ * Whether the folder `full` would be written in is really inside the repository, with links
+ * followed: the nearest folder of it that exists (a deleted folder comes back under its
+ * parent) must resolve inside `root`. A folder that's a link to somewhere else isn't.
+ */
+async function folderInside(root, full) {
+  try {
+    const top = await realpath(root);
+    let dir = dirname(full);
+    for (;;) {
+      try {
+        const real = await realpath(dir);
+        return real === top || real.startsWith(top + sep);
+      } catch {
+        const up = dirname(dir);
+        if (up === dir) return false;
+        dir = up;
+      }
+    }
+  } catch { return false; }
+}
+
+/**
+ * Delete a file the request created, only if it really is inside the repository (folderInside),
+ * and it's a file or a link, not a folder. → true when it was deleted, or was already gone.
+ */
+async function removeInside(root, path) {
+  const full = inside(root, path);
+  if (!full || !(await folderInside(root, full))) return false;
+  try {
+    const s = await lstat(full);
+    if (s.isDirectory()) return false;
+    await rm(full, { force: true });
+    return true;
+  } catch (err) { return err?.code === 'ENOENT'; }
+}
+
+/**
+ * What rewinding `paths` from `after` (the request's end) back to `before` (its start) would do,
+ * as the working tree is `now`: { patch, files: [{ path, change: 'restore' | 'delete' | 'recreate', since }] },
+ * or null when git can't read one of the trees. `since`: the file changed again after the
+ * request ended (you, or another agent): putting it back would lose that too. `patch`: the
+ * diff from now to before, for a preview ('' when there are too many files to list).
+ */
+export async function rewindPlan(root, { before, after, now, paths }, { git = runGit, max = 60_000 } = {}) {
+  if (!paths.length) return { files: [], patch: '' };
+  const [inBefore, inNow, sinceOut] = await Promise.all([
+    treeFiles(root, before, git),
+    treeFiles(root, now, git),
+    after ? git(['-c', 'core.quotepath=off', 'diff', '--name-only', '-z', '--no-renames', after, now], root, { timeoutMs: 20_000 }) : '',
+  ]);
+  if (!inBefore || !inNow || sinceOut === null) return null;
+  const since = new Set(sinceOut.split('\0').filter(Boolean));
+  // The diff names the files on the command line: only when they fit on one.
+  const fits = paths.reduce((n, p) => n + p.length + 1, 0) < 20_000;
+  const diff = fits ? await git([...LITERAL, '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-renames', now, before, '--', ...paths], root, { timeoutMs: 20_000 }) : '';
+  const files = paths.map((path) => ({ path, change: !inBefore.has(path) ? 'delete' : inNow.has(path) ? 'restore' : 'recreate', since: since.has(path) }));
+  const patch = String(diff ?? '');
+  return { files, patch: patch.length > max ? `${patch.slice(0, max)}\n… (${patch.length - max} more characters)` : patch };
+}
+
+/**
+ * Put `paths` back as they are in `tree`: written from it (through a private index, so yours
+ * isn't touched, the paths given on stdin), or deleted when the tree doesn't have them (the
+ * request created them). → { restored: [paths], deleted: [paths] }, or null when git couldn't
+ * read the tree or write the files: then nothing is deleted. Paths outside the repository,
+ * and files behind a link that leads out of it, are left alone.
+ */
+export async function restoreFiles(root, tree, paths, { git = runGit, remove = removeInside } = {}) {
+  const asked = [...new Set(paths)];
+  const safe = asked.filter((p) => inside(root, p));
+  const skipped = asked.filter((p) => !safe.includes(p));
+  if (!safe.length) return { restored: [], deleted: [], skipped };
+  const present = await treeFiles(root, tree, git);
+  if (!present) return null;
+  // Written only where the folder is really inside the repository: a folder that's become a
+  // link to somewhere else is left as it is (git would replace the link with a folder).
+  const write = [];
+  for (const p of safe.filter((x) => present.has(x))) (await folderInside(root, inside(root, p)) ? write : skipped).push(p);
+  const gone = safe.filter((p) => !present.has(p));
+  if (write.length) {
+    const ok = await withIndex(root, git, async (env) => {
+      if ((await git([...EXACT, 'read-tree', tree], root, { env })) === null) return false;
+      return (await git([...EXACT, 'checkout-index', '-f', '-z', '--stdin'], root, { env, timeoutMs: 30_000, input: write.join('\0') })) !== null;
+    });
+    if (!ok) return null;
+  }
+  const deleted = [];
+  for (const p of gone) (await remove(root, p) ? deleted : skipped).push(p);
+  return { restored: write, deleted, skipped };
 }
 
 /**
@@ -156,11 +332,14 @@ export async function changesBetween(a, b, { git = runGit } = {}) {
  * ends. start(session, cwd) and finish(session, cwd) → Promise<changes | null>, with the
  * branch and HEAD the request ended on.
  */
-export function createGround({ git = runGit, statFile = stat } = {}) {
-  const starts = new Map(); // session → Promise<snapshot>
+export function createGround({ git = runGit, statFile = stat, restorePoints = () => false } = {}) {
+  const starts = new Map(); // session → Promise<snapshot, with `tree` when a restore point was saved>
   return {
     start(session, cwd, at) {
-      const p = snapshot(cwd, { git, statFile, at }).catch(() => null);
+      const p = snapshot(cwd, { git, statFile, at }).then(async (snap) => {
+        if (snap && restorePoints()) snap.tree = await checkpoint(snap.root, { git, snap }).catch(() => null);
+        return snap;
+      }).catch(() => null);
       starts.set(session, p);
       if (starts.size > 200) starts.delete(starts.keys().next().value);
       return p;
@@ -170,7 +349,10 @@ export function createGround({ git = runGit, statFile = stat } = {}) {
       if (!before) return null;
       const after = await snapshot(cwd, { git, statFile }).catch(() => null);
       const changes = await changesBetween(before, after, { git });
-      return changes && { ...changes, root: before.root, since: before.at, branch: after.branch, head: after.head };
+      if (!changes) return null;
+      // Restore points: the tree before and after, when both could be saved.
+      const tree = before.tree && after ? await checkpoint(after.root, { git, snap: after }).catch(() => null) : null;
+      return { ...changes, root: before.root, since: before.at, branch: after.branch, head: after.head, ...(tree ? { trees: { before: before.tree, after: tree } } : {}) };
     },
     has: (session) => starts.has(session),
   };

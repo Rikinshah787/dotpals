@@ -76,7 +76,7 @@
     <!-- ================= HERO ================= -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New in 0.10: agents fix the tests they broke →</a></p>
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New in 0.11: your agents, graded →</a></p>
         <h1 id="hero-title">See what your coding agent <em>actually</em> did.</h1>
         <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and checks its work: what it changed, what it ran, and whether the tests really passed. When Claude breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.</p>
 
@@ -110,12 +110,44 @@
       </div>
     </section>
 
-    <!-- ================= NEW: THE FIX LOOP ================= -->
+    <!-- ================= NEW IN 0.11: YOUR AGENTS, GRADED ================= -->
     <section class="section new-sec" id="new" aria-labelledby="new-title">
       <div class="wrap two">
         <div class="copy">
-          <p class="kicker"><span>New in 0.10</span> Make agents fix failing tests</p>
-          <h2 id="new-title">“Done, all tests pass.” <em>Not so fast.</em></h2>
+          <p class="kicker"><span>New in 0.11</span> Your agents, graded</p>
+          <h2 id="new-title">Which agent’s work <em>actually held up?</em></h2>
+          <p>A report card for your coding agents, read from what they did, not what they said. And when a request goes wrong, replay it, or rewind it.</p>
+          <ul class="ticks">
+            <li><b>Report card.</b> Your agents side by side: code changed, tested and passed; changes never tested; tests changed to pass; claims that didn’t happen; and what the tokens bought.</li>
+            <li><b>Replay and rewind.</b> Step through any request, with every failure and fix marked. Turn on restore points and put a request’s files back as they were: a preview first, Undo after.</li>
+            <li><b>Morning brief.</b> The first time the pal opens each day: what your agents did since yesterday, what’s unfinished and what’s failing.</li>
+            <li><b>“It’s stuck.”</b> A gentle ping when an agent keeps failing at the same thing, or changes a file back and forth.</li>
+          </ul>
+          <p class="credit">Most of 0.11 is by <a href="https://github.com/agusumri">@agusumri</a>.</p>
+        </div>
+
+        <div class="new-mock" role="img" aria-label="The report card for the last 7 days. Changed code, tested and passed: Claude 11 of 12, Codex 6 of 9, flagged. Not tested after the change: Claude 1, Codex 3, flagged. Claims that didn’t happen: Claude 0, Codex 2, flagged. New tokens per change that held up: Claude 41k, Codex 88k. Every request has Replay and Rewind.">
+          <div class="nm-top"><div class="nm-seg"><span>Today</span><b>7 days</b></div></div>
+          <table class="nm-card">
+            <thead><tr><th></th><th class="c-claude">Claude</th><th class="c-codex">Codex</th></tr></thead>
+            <tbody>
+              <tr class="lead"><th>Changed code, tested and passed</th><td class="good">11 of 12</td><td class="warn">⚠ 6 of 9</td></tr>
+              <tr><th>Not tested after the change</th><td>1</td><td class="warn">⚠ 3</td></tr>
+              <tr><th>Claims that didn’t happen</th><td>0</td><td class="warn">⚠ 2</td></tr>
+              <tr><th>New tokens per change that held up</th><td>41k</td><td>88k</td></tr>
+            </tbody>
+          </table>
+          <p class="nm-line"><span class="ok" aria-hidden="true">▶</span> Replay <span class="ok" aria-hidden="true">↺</span> Rewind… <small>· on every request</small></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= THE FIX LOOP (0.10) ================= -->
+    <section class="section new-sec" id="fix-loop" aria-labelledby="fix-title">
+      <div class="wrap two">
+        <div class="copy">
+          <p class="kicker"><span>0.10</span> Make agents fix failing tests</p>
+          <h2 id="fix-title">“Done, all tests pass.” <em>Not so fast.</em></h2>
           <p>Agents say “done” in one fluent line. dotpals reads what the tests actually printed, and when Claude Code broke them, it sends Claude back to fix them before it finishes, commits or pushes.</p>
           <ul class="ticks">
             <li><b>Told at once, with why.</b> “expected 3, got -1 (test/math.test.js:5)”, read from the output of Jest, Vitest, pytest, Go, Cargo and more, not just the exit code. “0 tests ran” is never a pass.</li>
@@ -147,7 +179,7 @@
     <section class="section new-sec" id="mcp" aria-labelledby="mcp-title">
       <div class="wrap two">
         <div class="copy">
-          <p class="kicker"><span>New in 0.10</span> Ask dotpals from any agent</p>
+          <p class="kicker"><span>0.10</span> Ask dotpals from any agent</p>
           <h2 id="mcp-title">Every AI tool can ask <em>what really happened.</em></h2>
           <p><code>dotpals mcp</code> is an MCP server. Claude Code, Codex, Cursor and other assistants ask dotpals what your agents did, and get the evidence instead of the agent’s word.</p>
           <ul class="ticks">

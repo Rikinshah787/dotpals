@@ -519,7 +519,8 @@
   <script type="module">
     import { DotPal, registerCustom } from '../src/index.js';
     import { story as storyOf, headline, planOf, toolkit, overlaps, compactNote, retries, testLine, checkOf, simple, minorChapter, turnMarkdown, recapMarkdown, readiness, readinessLine, gitTruth, gitLine, whyStopped } from '../bridge/ui/story.js';
-    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, tokenLine, tokens as usageTotal, turnTime } from '../bridge/ui/recap.js';
+    import { buildTurns as turnsOf, baseName, facts, fileUrl, harnessClass, harnessName, plain, plural, secs, sentence, shortTime, startOfDay, summarizeSessions, tokenLine, tokens as usageTotal, turnTime } from '../bridge/ui/recap.js';
+    import { brief, briefLine } from '../bridge/ui/brief.js';
     import { continueMenu } from '../bridge/ui/handoff-menu.js';
 
     const $ = (id) => document.getElementById(id);
@@ -1097,6 +1098,7 @@
       box.hidden = !slotShown(update.session);
       resizePals();
       renderSessions();
+      if (slots.size === 1) setTimeout(maybeBrief, 0); // the first pal: the morning brief can show now
       pal.greet(); // pops up from below the ledge and says hi
       return slot;
     }
@@ -1273,6 +1275,7 @@
       refreshCounts();
       scheduleRecap();
       feed.scrollTop = feed.scrollHeight;
+      maybeBrief();
     }
 
     // History can arrive after live rows (backfill), so keep the feed in time order.
@@ -2029,7 +2032,27 @@
     // Settings live in ~/.dotpals/config.json; the bridge sends them, and we save changes back.
     const sameOrigin = location.protocol.startsWith('http');
     const saveConfig = (patch) => sameOrigin && fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch) }).catch(() => {});
+    // -- the morning brief (Settings → morningBrief) ---------------------------------------
+    // The first time the pal opens each day, once its history is in: what your agents did since
+    // yesterday, what's unfinished and what's failing, in one bubble (bridge/ui/brief.js).
+    let briefConfig = null;
+    function maybeBrief() {
+      if (replaying || !briefConfig || briefConfig.morningBrief === false) return;
+      const today = new Date(startOfDay()).toDateString();
+      try { if (localStorage.getItem('dotpals.brief') === today) return; } catch { return; }
+      // Nothing to say yet (no pal on the stage, or no work since yesterday): try again when there is.
+      const slot = slots.values().next().value;
+      if (!slot) return;
+      const line = briefLine('Since yesterday', brief(summarizeSessions([...entries.values()].map((x) => x.entry)), { since: startOfDay() - 86_400_000 }));
+      if (!line) return;
+      slot.pal.say?.(line, { duration: 10000 });
+      // Told: once a day, from here on.
+      try { localStorage.setItem('dotpals.brief', today); } catch {}
+    }
+
     function applyConfig(config) {
+      briefConfig = config;
+      maybeBrief();
       // How requests read by default (chosen at setup), unless you've picked a view here.
       if (!pickedView() && (config.storyView === 'simple' || config.storyView === 'detailed') && config.storyView !== recapView) { recapView = config.storyView; scheduleRecap(); }
       if (typeof config.sounds === 'boolean' && config.sounds !== sound.on) { sound.on = config.sounds; syncSoundButton(); }

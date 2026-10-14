@@ -121,7 +121,7 @@ test('dotpals mcp: answers from the running bridge, with the pal\'s rules', asyn
   assert.deepEqual(client.unasked, []); // the notification got no reply
 
   const { tools } = (await client.call('tools/list')).result;
-  assert.deepEqual(tools.map((x) => x.name), ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'report_card', 'risky_steps', 'handoff_note', 'check_my_work']);
+  assert.deepEqual(tools.map((x) => x.name), ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'report_card', 'brief', 'risky_steps', 'handoff_note', 'check_my_work']);
   for (const x of tools) assert.equal(x.inputSchema.type, 'object');
 
   const now = (await client.tool('agents_now')).content[0].text;
@@ -158,6 +158,13 @@ test('dotpals mcp: answers from the running bridge, with the pal\'s rules', asyn
   assert.match(card, /\n\| Changed code, tested and passed \| — \| 1 of 1 \(100%\) \|\n/); // Codex is still working
   assert.match(card, /\n\| Tries to fix a failure \| — \| 2\.0 \|\n/);
   assert.match((await client.tool('report_card', { project: 'api' })).content[0].text, /^## Agent report card · api · since .*\n\n\| \| Codex \|\n/);
+
+  // brief: every project since yesterday, newest first; the week; one project; a bad period.
+  const day = (await client.tool('brief')).content[0].text;
+  assert.match(day, /^## Since yesterday\n\n### shop\n\n2 requests · 1 file changed · Claude Code, Codex\n\nNothing left open\.\n\n### api\n\n1 request · 1 file changed · Codex\n\n\*\*Failing\*\*\n- Codex: code changed and no tests ran\n/);
+  assert.match((await client.tool('brief', { period: 'week' })).content[0].text, /^## The last 7 days\n/);
+  assert.match((await client.tool('brief', { project: 'api' })).content[0].text, /^## Since yesterday · api\n\n### api\n/);
+  assert.equal((await client.call('tools/call', { name: 'brief', arguments: { period: 'month' } })).error.code, -32602);
 
   // check_my_work: Claude Code asking checks Claude's own session, though Codex's is newer.
   assert.match((await client.tool('check_my_work')).content[0].text, /^Looks done \(Claude Code in shop, session sess-shop-1\): tests passed after the last change, nothing risky\. Tests passed · 2 passed/);
@@ -324,7 +331,7 @@ test('dotpals mcp: with no bridge running, every tool says how to start it', asy
   const client = mcp(freshPort(), tmpdir());
   t.after(() => client.close());
   await client.call('initialize', { protocolVersion: '2099-01-01', capabilities: {}, clientInfo: { name: 'cursor' } }).then((r) => assert.equal(r.result.protocolVersion, '2025-06-18'));
-  for (const name of ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'report_card', 'risky_steps', 'handoff_note', 'check_my_work']) {
+  for (const name of ['agents_now', 'test_status', 'ready_to_merge', 'recap', 'today', 'report_card', 'brief', 'risky_steps', 'handoff_note', 'check_my_work']) {
     const r = await client.tool(name);
     assert.equal(r.isError, true);
     assert.match(r.content[0].text, /^dotpals isn.t running\. Start it with `npx dotpals start`/);

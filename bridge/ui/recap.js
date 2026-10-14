@@ -93,7 +93,7 @@ export function tokens(...usages) {
   return k.replies ? k : null;
 }
 
-const short = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
+export const short = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
 
 /**
  * "52k tokens in · 3.1k out · 1.2M cached", or ''. In: what the model read new (cache writes
