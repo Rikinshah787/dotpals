@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BRAINS, ask, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem, sees, streamResult, warmUp } from '../bridge/brain.js';
+import { BRAINS, ask, brainsHere, correcting, isQuick, pickBrain, polished, polishSystem, sees, streamResult, warmUp, askWithTools, usesTools, geminiSchema } from '../bridge/brain.js';
 
 const brain = (id) => BRAINS.find((b) => b.id === id);
 /** A fetch that answers with `body` and remembers what it was asked. */
@@ -166,6 +166,59 @@ test('warmUp: Claude Code started while you talk gets the question when it comes
   await warmUp(brain('claude'), { system: 'look', runner, find, waitMs: 20 });
   await new Promise((r2) => setTimeout(r2, 60));
   assert.equal(started[1].input, ''); // nothing came: it's told there's nothing to do
+});
+
+test('askWithTools: each API in its own shape calls your app’s tool, gets the answer back, then answers; receipts for each call', async () => {
+  const tools = [{ name: 'cal__list_events', description: 'Events', schema: { type: 'object', properties: { day: { type: ['string', 'null'], description: 'Which day' } }, required: ['day'], additionalProperties: false } }];
+  const called = [];
+  const call = async (name, args) => { called.push([name, args]); return 'Lunch with Sam at 1'; };
+  /** A fetch that answers with each of `bodies` in turn. */
+  const turns = (...bodies) => { const f = fakeFetch(null); let i = 0; const fn = async (url, init) => { f.calls.push({ url, body: JSON.parse(init.body) }); return { ok: true, status: 200, json: async () => bodies[i++] }; }; fn.calls = f.calls; return fn; };
+
+  const anthropic = turns({ content: [{ type: 'tool_use', id: 'tu1', name: 'cal__list_events', input: { day: 'today' } }], stop_reason: 'tool_use' }, { content: [{ type: 'text', text: 'You have lunch with Sam at 1.' }], stop_reason: 'end_turn' });
+  const a = await askWithTools(brain('anthropic'), { system: 's', text: 'what’s on today?', tools, call, key: 'k', fetchFn: anthropic });
+  assert.deepEqual([a.text, a.calls], ['You have lunch with Sam at 1.', [{ name: 'cal__list_events', ok: true }]]);
+  assert.deepEqual(anthropic.calls[0].body.tools[0].name, 'cal__list_events');
+  assert.deepEqual(anthropic.calls[1].body.messages.at(-1).content, [{ type: 'tool_result', tool_use_id: 'tu1', content: 'Lunch with Sam at 1' }]);
+
+  const openai = turns({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'cal__list_events', arguments: '{"day":"today"}' } }] } }] }, { choices: [{ message: { content: 'Lunch at 1.' } }] });
+  assert.equal((await askWithTools(brain('openai'), { system: 's', text: 't', tools, call, key: 'k', fetchFn: openai })).text, 'Lunch at 1.');
+  assert.deepEqual(openai.calls[1].body.messages.at(-1), { role: 'tool', tool_call_id: 'c1', content: 'Lunch with Sam at 1' });
+
+  const google = turns({ candidates: [{ content: { parts: [{ functionCall: { name: 'cal__list_events', args: { day: 'today' } }, thoughtSignature: 'sig' }] } }] }, { candidates: [{ content: { parts: [{ text: 'Lunch at 1.' }] } }] });
+  assert.equal((await askWithTools(brain('google'), { system: 's', text: 't', tools, call, key: 'k', fetchFn: google })).text, 'Lunch at 1.');
+  assert.deepEqual(google.calls[0].body.tools[0].functionDeclarations[0].parameters, { type: 'object', properties: { day: { type: 'string', nullable: true, description: 'Which day' } }, required: ['day'] }); // Gemini's kind of schema
+  assert.equal(google.calls[1].body.contents[1].parts[0].thoughtSignature, 'sig'); // its turn goes back as it came
+  assert.deepEqual(google.calls[1].body.contents[2].parts[0].functionResponse, { name: 'cal__list_events', response: { result: 'Lunch with Sam at 1' } });
+
+  const ollama = turns({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'cal__list_events', arguments: { day: 'today' } } }] } }, { message: { content: 'Lunch at 1.' } });
+  assert.equal((await askWithTools(brain('ollama'), { system: 's', text: 't', tools, call, model: 'qwen3', fetchFn: ollama })).text, 'Lunch at 1.');
+  assert.deepEqual(ollama.calls[1].body.messages.at(-1), { role: 'tool', tool_name: 'cal__list_events', content: 'Lunch with Sam at 1' });
+  assert.equal(called.length, 4);
+  // A tool that fails is a ✗ receipt, and the brain hears why; brains that can't use tools say so.
+  const failing = turns({ content: [{ type: 'tool_use', id: 'x', name: 'cal__list_events', input: {} }], stop_reason: 'tool_use' }, { content: [{ type: 'text', text: 'It didn’t work.' }] });
+  const f = await askWithTools(brain('anthropic'), { system: 's', text: 't', tools, call: async () => { throw new Error('offline'); }, key: 'k', fetchFn: failing });
+  assert.deepEqual(f.calls, [{ name: 'cal__list_events', ok: false }]);
+  assert.equal(failing.calls[1].body.messages.at(-1).content[0].content, 'Error: offline');
+  await assert.rejects(askWithTools(brain('codex'), { system: 's', text: 't', tools, call }), /can’t use your apps/);
+  assert.deepEqual([usesTools(brain('claude')), usesTools(brain('gemini')), usesTools(brain('ollama'))], [true, false, true]);
+  assert.deepEqual(geminiSchema({ anyOf: [{ type: 'null' }, { type: 'integer' }] }), { type: 'integer' });
+});
+
+test('askWithTools, Claude Code: your app as its MCP config, only the tools it may use, the calls read back from its output', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-brain-'));
+  process.env.DOTPALS_HOME = dir;
+  t.after(async () => { delete process.env.DOTPALS_HOME; await rm(dir, { recursive: true, force: true }); });
+  let seen;
+  const out = [JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__cal__list_events' }] } }), JSON.stringify({ type: 'result', result: 'Lunch at 1.', is_error: false })].join('\n');
+  const runner = async (file, args, opts) => { const { readFileSync } = await import('node:fs'); seen = { args, config: JSON.parse(readFileSync(args[args.indexOf('--mcp-config') + 1], 'utf8')), input: opts.input }; return { code: 0, stdout: out, stderr: '' }; };
+  const r = await askWithTools(brain('claude'), { system: 's', text: 'what’s on today?', mcp: { config: { mcpServers: { cal: { type: 'http', url: 'https://x.dev/mcp', headers: { Authorization: 'Bearer t' } } } }, allowed: ['mcp__cal__list_events'] }, runner, find: () => '/usr/bin/claude' });
+  assert.deepEqual([r.text, r.calls], ['Lunch at 1.', [{ name: 'mcp__cal__list_events', ok: true }]]);
+  assert.equal(seen.args[seen.args.indexOf('--allowedTools') + 1], 'mcp__cal__list_events');
+  assert.ok(seen.args.includes('--strict-mcp-config'));
+  assert.equal(seen.args[seen.args.indexOf('--tools') + 1], '');
+  assert.equal(seen.config.mcpServers.cal.url, 'https://x.dev/mcp');
+  assert.equal(seen.input, 'what’s on today?');
 });
 
 test('polish: the dictionary goes in the instructions; a reply that answered instead of cleaning is dropped', () => {

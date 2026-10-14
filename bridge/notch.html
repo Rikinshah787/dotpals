@@ -802,11 +802,12 @@
     function askApps(ask) {
       const turn = talk.turn;
       return attempt(async () => {
-        Object.assign(talk, { note: `Checking ${ask.app} with Claude… (it can take a few seconds)`, pal: 'thinking', bad: false, acts: [{ words: `${ask.change ? 'Change' : 'Look'} in ${ask.app}`, ok: null }] });
+        Object.assign(talk, { note: `Checking ${ask.app}…`, pal: 'thinking', bad: false, acts: [{ words: `${ask.change ? 'Change' : 'Look'} in ${ask.app}`, ok: null }] });
         keepOpen();
         const r = await api('/api/talk/apps', ask);
         if (turn !== talk.turn) return;
-        Object.assign(talk, { answer: r.say, note: '', acts: [{ words: `${ask.change ? 'Changed' : 'Looked'} in ${r.app}, through Claude`, ok: true }] });
+        // A receipt for each thing it did in the app ("Notion: search"); through Claude, just the one.
+        Object.assign(talk, { answer: r.say, note: '', acts: r.calls?.length ? r.calls : [{ words: `${ask.change ? 'Changed' : 'Looked'} in ${r.app}${r.by === 'Claude Code' ? ', through Claude' : ''}`, ok: true }] });
         buddy.history = [...buddy.history, { said: ask.ask, reply: r.say, drew: '' }].slice(-6);
         keepOpen();
         await speak(r.say);
@@ -1480,10 +1481,11 @@
       }
       const a = appsNow.list;
       const apps = !a ? 'Looking…' : a.connected?.length ? `✓ ${a.connected.join(', ')}` : 'None yet.';
+      const waiting = (a?.mine ?? []).filter((m) => m.status !== 'connected').map((m) => m.name);
       const actions = el('div', 'actions');
-      actions.append(button('btn', 'Connect apps…', () => desktop?.openDashboard?.()));
-      card.append(head, row, el('div', 'card-head', 'Hearing'), seg, el('div', 'card-head', 'Connected apps (through Claude)'), el('p', 'asked', apps),
-        ...(a?.signIn?.length ? [el('p', 'warn', `Sign in with /mcp in Claude Code: ${a.signIn.join(', ')}`)] : []), actions);
+      actions.append(button('btn', 'Connect apps…', () => desktop?.openDashboard?.('settings/apps')));
+      card.append(head, row, el('div', 'card-head', 'Hearing'), seg, el('div', 'card-head', 'Your apps'), el('p', 'asked', apps),
+        ...(waiting.length ? [el('p', 'warn', `Not signed in yet: ${waiting.join(', ')}`)] : []), actions);
       return card;
     }
 

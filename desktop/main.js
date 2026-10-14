@@ -129,8 +129,10 @@ if (!app.requestSingleInstanceLock()) {
 
   // The dashboard: sessions, logs, stats and settings, in a normal window.
   let dashboard;
-  function openDashboard() {
-    if (dashboard && !dashboard.isDestroyed()) { dashboard.show(); dashboard.focus(); return; }
+  // `at`: a place in it ("settings/apps"), from the notch's buttons.
+  function openDashboard(at) {
+    const hash = typeof at === 'string' && /^[\w/-]{1,40}$/.test(at) ? at : '';
+    if (dashboard && !dashboard.isDestroyed()) { if (hash) dashboard.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {}); dashboard.show(); dashboard.focus(); return; }
     dashboard = new BrowserWindow({
       width: 1180, height: 820, minWidth: 420, minHeight: 480,
       title: 'dotpals dashboard', icon, backgroundColor: '#0b0b0e', autoHideMenuBar: true,
@@ -143,9 +145,9 @@ if (!app.requestSingleInstanceLock()) {
     dashboard.webContents.on('will-navigate', (e, url) => {
       if (!url.startsWith(bridge)) { e.preventDefault(); if (/^(https?|vscode|cursor):/i.test(url)) shell.openExternal(url); }
     });
-    dashboard.loadURL(`${bridge}/dashboard`);
+    dashboard.loadURL(`${bridge}/dashboard${hash ? `#${hash}` : ''}`);
   }
-  ipcMain.on('dashboard:open', openDashboard);
+  ipcMain.on('dashboard:open', (_, at) => openDashboard(at));
 
   // Talk (the notch's Talk tab): the shortcut shows the notch and it listens. It takes a
   // screenshot first, of what you were looking at before the notch opens over it; it stays on

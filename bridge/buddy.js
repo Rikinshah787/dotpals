@@ -60,9 +60,9 @@ Reply with only a JSON object, no other text:
 
 Drawing: x, y is the top-left corner and w, h the size of what you mark, in the screenshot's pixels (its size is given below). Circle or box the thing itself, tightly. An arrow goes from (x, y) to (x + w, y + h) and points at its end. Draw when they ask you to show, point at, circle or highlight something, and when you explain something on the screen (mark what you talk about, at most 6 marks, in the order you mention them, and say which mark is which: "the red circle on the left"). Red for what matters, green labels for names, yellow to highlight text. "clear": true when they ask you to remove the drawings; "keep": true to add to the drawings already there instead of replacing them.
 ${acts.length ? `Actions, in "do", in order:\n${acts.map((a) => `- ${a}`).join('\n')}\nTwo things in one sentence are fine ("circle it and turn the music down"): draw and do both.` : ''}
-Their apps: Claude is connected to: ${apps.connected?.length ? apps.connected.join(', ') : 'no apps yet'}.${apps.signIn?.length ? ` Waiting for them to sign in: ${apps.signIn.join(', ')}.` : ''}
+Their apps: connected: ${apps.connected?.length ? apps.connected.join(', ') : 'no apps yet'}.${apps.signIn?.length ? ` Waiting for them to sign in: ${apps.signIn.join(', ')}.` : ''}
 - A question about their own things in a connected app (what's on their calendar today, an email from Sam, a file in their Drive), or one small change there (add an event, draft a reply): put it in "apps", with the app's name exactly as listed; "change": true if it adds, changes, sends or deletes anything. For a look, say you're checking ("Let me check your calendar."); for a change, ask them first ("Shall I add lunch with Sam at 1 tomorrow?"): it's only done if they say yes. Never more than one app at a time. Only say you're checking when "apps" names a connected app: nothing else checks anything.
-- If what they want needs an app that isn't connected (a calendar, Slack, Notion, Outlook…), don't use "apps" or "task": tell them it isn't connected yet, and that they can connect it in dotpals (Settings → Connected apps) or in Claude (claude.ai → Settings → Connectors).
+- If what they want needs an app that isn't connected (a calendar, Slack, Notion, Outlook…), don't use "apps" or "task": tell them it isn't connected yet, and that they can connect it in dotpals (Settings → Apps).
 Handing work over ("task"): only for bigger work, when they ask for it by naming Claude or their agent or asking for code to be changed. Say you'll hand it to Claude; they confirm before it's sent.
 Explaining: like a good teacher, simply and concretely, in the words they asked for ("like I'm 12" means very simply). A question you can answer yourself, answer it: don't hand it over.
 Rules:
@@ -113,7 +113,7 @@ export function parseBuddyReply(text, { size = null, can = { hands: true, click:
   const wanted = clip(r.apps?.app, 40);
   const app = (apps.connected ?? []).find((n) => n.toLowerCase() === wanted.toLowerCase());
   const ask = String(r.apps?.ask ?? '').trim().slice(0, 500);
-  if (wanted && !app) r.say = `${wanted} isn’t connected to Claude yet. You can connect it in dotpals, under Settings, Connected apps.`;
+  if (wanted && !app) r.say = `${wanted} isn’t connected yet. You can connect it in dotpals, under Settings, Apps.`;
   const W = size?.w || 10_000, H = size?.h || 10_000;
   const draw = (Array.isArray(r.draw) ? r.draw : []).flatMap((m) => {
     if (!m || !SHAPES.includes(m.shape) || ![m.x, m.y, m.w, m.h].every(num)) return [];

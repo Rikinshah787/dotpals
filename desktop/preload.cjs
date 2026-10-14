@@ -54,7 +54,8 @@ contextBridge.exposeInMainWorld('dotpalsDesktop', {
   },
   /** Ask for a project folder: its path, or null when cancelled. */
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
-  openDashboard: () => ipcRenderer.send('dashboard:open'),
+  /** The dashboard, at a place in it when given ("settings/apps"). */
+  openDashboard: (at) => ipcRenderer.send('dashboard:open', at),
   getOpenAtLogin: () => ipcRenderer.invoke('login:get'),
   setOpenAtLogin: (on) => ipcRenderer.invoke('login:set', on),
   copy: (text) => ipcRenderer.send('clipboard:write', text),

@@ -821,52 +821,73 @@ test('/api/status says whether the desktop pal and notch follow the events (for 
   browser.destroy();
 });
 
-test('Blu and your apps: a look goes to Claude with that app only; a change needs your yes; your own apps go in with claude mcp', async (t) => {
+test('Blu and your apps: yours with any AI, only the tools it may use now; Claude’s through Claude Code; a change needs your yes', async (t) => {
   const { BRAINS } = await import('../bridge/brain.js');
   const brains = async () => BRAINS.map((b) => ({ ...b, ready: b.id === 'anthropic', why: '' }));
-  let reply = '{"say":"Let me check your Gmail.","apps":{"app":"Gmail","ask":"any email from Sam today?","change":false}}';
+  let reply = '{"say":"Let me check your calendar.","apps":{"app":"Calendar","ask":"what’s on today?","change":false}}';
   const fakeAsk = async () => ({ text: reply, by: 'Anthropic', ms: 5 });
+  // dotpals' own apps: a pretend Calendar (yours, signed in) and Notion (not signed in yet).
+  const tools = [{ name: 'list_events', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } }, { name: 'create_event', inputSchema: { type: 'object' } }, { name: 'delete_event', inputSchema: { type: 'object' } }];
+  const called = [], added = [];
+  const connectors = {
+    list: () => [{ id: 'calendar', name: 'Calendar', kind: 'http', url: 'https://cal.example/mcp', status: 'connected' }, { id: 'notion', name: 'Notion', kind: 'http', url: 'https://mcp.notion.com/mcp', status: 'sign-in' }],
+    get(id) { return this.list().find((a) => a.id === id) ?? null; },
+    add: (body) => { added.push(body); return { id: 'linear', name: body.name, status: 'sign-in' }; },
+    remove: () => {}, close: () => {},
+    tools: async () => tools,
+    call: async (id, name, args) => { called.push([id, name, args]); return 'Lunch with Sam at 1'; },
+    signIn: async (id) => ({ url: `https://auth.example/authorize?app=${id}` }),
+    finish: async ({ state }) => { if (state !== 'good') throw new Error('That sign-in has expired'); return { id: 'notion', name: 'Notion' }; },
+    claudeEntry: async () => ({ type: 'http', url: 'https://cal.example/mcp' }),
+  };
+  const used = [];
+  const askWithTools = async (brain, opts) => {
+    used.push({ brain: brain.id, names: opts.tools.map((x) => x.name), system: opts.system });
+    const out = await opts.call(opts.tools[0].name, { day: 'today' });
+    await opts.call('calendar__delete_event', {}).then((x) => used.push(x)); // never offered: refused
+    return { text: `**${out}.**`, by: brain.name, ms: 9, calls: [{ name: opts.tools[0].name, ok: true }] };
+  };
   const looked = [];
-  const askApps = async (opts) => { looked.push(opts); return { text: 'Sam wrote at 9 **about** lunch.', by: 'Claude Code', ms: 7 }; };
-  const ran = [];
-  const runner = async (file, args) => { ran.push(args); return { code: 0, stdout: 'Added', stderr: '' }; };
-  const apps = () => ({ connected: ['Gmail', 'wpvibe'], signIn: ['sentry'], servers: { Gmail: 'claude.ai Gmail', wpvibe: 'wpvibe' }, mine: ['wpvibe'] });
+  const askApps = async (opts) => { looked.push(opts); return { text: 'From Gmail.', by: 'Claude Code', ms: 7 }; };
+  const apps = () => ({ connected: ['Gmail', 'Calendar'], signIn: [], servers: { Gmail: 'claude.ai Gmail', Calendar: 'claude.ai Calendar' }, mine: [] });
   let port, server;
   for (let tries = 0; !server; tries++) {
     port = freshPort();
-    try { server = await startBridge({ port, log: () => {}, handoff: { brains, ask: fakeAsk, askApps, runner, apps, find: () => '/usr/bin/claude', has: () => true } }); }
+    try { server = await startBridge({ port, log: () => {}, handoff: { brains, ask: fakeAsk, askWithTools, askApps, apps, connectors, has: () => true } }); }
     catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err; }
   }
   t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
   const post = async (path, body) => { const r = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) }); return { status: r.status, ...(await r.json()) }; };
-  // Blu answers with a look in one of your connected apps…
-  const r = await post('/api/talk/buddy', { text: 'any email from Sam today?' });
-  assert.deepEqual(r.apps, { app: 'Gmail', ask: 'any email from Sam today?', change: false });
-  // …but never one Claude isn't connected to.
-  reply = '{"say":"Slack isn’t connected yet.","apps":{"app":"Slack","ask":"post it","change":true}}';
-  assert.equal((await post('/api/talk/buddy', { text: 'post it to Slack' })).apps, null);
-  // The look: Claude with that app's tools only, told to only look.
-  const look = await post('/api/talk/apps', { app: 'Gmail', ask: 'any email from Sam today?' });
-  assert.deepEqual([look.status, look.say, look.app], [200, 'Sam wrote at 9 about lunch.', 'Gmail']);
-  assert.equal(looked[0].tools, 'mcp__claude_ai_Gmail');
-  assert.match(looked[0].system, /Only look: never add, change, send or delete anything/);
-  // A change waits for your yes, and still never sends.
-  assert.equal((await post('/api/talk/apps', { app: 'Gmail', ask: 'reply to Sam', change: true })).status, 409);
-  assert.equal((await post('/api/talk/apps', { app: 'Gmail', ask: 'reply to Sam', change: true, confirmed: true })).status, 200);
-  assert.match(looked[1].system, /Never send an email or a message: write a draft/);
-  assert.equal((await post('/api/talk/apps', { app: 'Slack', ask: 'hi' })).status, 400);
-  // Your own apps: added to Claude Code's user settings, by address or by command; removed only if yours.
-  assert.equal((await post('/api/apps/add', { name: 'notion', url: 'https://mcp.notion.com/mcp' })).status, 200);
-  assert.deepEqual(ran[0], ['mcp', 'add', '-s', 'user', '-t', 'http', 'notion', 'https://mcp.notion.com/mcp']);
-  assert.equal((await post('/api/apps/add', { name: 'cal', command: 'npx -y "my calendar-mcp"' })).status, 200);
-  assert.deepEqual(ran[1], ['mcp', 'add', '-s', 'user', 'cal', '--', 'npx', '-y', 'my calendar-mcp']);
-  assert.equal((await post('/api/apps/add', { name: 'bad name!', url: 'https://x.dev' })).status, 400);
-  assert.equal((await post('/api/apps/add', { name: 'plain', url: 'http://example.com/mcp' })).status, 400); // http only on this computer
-  assert.equal((await post('/api/apps/remove', { name: 'wpvibe' })).status, 200);
-  assert.deepEqual(ran[2], ['mcp', 'remove', '-s', 'user', 'wpvibe']);
-  assert.equal((await post('/api/apps/remove', { name: 'Gmail' })).status, 404); // a claude.ai connector: removed at claude.ai
+  // Your apps first (Calendar is yours, so Claude's Calendar isn't listed twice), then Claude's.
   const listed = await (await fetch(`http://127.0.0.1:${port}/api/apps`)).json();
-  assert.deepEqual([listed.connected, listed.signIn, listed.claude], [['Gmail', 'wpvibe'], ['sentry'], true]);
+  assert.deepEqual([listed.connected, listed.signIn, listed.claude.connected, listed.claude.installed], [['Calendar', 'Gmail'], ['Notion'], ['Gmail'], true]);
+  assert.equal(listed.presets.notion.url, 'https://mcp.notion.com/mcp');
+  assert.deepEqual((await post('/api/talk/buddy', { text: 'what’s on today?' })).apps, { app: 'Calendar', ask: 'what’s on today?', change: false });
+  // A look in your own app: the AI you brought, with only its read-only tools; dotpals runs the calls.
+  const look = await post('/api/talk/apps', { app: 'Calendar', ask: 'what’s on today?' });
+  assert.deepEqual([look.status, look.say, look.by], [200, 'Lunch with Sam at 1.', 'Anthropic']);
+  assert.deepEqual(look.calls, [{ words: 'Calendar: list events', ok: true }]);
+  assert.deepEqual(used[0].names, ['calendar__list_events']);
+  assert.match(used[0].system, /Only look/);
+  assert.deepEqual(called[0], ['calendar', 'list_events', { day: 'today' }]);
+  assert.equal(used[1], 'Error: Blu may not use calendar__delete_event now');
+  // A change: your yes first; then it may create, but never delete.
+  assert.equal((await post('/api/talk/apps', { app: 'Calendar', ask: 'add lunch', change: true })).status, 409);
+  assert.equal((await post('/api/talk/apps', { app: 'Calendar', ask: 'add lunch', change: true, confirmed: true })).status, 200);
+  assert.deepEqual(used[2].names, ['calendar__list_events', 'calendar__create_event']);
+  // One only Claude is connected to goes through Claude Code; one nobody has is refused.
+  const viaClaude = await post('/api/talk/apps', { app: 'Gmail', ask: 'any email from Sam?' });
+  assert.deepEqual([viaClaude.say, looked[0].tools], ['From Gmail.', 'mcp__claude_ai_Gmail']);
+  assert.equal((await post('/api/talk/apps', { app: 'Slack', ask: 'hi' })).status, 400);
+  // Adding (by name and address, or a one-click preset), signing in, and coming back.
+  await post('/api/apps/add', { preset: 'linear' });
+  assert.deepEqual([added[0].name, added[0].url], ['Linear', 'https://mcp.linear.app/mcp']);
+  assert.equal((await post('/api/apps/signin', { id: 'notion' })).url, 'https://auth.example/authorize?app=notion');
+  assert.equal((await post('/api/apps/signin', { id: 'nope' })).status, 404);
+  const ok = await fetch(`http://127.0.0.1:${port}/api/apps/callback?state=good&code=c`);
+  assert.deepEqual([ok.status, /Notion is connected/.test(await ok.text())], [200, true]);
+  const bad = await fetch(`http://127.0.0.1:${port}/api/apps/callback?state=%3Cscript%3E&code=c`);
+  assert.deepEqual([bad.status, (await bad.text()).includes('<script>')], [400, false]);
 });
 
 test('Blu’s brain: polish uses the AI you brought, falls back to your words, and plans use it too', async (t) => {
