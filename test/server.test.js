@@ -848,7 +848,7 @@ test('Blu and your apps: yours with any AI, only the tools it may use now; Claud
     return { text: `**${out}.**`, by: brain.name, ms: 9, calls: [{ name: opts.tools[0].name, ok: true }] };
   };
   const looked = [];
-  const askApps = async (opts) => { looked.push(opts); return { text: 'From Gmail.', by: 'Claude Code', ms: 7 }; };
+  const askApps = async (opts) => { looked.push(opts); return { text: 'From Gmail: [the email](https://mail.google.com/x).', by: 'Claude Code', ms: 7 }; };
   const apps = () => ({ connected: ['Gmail', 'Calendar'], signIn: [], servers: { Gmail: 'claude.ai Gmail', Calendar: 'claude.ai Calendar' }, mine: [] });
   let port, server;
   for (let tries = 0; !server; tries++) {
@@ -863,6 +863,13 @@ test('Blu and your apps: yours with any AI, only the tools it may use now; Claud
   assert.deepEqual([listed.connected, listed.signIn, listed.claude.connected, listed.claude.installed], [['Calendar', 'Gmail'], ['Notion'], ['Gmail'], true]);
   assert.equal(listed.presets.notion.url, 'https://mcp.notion.com/mcp');
   assert.deepEqual((await post('/api/talk/buddy', { text: 'what’s on today?' })).apps, { app: 'Calendar', ask: 'what’s on today?', change: false });
+  // A plain yes, right after Blu asked about that change: done now, not asked again. Anything else is still asked.
+  reply = '{"say":"Okay.","apps":{"app":"Calendar","ask":"add lunch at 1","change":true}}';
+  const asked = [{ said: 'add lunch at 1', reply: 'Shall I add lunch at 1 to your calendar?' }];
+  assert.equal((await post('/api/talk/buddy', { text: 'Yes, go ahead', history: asked })).apps.confirmed, true);
+  assert.equal((await post('/api/talk/buddy', { text: 'yesterday I had lunch', history: asked })).apps.confirmed, undefined);
+  assert.equal((await post('/api/talk/buddy', { text: 'yes', history: [{ said: 'hi', reply: 'Hello.' }] })).apps.confirmed, undefined);
+  reply = '{"say":"Let me check your calendar.","apps":{"app":"Calendar","ask":"what’s on today?","change":false}}';
   // A look in your own app: the AI you brought, with only its read-only tools; dotpals runs the calls.
   const look = await post('/api/talk/apps', { app: 'Calendar', ask: 'what’s on today?' });
   assert.deepEqual([look.status, look.say, look.by], [200, 'Lunch with Sam at 1.', 'Anthropic']);
@@ -877,7 +884,7 @@ test('Blu and your apps: yours with any AI, only the tools it may use now; Claud
   assert.deepEqual(used[2].names, ['calendar__list_events', 'calendar__create_event']);
   // One only Claude is connected to goes through Claude Code; one nobody has is refused.
   const viaClaude = await post('/api/talk/apps', { app: 'Gmail', ask: 'any email from Sam?' });
-  assert.deepEqual([viaClaude.say, looked[0].tools], ['From Gmail.', 'mcp__claude_ai_Gmail']);
+  assert.deepEqual([viaClaude.say, viaClaude.link, looked[0].tools], ['From Gmail: the email.', 'https://mail.google.com/x', 'mcp__claude_ai_Gmail']); // said without the address; the link for the Open button
   assert.equal((await post('/api/talk/apps', { app: 'Slack', ask: 'hi' })).status, 400);
   // Adding (by name and address, or a one-click preset), signing in, and coming back.
   await post('/api/apps/add', { preset: 'linear' });

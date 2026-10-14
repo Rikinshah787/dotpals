@@ -929,6 +929,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         const input = buddyInput(text, { shot, circled, history, agents: blu.mode === 'everyday' ? [] : agentsNow(), name, words: yourWords(config.brain?.dictionary ?? []).words });
         const r = await askBrain(brain, keys, system, input, isQuick(brain) ? 40_000 : 90_000, images);
         const reply = parseBuddyReply(r.text, { size: shot?.w ? { w: shot.w, h: shot.h } : null, can, apps });
+        // "Yes" to the change Blu just asked about: done now, not asked again. Only on your own plain
+        // yes, right after a question from Blu: the brain can't confirm a change on its own.
+        const lastAsked = (history.at(-1)?.reply ?? '').includes('?'); // Blu asked something
+        if (reply.apps?.change && lastAsked && /^(yes|yeah|yep|yup|sure|ok|okay|alright|do it|go ahead|go for it|please( do)?|create it|make it|add it|sounds good)\b[\s\S]{0,120}$/i.test(text.replace(/^(hey |ok )?blu(e)?[,.]?\s*/i, ''))) reply.apps.confirmed = true;
         // "Play Billie Jean": the link that plays it, found here (YouTube's first result, or your Spotify app's).
         for (const a of reply.do) if (a.act === 'play') Object.assign(a, await resolvePlay(a, { music: blu.music, spotifyKey: keys.spotify }).catch(() => ({})));
         return json(res, 200, { ...reply, words: reply.do.map(actionWords), by: r.by, ms: r.ms, saw: !!images.length });
@@ -945,7 +949,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (!app || !question) return json(res, 400, { error: `${String(body.app ?? 'That app').slice(0, 40)} isn’t connected (Settings → Apps)` });
       const change = body.change === true;
       if (change && body.confirmed !== true) return json(res, 409, { error: 'Say yes first' });
-      const spoken = (t) => String(t ?? '').replace(/[*_`#>]+/g, '').slice(0, 800);
+      // Said out loud, so no Markdown and no web addresses; the first link ("open it here") becomes
+      // the Talk card's Open button instead.
+      const spoken = (t) => String(t ?? '').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '$1').replace(/<?https?:\/\/\S+/g, '').replace(/[*_`#>]+/g, '').replace(/\s+([.,;:!?])/g, '$1').replace(/\s+/g, ' ').trim().slice(0, 800);
+      const linkOf = (t) => { const u = (/\]\((https:[^)\s]+)\)/.exec(String(t)) ?? /(https:\/\/[^\s)<>"]+)/.exec(String(t)))?.[1]; return u && u.length < 2000 ? u : undefined; };
       const own = apps.mine.find((a) => a.name === app);
       // One of yours: Blu's brain (whichever AI you brought) calls its tools; dotpals runs each
       // call, and only the ones it may use now: a look only reads; a change you said yes to
@@ -958,7 +965,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         }
         try {
           const all = await connectors.tools(own.id);
-          const usable = all.filter((t) => (change ? !never(t) : readOnly(t)));
+          const usable = all.filter((t) => (change ? !never(t, own.id) : readOnly(t, own.id)));
           if (!usable.length) return json(res, 400, { error: `${app} has no tools Blu may use for ${change ? 'that' : 'a look'}` });
           const name = (t) => `${own.id.replace(/-/g, '_')}__${t.name}`.replace(/[^\w-]/g, '_').slice(0, 64);
           const byName = new Map(usable.map((t) => [name(t), t]));
@@ -968,8 +975,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
             system: appsSystem({ app, change }), text: question, tools, mcp, model: config.brain?.models?.[brain.id], key: keys[brain.id], timeoutMs: isQuick(brain) ? 60_000 : 120_000,
             call: async (n, args) => (byName.has(n) ? connectors.call(own.id, byName.get(n).name, args) : `Error: Blu may not use ${n} now`),
           });
-          const label = (n) => (byName.get(n)?.name ?? String(n).split('__').pop()).replace(/[_-]+/g, ' '); // Claude Code's are mcp__<app>__<tool>
-          return json(res, 200, { say: spoken(r.text), app, by: r.by, ms: r.ms, calls: r.calls.map((c) => ({ words: `${app}: ${label(c.name)}`, ok: c.ok })) });
+          // "Notion: search", not "Notion: notion search" (Claude Code's names are mcp__<app>__<tool>).
+          const label = (n) => (byName.get(n)?.name ?? String(n).split('__').pop()).replace(new RegExp(`^${own.id}[-_]`, 'i'), '').replace(/[_-]+/g, ' ');
+          return json(res, 200, { say: spoken(r.text), link: linkOf(r.text), app, by: r.by, ms: r.ms, calls: r.calls.map((c) => ({ words: `${app}: ${label(c.name)}`, ok: c.ok })) });
         } catch (err) {
           return json(res, err.signIn ? 409 : 502, { error: err.signIn ? err.message : `${brain.name} couldn’t use ${app}: ${err.message}`, ...(err.signIn ? { signIn: true } : {}) });
         }
@@ -977,7 +985,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       // Connected in Claude: Claude Code with only that app's tools.
       try {
         const r = await (handoffOptions.askApps ?? askApps)({ tools: appTools(apps.claude.servers?.[app] ?? app), system: appsSystem({ app, change }), ask: question, model: config.brain?.models?.claude || 'haiku' });
-        return json(res, 200, { say: spoken(r.text), app, by: r.by, ms: r.ms });
+        return json(res, 200, { say: spoken(r.text), link: linkOf(r.text), app, by: r.by, ms: r.ms });
       } catch (err) {
         return json(res, 502, { error: `Claude couldn’t reach ${app}: ${err.message}` });
       }

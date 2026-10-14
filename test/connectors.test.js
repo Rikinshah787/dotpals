@@ -166,6 +166,14 @@ test('which tools Blu may use: a look only reads; a change never sends, deletes 
   assert.equal(never({ name: 'delete_event' }), true);
   assert.equal(never({ name: 'update_page', annotations: { destructiveHint: true } }), true);
   assert.equal(never({ name: 'create_draft' }), false);
+  // What reaches other people: a comment, sharing, an invite; reading them is fine.
+  assert.equal(never({ name: 'notion-create-comment' }), true);
+  assert.equal(never({ name: 'share_page' }), true);
+  assert.equal(never({ name: 'invite-user' }), true);
+  assert.equal(never({ name: 'notion-get-comments' }, 'notion'), false);
+  assert.equal(readOnly({ name: 'notion-search' }, 'notion'), true);
+  assert.equal(readOnly({ name: 'notion-create-pages' }, 'notion'), false);
+  assert.equal(never({ name: 'notion-list-shared-pages' }), false);
   assert.deepEqual(sseMessages('event: message\ndata: {"id":1}\n\ndata: not json\n\n'), [{ id: 1 }]);
   assert.equal(resultText({ content: [{ type: 'text', text: 'a' }, { type: 'image' }], isError: true }), 'Error: a\n[image]');
 });

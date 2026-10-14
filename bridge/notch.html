@@ -714,7 +714,8 @@
       if (talk.mode === 'apps' && talk.appsAsk) { // "Shall I add it to your calendar?"
         const ask = talk.appsAsk;
         talk.mode = 'idle'; talk.appsAsk = null;
-        if (YES.test(t) && !MORE.test(t)) return askApps({ ...ask, confirmed: true });
+        // With what they added ("yes, call it Launch notes").
+        if (YES.test(t) && !MORE.test(t)) return askApps({ ...ask, ask: `${ask.ask}. They answered: ${t}`.slice(0, 500), confirmed: true });
         if (NO.test(t) && few(t)) { keepOpen(); return speak(choose(['Okay, I won’t.', 'Sure, left it.'])); }
       }
       if (STOP.test(t)) return stopTalk('Okay, I stopped.');
@@ -750,7 +751,7 @@
     function askBuddy(text) {
       const turn = talk.turn;
       return attempt(async () => {
-        Object.assign(talk, { mode: 'idle', plan: null, pr: null, answer: '', bad: false, acts: null, note: 'Thinking…', pal: 'thinking' });
+        Object.assign(talk, { mode: 'idle', plan: null, pr: null, answer: '', link: null, bad: false, acts: null, note: 'Thinking…', pal: 'thinking' });
         keepOpen();
         if (Date.now() - buddy.at > 5 * 60_000) buddy.history = []; // a new conversation
         // A look at the screen only when it's about the screen: the shortcut's screenshot while it's fresh, else a new one.
@@ -788,7 +789,7 @@
         if (turn !== talk.turn) return;
         // One of your apps: a look goes ahead now; a change waits for your "yes".
         if (r.apps) {
-          if (!r.apps.change) return askApps(r.apps);
+          if (!r.apps.change || r.apps.confirmed) return askApps(r.apps); // a look, or the change you just said yes to
           Object.assign(talk, { mode: 'apps', appsAsk: r.apps, note: `Say “yes” and I’ll do it in ${r.apps.app}, or “no”.` });
           keepOpen();
           return voice.listen();
@@ -807,7 +808,7 @@
         const r = await api('/api/talk/apps', ask);
         if (turn !== talk.turn) return;
         // A receipt for each thing it did in the app ("Notion: search"); through Claude, just the one.
-        Object.assign(talk, { answer: r.say, note: '', acts: r.calls?.length ? r.calls : [{ words: `${ask.change ? 'Changed' : 'Looked'} in ${r.app}${r.by === 'Claude Code' ? ', through Claude' : ''}`, ok: true }] });
+        Object.assign(talk, { answer: r.say, link: r.link ?? null, note: '', acts: r.calls?.length ? r.calls : [{ words: `${ask.change ? 'Changed' : 'Looked'} in ${r.app}${r.by === 'Claude Code' ? ', through Claude' : ''}`, ok: true }] });
         buddy.history = [...buddy.history, { said: ask.ask, reply: r.say, drew: '' }].slice(-6);
         keepOpen();
         await speak(r.say);
@@ -1822,7 +1823,7 @@
     const DONE_ICONS = { tests: '🧪', command: '▶', untouched: '🚫', only: '📁', 'tests-added': '➕', 'no-deps': '📦', committed: '✔', pushed: '⬆' };
     function fillTalk(main) {
       const t = talk.task, p = talk.plan;
-      const key = JSON.stringify([voice.listening(), talk.pal, talk.mode, talk.note, talk.bad, talk.said, talk.answer, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url, talk.acts, talk.drawing, settings?.blu?.mode]);
+      const key = JSON.stringify([voice.listening(), talk.pal, talk.mode, talk.note, talk.bad, talk.said, talk.answer, talk.link, p?.id, talk.pr?.branch, t?.id, t?.state, t?.verdict?.doing, t?.verdict?.at, t?.pr?.url, talk.acts, talk.drawing, settings?.blu?.mode]);
       keyed(main, [{ key: `talk|${key}`, make: () => {
         const card = el('div', `card ${talk.bad ? 'tone-error' : 'tone-work'}`);
         const head = el('div', 'card-head');
@@ -1841,6 +1842,7 @@
         // What Blu did on your computer, each with how it went: the receipts.
         if (talk.acts?.length) card.append(checks(talk.acts.map((a) => [a.ok === true ? '✓' : a.ok === false ? '✗' : '…', a.ok === true ? 'y' : a.ok === false ? 'n' : 'm', a.ok === false && a.error ? `${a.words}: ${a.error}` : a.words])));
         if (talk.drawing) actions.append(button('btn', 'Clear drawing', () => desktop?.bluClear?.()));
+        if (talk.link) actions.append(button('btn', 'Open ↗', () => window.open(talk.link, '_blank'), talk.link)); // what Blu made in your app
         if (p) {
           card.append(el('p', '', `${p.title} · ${p.project.name}${p.guessedProject ? ' (where you worked last)' : ''}`));
           card.append(checks(p.done.map((d) => [DONE_ICONS[d.kind] ?? '✍', 'm', d.text.replace(/`/g, '')])));

@@ -33,19 +33,27 @@ export const PRESETS = {
 /** An app's name as a tool prefix and an id: "Google Calendar" → "google-calendar". */
 export const slug = (name) => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
 
-/** Read-only, by the app's own word (MCP's readOnlyHint) or, when it doesn't say, by the tool's name. */
+/**
+ * Read-only, by the app's own word (MCP's readOnlyHint) or, when it doesn't say, by the tool's
+ * name, after the app's own prefix (`app`: "notion" for notion-get-comments).
+ */
 const LOOKS = 'get|list|search|find|read|fetch|query|retrieve|lookup|look_up|describe|show|view|check|count';
-export function readOnly(tool) {
+export function readOnly(tool, app = '') {
   const a = tool?.annotations ?? {};
   if (typeof a.readOnlyHint === 'boolean') return a.readOnlyHint;
-  const n = String(tool?.name ?? '');
+  const n = String(tool?.name ?? '').replace(app ? new RegExp(`^${app.replace(/[^\w-]/g, '')}[-_]`, 'i') : /^$/, '');
   return new RegExp(`^(${LOOKS})([_-]|$)`, 'i').test(n) || new RegExp(`^(${LOOKS})[A-Z]`).test(n); // list_events, searchPages; not "getaway"
 }
 /** A command as its words: "npx -y \"my server\"" → ['npx', '-y', 'my server']. */
 export const words = (command) => (String(command).match(/"[^"]*"|\S+/g) ?? []).map((w) => w.replace(/^"|"$/g, ''));
-/** Never, even when you said yes to a change: sending, deleting, paying (Blu drafts instead). */
-export function never(tool) {
-  return tool?.annotations?.destructiveHint === true || /(send|delete|remove|destroy|trash|purge|pay|purchase|transfer|refund|post_message|publish)/i.test(String(tool?.name ?? ''));
+/**
+ * Never, even when you said yes to a change: sending, deleting, paying (Blu drafts instead), and
+ * what reaches other people (a comment, sharing, an invite). An app's own "destructive" mark too.
+ */
+export function never(tool, app = '') {
+  const n = String(tool?.name ?? '');
+  return tool?.annotations?.destructiveHint === true || /(send|delete|remove|destroy|trash|purge|pay|purchase|transfer|refund|post_message|publish)/i.test(n)
+    || (/comment|reaction|(^|[_-])(share|invite)([_-]|$)/i.test(n) && !readOnly(tool, app));
 }
 
 /** Server-sent events → their JSON messages. */
