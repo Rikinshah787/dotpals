@@ -872,3 +872,17 @@ legend { font: 600 .72rem/1 var(--f-body); letter-spacing: .09em; text-transform
 @media (max-width: 640px) { .agents-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) { .feats { grid-template-columns: 1fr 1fr; gap: 10px; } .feats li { padding: .9rem; } .feats p { font-size: .86rem; } }
 .lede-sm code { font-size: .86em; padding: .1em .38em; border-radius: 6px; background: var(--card-2); border: 1px solid var(--line); }
+
+/* New in 0.11: a small report card */
+.nm-card { width: 100%; border-collapse: collapse; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.nm-card th, .nm-card td { padding: .5rem .6rem; border-bottom: 1px solid var(--line); text-align: right; }
+.nm-card tr:last-child > * { border-bottom: 0; }
+.nm-card thead th { color: var(--text); font-weight: 650; font-size: .85rem; }
+.nm-card thead th.c-claude { border-top: 3px solid var(--claude); }
+.nm-card thead th.c-codex { border-top: 3px solid var(--codex); }
+.nm-card tbody th { text-align: left; color: var(--muted); font-weight: 500; }
+.nm-card tr.lead > * { color: var(--text); font-weight: 650; }
+.nm-card .good { color: var(--green); }
+.nm-card .warn { color: var(--red); }
+.nm-card tr.lead > .good { color: var(--green); }
+.nm-card tr.lead > .warn { color: var(--red); }

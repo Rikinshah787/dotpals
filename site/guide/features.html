@@ -442,7 +442,7 @@ Check these files for their changes before editing them, and avoid undoing their
 <p>Try it thinking, working, needing you and done, then press <strong>Use this pal</strong>. The floating pal and the notch switch straight away. <strong>Surprise me</strong> rolls a random one. Your pal is saved in <code>~/.dotpals/config.json</code> as <code>custom</code>. To use it in your own app, see <a href="component.html#custom-pals">registerCustom</a>.</p>
 
 <h2 id="dashboard">The dashboard</h2>
-<p>Open it with <strong>▦</strong> on the pal, the tray's <em>Dashboard</em>, <code>dotpals dashboard</code>, or <code>http://127.0.0.1:5175/dashboard</code> in any browser. It has five pages.</p>
+<p>Open it with <strong>▦</strong> on the pal, the tray's <em>Dashboard</em>, <code>dotpals dashboard</code>, or <code>http://127.0.0.1:5175/dashboard</code> in any browser. It has six pages.</p>
 
 <h3 id="dashboard-overview">Overview</h3>
 <figure>
@@ -458,6 +458,15 @@ Check these files for their changes before editing them, and avoid undoing their
   <li><strong>Recent requests</strong>, with a ⚠ count when something was flagged. Click one to open it.</li>
 </ul>
 
+<h3 id="dashboard-report">Report card</h3>
+<p>Your agents side by side, for today or the last 7 days, one column per agent. Read from what they did (their steps and test output), not their summaries:</p>
+<ul>
+  <li><strong>Changed code, tested and passed</strong>: the headline. Of the requests that changed code, how many were tested after the last change and passed (not only because the tests were changed).</li>
+  <li><strong>Changed code, not tested after</strong>, <strong>tries to fix a failure</strong>, <strong>tests changed to pass</strong>, <strong>claims that didn’t happen</strong> (“said it added tests, but no test file changed”) and <strong>went in circles</strong>.</li>
+  <li><strong>What the tokens bought</strong>: tokens per request, and new tokens per change that held up, on changes that didn’t, and on retries (from Claude Code’s and Codex’s own logs; cache reads aren’t counted, they cost a fraction).</li>
+  <li><strong>Copy as Markdown</strong> for a standup or a post. Any assistant can ask for the same card (<a href="#mcp-tools">MCP: <code>report_card</code></a>).</li>
+</ul>
+
 <h3 id="dashboard-sessions">Sessions</h3>
 <figure>
   <img src="../docs/sessions.png" width="1282" height="802" loading="lazy" decoding="async" alt="The Sessions page: a list of sessions, and one session's requests with the agent's summary and chapters.">
@@ -468,6 +477,9 @@ Check these files for their changes before editing them, and avoid undoing their
   <li>Each session has three tabs: <strong>Requests</strong> (each one as a story, with its flags, <strong>Copy</strong> and <strong>Show steps</strong>), <strong>Files</strong> (what happened to each file, and when) and <strong>Log</strong> (every entry; click one for its details).</li>
   <li><strong>Copy recap</strong> copies the session as Markdown. <strong>Export</strong> downloads it as Markdown and as JSON.</li>
   <li>Every session has its own link, <code>/dashboard#sessions/&lt;session id&gt;</code>.</li>
+  <li>Each finished request shows its tokens: “✓ Done in 2m 14s · 52k tokens in · 3.1k out · 1.2M cached” (Claude Code and Codex log them; other agents don’t).</li>
+  <li><strong>Replay</strong> steps through a request: play it, drag the timeline, or jump between the marks on every failure, retry, fix, risky step and the test run that counts.</li>
+  <li><strong>Rewind…</strong> (with restore points on, in Settings) puts a request’s files back as they were before it. You see the files and the diff first and pick which go back; <strong>Undo</strong> puts them back again. Restore points are saved in git’s own object store: no branch, no commit, your staging area untouched. Only requests made after you turn it on can be rewound, never while an agent is still working in that project.</li>
 </ul>
 
 <h3 id="dashboard-map">Map</h3>
@@ -489,6 +501,9 @@ Check these files for their changes before editing them, and avoid undoing their
   <li><strong>Share with your agents</strong> (<a href="#share">above</a>).</li>
   <li><strong>Two agents, one file</strong>: Ask me first, Tell Claude to re-read it, or Off, and how recent a change counts (<a href="#two-agents">above</a>).</li>
   <li><strong>Fix failing tests</strong>: make Claude Code fix failing tests before it finishes (<a href="#fix-loop">above</a>).</li>
+  <li><strong>Tell me when an agent seems stuck</strong>: a ping when the same test, command or edit fails 3 times in a row, a file keeps being changed back and forth, or nothing has worked for 10 minutes while it keeps trying. On by default.</li>
+  <li><strong>Morning brief</strong>: the first time the pal opens each day, it says what your agents did since yesterday, what’s unfinished and what’s failing. On by default.</li>
+  <li><strong>Restore points</strong>: save a restore point when each request starts and ends, so it can be rewound from Sessions. Off by default.</li>
   <li><strong>History</strong>: keep it or not, for 1, 3, 7, 14, 30 or 90 days, and <strong>Clear</strong>. Clearing removes what dotpals recorded; your agents' own logs aren't touched.</li>
   <li><strong>About</strong>: the version, the port and where the settings file is.</li>
 </ul>
