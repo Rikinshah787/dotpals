@@ -173,6 +173,51 @@ test('the bridge: PreToolUse for a file another agent just changed gets ask, tel
   await setConfig({ conflictGuard: 'ask' });
 });
 
+test('the bridge: project rules (.dotpals.json) stop Claude before an edit, and go on every finished request', async (t) => {
+  const { writeFile: write, mkdir } = await import('node:fs/promises');
+  const proj = await mkdtemp(join(tmpdir(), 'dotpals-proj-'));
+  t.after(() => rm(proj, { recursive: true, force: true }));
+  await mkdir(join(proj, '.git'));
+  await write(join(proj, '.dotpals.json'), JSON.stringify({ mustNotTouch: ['migrations'], onlyTouch: ['src', 'migrations'] }));
+  const { port, server } = await start();
+  t.after(() => close(server));
+  const base = `http://127.0.0.1:${port}`;
+  const hook = (session, file, id) => fetch(`${base}/hook?guard=1`, { method: 'POST', body: JSON.stringify({ hook_event_name: 'PreToolUse', session_id: session, cwd: proj, tool_name: 'Edit', tool_use_id: id, tool_input: { file_path: file } }) }).then((r) => r.json());
+
+  // Before the edit: asked, with the rule; a file the rules allow goes ahead.
+  const ask = await hook('claude:r', join(proj, 'migrations', '2.sql'), 'tu1');
+  assert.equal(ask.hookSpecificOutput.permissionDecision, 'ask');
+  assert.equal(ask.hookSpecificOutput.permissionDecisionReason, 'The project’s rules (.dotpals.json) say not to touch: migrations. Edit anyway?');
+  const outside = await hook('claude:r', 'docs/x.md', 'tu2'); // relative to its folder
+  assert.match(outside.hookSpecificOutput.permissionDecisionReason, /say only change src or migrations\./);
+  assert.deepEqual(await hook('claude:r', join(proj, 'src', 'a.js'), 'tu3'), {});
+  // "tell": refused, and Claude reads why.
+  await write(join(proj, '.dotpals.json'), JSON.stringify({ mustNotTouch: ['migrations'], beforeEdit: 'tell' }));
+  await new Promise((r) => setTimeout(r, 30));
+  const tell = await hook('claude:r', join(proj, 'migrations', '3.sql'), 'tu4');
+  assert.equal(tell.hookSpecificOutput.permissionDecision, 'deny');
+  const { entries } = await (await fetch(`${base}/api/activity`)).json();
+  assert.equal(entries.find((e) => e.id === 'claude:r:tu4').status, 'failed');
+  // "off": nothing before the edit.
+  await write(join(proj, '.dotpals.json'), JSON.stringify({ mustNotTouch: ['migrations'], beforeEdit: 'off' }));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(await hook('claude:r', join(proj, 'migrations', '4.sql'), 'tu5'), {});
+
+  // Any agent: a finished request that broke a rule says so on its done entry.
+  const ev = (activity) => fetch(`${base}/event`, { method: 'POST', body: JSON.stringify({ session: 'codex:r', harness: 'codex', cwd: proj, activity }) });
+  await ev({ id: 'p1', kind: 'prompt', title: 'Add a column', status: 'info', at: Date.now() });
+  await ev({ id: 'e1', kind: 'edit', title: 'migrations/5.sql', files: [{ path: join(proj, 'migrations', '5.sql'), change: 'write' }], status: 'ok', at: Date.now() });
+  await ev({ id: 'd1', kind: 'done', title: 'Finished', status: 'ok', at: Date.now() });
+  // An event can't write the rules' result itself.
+  await ev({ id: 'd1', rules: [{ ok: true, text: 'Followed the project’s rules' }] });
+  let done;
+  for (let i = 0; i < 40 && !done?.rules?.some((c) => !c.ok); i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    done = (await (await fetch(`${base}/api/activity`)).json()).entries.find((e) => e.id === 'codex:r:d1');
+  }
+  assert.deepEqual(done.rules, [{ ok: false, text: 'Broke a project rule: changed migrations/5.sql (not to touch: migrations)' }]);
+});
+
 test('the bridge: any agent changing a file another active session just changed raises one alert', async (t) => {
   const { port, server } = await start();
   t.after(() => close(server));

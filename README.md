@@ -56,6 +56,7 @@ Coding agents do a lot in a single request: they read dozens of files, edit a ha
 
 ## Features
 
+- **Project rules for every agent**: put a `.dotpals.json` in a project (`{ "mustNotTouch": ["migrations"], "onlyTouch": ["src", "test"], "mustPass": ["npm test"], "noNewDependencies": true }`) and every request there is held to it, whichever agent makes it: what it broke shows on its card and in *Ready to merge?* and `check_my_work`. Claude Code is asked before an edit a rule forbids (`"beforeEdit": "ask"`, `"tell"` or `"off"`). Paths take `*`, `**` and `?`; the nearest file from the agent's folder up to the repository's root wins, so a monorepo's package can have its own.
 - **Make agents fix failing tests** (Claude Code, on by default): finishing, committing or pushing while its tests fail, or before it tested its last change, sends Claude back to fix them, at most twice per request. A test faked to pass (an assertion taken out, a skip added, an expectation changed) is caught too.
 - **Was it tested?** Results are read from the test output itself (jest, vitest, pytest, go, cargo, dotnet, Maven, Gradle, RSpec and more), never just the exit code. "0 tests ran" is never a pass.
 - **Report card**: your agents side by side: changes tested and passed, changes never tested, tests changed to pass, claims that didn't happen, and what the tokens bought.

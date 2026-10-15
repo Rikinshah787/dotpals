@@ -1750,6 +1750,8 @@ export function readiness(turn, { claims = turn } = {}) {
   if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
   // What it said it did and didn't. "The tests pass" isn't repeated: the test checks above already say why not.
   for (const c of claimCheck(claims)) if (c.rule !== 'tests-pass') checks.push({ ok: false, text: claimLine(c) });
+  // The project's rules (.dotpals.json, bridge/rules.js), as the bridge checked them when it ended.
+  for (const c of Array.isArray(turn.end?.rules) ? turn.end.rules : []) if (typeof c?.text === 'string') checks.push({ ok: c.ok === true, text: c.text });
   const problems = checks.filter((c) => !c.ok).map((c) => c.text);
   return { ready: !problems.length, checks, problems };
 }
