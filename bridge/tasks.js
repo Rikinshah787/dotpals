@@ -449,8 +449,8 @@ function testsAdded(steps, changed, dir) {
     : { ok: false, text: `Changed ${where}, but no more tests ran than before (${before.f.total} → ${after.f.total})` };
 }
 
-/** No new dependencies (see LOCKFILE above). */
-function noNewDeps(steps, changed) {
+/** No new dependencies (see LOCKFILE above). Also the project rules' noNewDependencies (bridge/rules.js). */
+export function noNewDeps(steps, changed) {
   const ran = steps.filter((s) => s.kind === 'run' && s.status !== 'failed').flatMap((s) => parts(commandOf(s)));
   const added = ran.find(addsPackage);
   if (added) return { ok: false, text: `Added a package: \`${clean(added, 70)}\`` };
