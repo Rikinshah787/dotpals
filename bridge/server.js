@@ -736,6 +736,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (entry.kind === 'prompt' && groundPrompt.get(entry.session) !== entry.id) {
       groundPrompt.set(entry.session, entry.id);
       ground.start(entry.session, cwd, entry.at);
+      // The rules the request starts under: it's held to these, even if it changes the file.
+      rulesAtStart.set(entry.session, findRules(cwd).catch(() => null));
+      if (rulesAtStart.size > 500) rulesAtStart.delete(rulesAtStart.keys().next().value);
     } else if ((entry.kind === 'done' || entry.kind === 'error') && !entry.git && ground.has(entry.session)) {
       ground.finish(entry.session, cwd).then((changes) => {
         if (!changes || activity.get(entry.id)?.git) return;
@@ -754,11 +757,15 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // works in, and the result goes on its `done` entry as `rules` ([{ ok, text }]): readiness(),
   // the cards and the MCP tools show it. Only the bridge writes `rules` (see genericEvent).
   const rulesDone = new Set(); // done entries already checked
+  const rulesAtStart = new Map(); // session → Promise<the rules when its current request started>
   async function applyRules(id) {
     const entry = activity.get(id);
     if (!entry || entry.kind !== 'done' || rulesDone.has(id)) return;
     const cwd = sessionMeta.get(entry.session)?.cwd;
-    const rules = cwd ? await findRules(cwd).catch(() => null) : null;
+    // The rules it started under (a request that loosens .dotpals.json is still held to the old
+    // ones); a request read without its start (backfilled), the rules as they are now.
+    const start = rulesAtStart.get(entry.session);
+    const rules = start ? await start : cwd ? await findRules(cwd).catch(() => null) : null;
     if (!rules) return;
     rulesDone.add(id);
     if (rulesDone.size > 2000) rulesDone.delete(rulesDone.values().next().value);

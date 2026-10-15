@@ -107,6 +107,48 @@ test('ruleChecks: what a finished request broke, from its steps and what git saw
   assert.deepEqual(ruleChecks(null, good), []);
 });
 
+test('ruleChecks (from review): in a monorepo package, git’s paths are the repository’s; changing the rules is said', () => {
+  const root = join(tmpdir(), 'mono');
+  const dir = join(root, 'packages', 'web');
+  const rules = { file: join(dir, '.dotpals.json'), dir, root, ...parseRules({ mustNotTouch: ['migrations'], onlyTouch: ['src', 'migrations'] }) };
+  // Git saw packages/web/migrations/1.sql (relative to the repository), and a file in another package.
+  const [turn] = buildTurns([
+    step('prompt', 1000, { title: 'x', status: 'info' }),
+    step('done', 1100, { title: 'Finished', git: { files: [{ path: 'packages/web/migrations/1.sql', change: 'write' }, { path: 'packages/api/x.js', change: 'edit' }, { path: 'packages/web/src/a.js', change: 'edit' }] } }),
+  ]);
+  assert.deepEqual(ruleChecks(rules, turn).map((c) => c.text), ['Broke a project rule: changed migrations/1.sql (not to touch: migrations)']);
+  // The request changed .dotpals.json itself: said, not passed over.
+  const [self] = buildTurns([step('prompt', 1000, { title: 'x', status: 'info' }), edit(dir, '.dotpals.json', 1100), step('done', 1200, { title: 'Finished' })]);
+  assert.deepEqual(ruleChecks(rules, self).map((c) => [c.ok, c.text]), [[false, 'Changed the project’s rules (.dotpals.json) during the request: check it’s what you wanted']]);
+});
+
+test('findRules (from review): however deep the folder, up to the repository root; it knows the root', async () => {
+  const repo = await folder();
+  await mkdir(join(repo, '.git'));
+  await writeFile(join(repo, '.dotpals.json'), JSON.stringify({ mustNotTouch: ['db'] }));
+  const deep = join(repo, ...Array.from({ length: 24 }, (_, i) => `d${i}`));
+  await mkdir(deep, { recursive: true });
+  const r = await findRules(deep);
+  assert.equal(r.dir, repo);
+  assert.equal(r.root, repo);
+  // A package's rules: the root is still the repository's.
+  await mkdir(join(repo, 'pkg'));
+  await writeFile(join(repo, 'pkg', '.dotpals.json'), '{}');
+  const p = await findRules(join(repo, 'pkg'));
+  assert.equal(p.dir, join(repo, 'pkg'));
+  assert.equal(p.root, repo);
+});
+
+test('readiness (from review): a broken rule shows even when only non-code files changed', () => {
+  const dir = join(tmpdir(), 'proj');
+  const broke = { ok: false, text: 'Broke a project rule: changed yarn.lock (not to touch: *.lock)' };
+  const [turn] = buildTurns([step('prompt', 1000, { title: 'x', status: 'info' }), edit(dir, 'yarn.lock', 1100), step('done', 1200, { title: 'Finished', rules: [broke] })]);
+  assert.deepEqual(readiness(turn), { ready: false, checks: [broke], problems: [broke.text] });
+  // Nothing broken and no code: still nothing to say.
+  const [ok] = buildTurns([step('prompt', 1000, { title: 'x', status: 'info' }), edit(dir, 'README.md', 1100), step('done', 1200, { title: 'Finished', rules: [{ ok: true, text: 'Followed' }] })]);
+  assert.equal(readiness(ok), null);
+});
+
 test('ruleRelative: an agent’s path, absolute or relative to its folder, against the rules’ folder', () => {
   const dir = join(tmpdir(), 'proj');
   const rules = { dir };

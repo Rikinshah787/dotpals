@@ -21,8 +21,8 @@
 // wins, so a monorepo's package can have its own). Read only: dotpals never writes it.
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { changedFiles, noNewDeps, relativeTo, tidyPath, under } from './tasks.js';
-import { ranAfterLastChange } from './ui/story.js';
+import { noNewDeps, relativeTo, tidyPath, under } from './tasks.js';
+import { commandEdits, gitTruth, ranAfterLastChange } from './ui/story.js';
 
 export const RULES_FILE = '.dotpals.json';
 const MAX = 64 * 1024;   // a rules file bigger than this isn't one
@@ -91,23 +91,33 @@ const cache = new Map(); // file → { mtimeMs, size, rules }
  */
 export async function findRules(cwd, { statFile = stat, read = readFile } = {}) {
   if (!cwd || typeof cwd !== 'string') return null;
-  let dir = resolve(cwd);
-  for (let i = 0; i < 16; i++) {
+  const isRoot = async (d) => !!(await statFile(join(d, '.git')).catch(() => null)); // .git is a folder, or a file in a worktree
+  // Up to the repository's root however deep the folder is, and no further.
+  for (let dir = resolve(cwd); ;) {
     const file = join(dir, RULES_FILE);
     const s = await statFile(file).catch(() => null);
-    if (s?.isFile()) return load(file, s, read);
-    if (await statFile(join(dir, '.git')).catch(() => null)) return null; // the repository's root: no rules
+    if (s?.isFile()) {
+      // The repository's root too: what git saw changed is relative to it.
+      let root = dir;
+      for (let d = dir; ;) {
+        if (await isRoot(d)) { root = d; break; }
+        const up = dirname(d);
+        if (up === d) break;
+        d = up;
+      }
+      return load(file, s, read, root);
+    }
+    if (await isRoot(dir)) return null; // the repository's root: no rules
     const up = dirname(dir);
     if (up === dir) return null;
     dir = up;
   }
-  return null;
 }
 
-async function load(file, s, read) {
+async function load(file, s, read, root) {
   const hit = cache.get(file);
-  if (hit && hit.mtimeMs === s.mtimeMs && hit.size === s.size) return hit.rules;
-  const at = { file, dir: dirname(file) };
+  if (hit && hit.mtimeMs === s.mtimeMs && hit.size === s.size && hit.rules.root === root) return hit.rules;
+  const at = { file, dir: dirname(file), root };
   let rules;
   if (s.size > MAX) rules = { ...at, error: `it’s bigger than ${MAX / 1024} KB` };
   else {
@@ -131,8 +141,12 @@ export function ruleChecks(rules, turn) {
   if (!rules) return [];
   const name = basename(rules.file ?? RULES_FILE);
   if (rules.error) return [{ ok: false, text: `The project’s rules (${name}) couldn’t be read: ${rules.error}` }];
-  const changed = changedFiles(turn, rules.dir).filter((f) => f !== RULES_FILE);
+  const all = changedIn(rules, turn);
+  const changed = all.filter((f) => f !== RULES_FILE);
   const out = [];
+  // The request changed the rules themselves: it's held to the ones it started with (see the
+  // bridge), and the change is for you to look at, not for the request to decide.
+  if (all.length !== changed.length) out.push({ ok: false, text: `Changed the project’s rules (${name}) during the request: check it’s what you wanted` });
   for (const p of rules.mustNotTouch) {
     const hit = changed.filter((f) => matches(f, p));
     if (hit.length) out.push({ ok: false, text: `Broke a project rule: changed ${some(hit)} (not to touch: ${p})` });
@@ -152,6 +166,24 @@ export function ruleChecks(rules, turn) {
     if (!d.ok) out.push({ ok: false, text: `Broke a project rule (no new dependencies): ${d.text}` });
   }
   return out.length ? out : [{ ok: true, text: `Followed the project’s rules (${name})` }];
+}
+
+/**
+ * The files a request changed (file tools, commands that write files, and what git saw),
+ * relative to the rules' folder; files outside it (another package of a monorepo) left out.
+ * Git's paths are relative to the repository's root, so they're put under it first.
+ */
+function changedIn(rules, turn) {
+  const out = new Set();
+  const rel = (p) => relativeTo(rules.dir, p);
+  for (const s of turn.steps) {
+    if (s.status === 'failed') continue;
+    for (const f of s.files ?? []) if (f.change !== 'read') out.add(rel(f.path));
+    for (const p of commandEdits(s)) out.add(rel(p));
+  }
+  for (const f of gitTruth(turn)?.files ?? []) out.add(rel(join(rules.root ?? rules.dir, f.path)));
+  out.delete(null);
+  return [...out].sort();
 }
 
 /** For a path the agent gives (absolute, or relative to its folder): the path relative to the rules' folder, or null when it's outside it. */
