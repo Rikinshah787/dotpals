@@ -96,14 +96,15 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { extname, join, normalize, sep } from 'node:path';
+import { basename, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toAgentState } from '../src/agent.js';
 import { clip, clipEnds, createActivityLog, folderName, trimActivity } from './activity.js';
 import { applyHook, backfillTranscript, describeTool, failureText, lastReply, resultText, watchClaude } from './adapters/claude.js';
 import { failureReason } from './ui/testout.js';
 import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weakenedTests, contextEntries, crossRecap, list as nameList, flags as riskFlags, stepType, stuck as findStuck, testEvidence, testState, testVerdict } from './ui/story.js';
-import { baseName, sentence } from './ui/recap.js';
+import { baseName, buildTurns, sentence } from './ui/recap.js';
+import { findRules, forbids, ruleChecks, ruleRelative } from './rules.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
@@ -735,6 +736,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (entry.kind === 'prompt' && groundPrompt.get(entry.session) !== entry.id) {
       groundPrompt.set(entry.session, entry.id);
       ground.start(entry.session, cwd, entry.at);
+      // The rules the request starts under: it's held to these, even if it changes the file.
+      rulesAtStart.set(entry.session, findRules(cwd).catch(() => null));
+      if (rulesAtStart.size > 500) rulesAtStart.delete(rulesAtStart.keys().next().value);
     } else if ((entry.kind === 'done' || entry.kind === 'error') && !entry.git && ground.has(entry.session)) {
       ground.finish(entry.session, cwd).then((changes) => {
         if (!changes || activity.get(entry.id)?.git) return;
@@ -744,8 +748,69 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         if (changes.head) git.head = changes.head.slice(0, 7);
         if (changes.trees) git.trees = changes.trees; // restore points: the request can be rewound
         publish([activity.upsert({ id: entry.id, git })]);
-      }, () => {});
-    }
+      }, () => {}).finally(() => applyRules(entry.id)); // the rules see what git saw, too
+    } else if (entry.kind === 'done' && !entry.git && !entry.rules) applyRules(entry.id); // no "before" from git: the steps alone
+  }
+
+  // -- Project rules (bridge/rules.js): a `.dotpals.json` every request there is held to ------
+  // When a request ends, what it changed is checked against the rules of the folder its session
+  // works in, and the result goes on its `done` entry as `rules` ([{ ok, text }]): readiness(),
+  // the cards and the MCP tools show it. Only the bridge writes `rules` (see genericEvent).
+  const rulesDone = new Set(); // done entries already checked
+  const rulesAtStart = new Map(); // session → Promise<the rules when its current request started>
+  async function applyRules(id) {
+    const entry = activity.get(id);
+    if (!entry || entry.kind !== 'done' || rulesDone.has(id)) return;
+    const cwd = sessionMeta.get(entry.session)?.cwd;
+    // The rules it started under (a request that loosens .dotpals.json is still held to the old
+    // ones); a request read without its start (backfilled), the rules as they are now.
+    const start = rulesAtStart.get(entry.session);
+    const rules = start ? await start : cwd ? await findRules(cwd).catch(() => null) : null;
+    if (!rules) return;
+    rulesDone.add(id);
+    if (rulesDone.size > 2000) rulesDone.delete(rulesDone.values().next().value);
+    // The request this entry ends: its session's entries since the prompt before it.
+    const list = [];
+    for (const e of activity.each()) if (e.session === entry.session) list.push(e);
+    const turn = buildTurns(list).findLast((t) => t.end?.id === id || t.steps.some((s) => s.id === id));
+    if (!turn) return;
+    const checks = ruleChecks(rules, { ...turn, end: activity.get(id) });
+    publish([activity.upsert({ id, rules: checks })]);
+  }
+
+  /**
+   * Claude Code is about to change a file a project rule forbids (`mustNotTouch`, or outside
+   * `onlyTouch`): 'ask' → Claude Code asks you, with the rule; 'tell' → the edit is refused and
+   * Claude reads why. The rules' own `beforeEdit` decides ("ask" unless it says otherwise).
+   * → the hook's reply, or null (no rules, nothing forbidden, `beforeEdit: "off"`).
+   */
+  async function guardRules(event) {
+    const tool = event.tool_name;
+    const path = event.tool_input?.file_path || event.tool_input?.notebook_path;
+    if (!FILE_TOOLS.has(tool) || typeof path !== 'string' || !path || typeof event.cwd !== 'string') return null;
+    const rules = await findRules(event.cwd).catch(() => null);
+    if (!rules || rules.error || rules.beforeEdit === 'off') return null;
+    const rule = forbids(rules, ruleRelative(rules, path, event.cwd));
+    if (!rule) return null;
+    const session = String(event.session_id);
+    noteSession(session, event.cwd);
+    const mode = rules.beforeEdit;
+    const name = basename(rules.file);
+    const reason = `The project’s rules (${name}) say ${rule}.`;
+    const now = Date.now();
+    const id = event.tool_use_id ? `${session}:${event.tool_use_id}` : `${session}:t:${now}`;
+    publish([activity.upsert({
+      ...(activity.get(id) ? {} : { session, label: folderName(event.cwd), harness: 'claude', at: now, tool, ...describeTool(tool, event.tool_input ?? {}, event.cwd), startedAt: now }),
+      id, guard: { mode, text: `Paused: ${reason}`, rule },
+      ...(mode === 'tell' ? { status: 'failed', error: `dotpals stopped this edit: ${reason}` } : { status: 'running' }),
+    })]);
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: mode === 'tell' ? 'deny' : 'ask',
+        permissionDecisionReason: mode === 'tell' ? `${reason} Leave it as it is, or tell the user why it has to change.` : `${reason} Edit anyway?`,
+      },
+    };
   }
 
   // -- Talk to Blu (bridge/tasks.js): a task said or typed, done by an agent, checked here ------
@@ -1259,6 +1324,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         check: undefined, // only the bridge's own checker says this
         git: undefined, // and only the bridge says what git saw
         rewound: undefined, // or that a request was rewound
+        rules: undefined, // or how it stood against the project's rules
+        guard: undefined, // or that it was paused before an edit
 
         id, session,
         harness: harness ?? known?.harness,
@@ -1838,7 +1905,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         const event = JSON.parse(body || '{}');
         if (url.pathname === '/hook' && url.searchParams.get('guard') === '1') {
           // bridge/guard-hook.js: only the conflict check (bridge/hook.js reports the activity).
-          if (event.hook_event_name === 'PreToolUse' && event.session_id && enabled('claude')) reply = guardEdit(event);
+          // A project rule first (it's the user's own), then two agents on one file.
+          if (event.hook_event_name === 'PreToolUse' && event.session_id && enabled('claude')) reply = (await guardRules(event)) ?? guardEdit(event);
         } else if (url.pathname === '/hook' && url.searchParams.get('loop') === '1') {
           // bridge/loop-hook.js: only the fix loop (bridge/hook.js reports the activity).
           if (typeof event.hook_event_name === 'string' && event.session_id && enabled('claude')) reply = await fixLoop(event);

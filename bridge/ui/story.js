@@ -1713,7 +1713,13 @@ export function readiness(turn, { claims = turn } = {}) {
   // Code changed: through a file tool, or (git says) through a command.
   const truth = gitTruth(turn);
   const byGit = truth?.files.some((f) => !NOT_CODE.test(f.path));
-  if (!turn.end || turn.end.kind !== 'done' || !(changedCode(turn.steps) || byGit)) return null;
+  if (!turn.end || turn.end.kind !== 'done') return null;
+  if (!(changedCode(turn.steps) || byGit)) {
+    // No code changed, but a project rule was broken (a lockfile, a doc it mustn't touch, rules
+    // that couldn't be read): that alone is worth saying, and is all there is to say.
+    const broke = (Array.isArray(turn.end.rules) ? turn.end.rules : []).filter((c) => c?.ok === false && typeof c.text === 'string');
+    return broke.length ? { ready: false, checks: broke.map((c) => ({ ok: false, text: c.text })), problems: broke.map((c) => c.text) } : null;
+  }
   const tested = testState(turn.steps);
   const last = lastTestVerdict(turn.steps);
   const ran = !!last && tested?.state !== 'untested';
@@ -1750,6 +1756,8 @@ export function readiness(turn, { claims = turn } = {}) {
   if (tested?.commit) checks.push({ ok: tested.commit.tested, text: tested.commit.tested ? 'The commit was tested' : 'Committed without a passing test run after the last change' });
   // What it said it did and didn't. "The tests pass" isn't repeated: the test checks above already say why not.
   for (const c of claimCheck(claims)) if (c.rule !== 'tests-pass') checks.push({ ok: false, text: claimLine(c) });
+  // The project's rules (.dotpals.json, bridge/rules.js), as the bridge checked them when it ended.
+  for (const c of Array.isArray(turn.end?.rules) ? turn.end.rules : []) if (typeof c?.text === 'string') checks.push({ ok: c.ok === true, text: c.text });
   const problems = checks.filter((c) => !c.ok).map((c) => c.text);
   return { ready: !problems.length, checks, problems };
 }
