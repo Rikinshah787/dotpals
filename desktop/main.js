@@ -11,6 +11,7 @@ import { appendFileSync, readFileSync, statSync, unwatchFile, watchFile, writeFi
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { notchBounds, notchSafeTop, overNotchIsland } from './notch-layout.js';
 import { startBridge } from '../bridge/server.js';
 import { configPath, home, loadConfig, saveConfig } from '../bridge/config.js';
 import { readUsage } from '../bridge/usage.js';
@@ -738,20 +739,20 @@ if (!app.requestSingleInstanceLock()) {
   // hover comes from the cursor feed below, keys from shortcuts held only while needed.
   let notch;
   let notchSize = { w: 220, h: 6 }; // the size we last gave it (never read back: scaling drifts)
-  let notchIsland = null;           // { w, h } of the island, hanging from the top centre; null: nothing to click
+  let notchIsland = null;           // { w, h, y } of the island, hanging from the top centre; null: nothing to click
   let notchSolid = null;            // whether it takes clicks right now
   let notchRestarts = 0;            // after a crash; it gives up after a few
-  const notchArea = () => screen.getPrimaryDisplay().workArea;
+  const notchDisplay = () => screen.getPrimaryDisplay();
+  const notchArea = () => notchDisplay().bounds;
+  const safeTop = () => notchSafeTop(notchDisplay(), process.platform);
   function createNotch() {
     if (notch && !notch.isDestroyed()) { if (!notch.isVisible()) notch.showInactive(); return; }
-    const area = notchArea();
     notchSize = { w: 220, h: 6 }; // the hidden strip, until the page says otherwise
     notchIsland = null;
     notchSolid = null;
     notch = new BrowserWindow({
       width: notchSize.w, height: notchSize.h,
-      x: Math.round(area.x + (area.width - notchSize.w) / 2),
-      y: area.y,
+      ...notchBounds(screen.getPrimaryDisplay(), notchSize),
       frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
       alwaysOnTop: true, resizable: false, movable: false, maximizable: false, fullscreenable: false,
       focusable: false, skipTaskbar: true, show: false, title: 'dotpals notch',
@@ -779,9 +780,11 @@ if (!app.requestSingleInstanceLock()) {
       setTimeout(() => { if (!gone.isDestroyed()) gone.destroy(); if (again) syncNotch(); }, 1000);
     });
     notch.on('closed', () => { notch = null; notchKeysWanted = { escape: false, approval: false }; applyNotchKeys(); });
-    notch.loadURL(`${bridge}/bridge/notch.html`).catch((err) => {
+    const url = new URL(`${bridge}/bridge/notch.html`);
+    url.searchParams.set('safeTop', String(safeTop()));
+    notch.loadURL(url.href).catch((err) => {
       console.error('[dotpals] the notch page didn’t load from the bridge:', err.message);
-      notch?.loadFile(notchPage);
+      notch?.loadFile(notchPage, { query: { safeTop: String(safeTop()) } });
     });
   }
   // When it shows: 'always' (the default: people install dotpals for the notch), 'auto' (whenever the pal is hidden) or 'off'.
@@ -809,13 +812,12 @@ if (!app.requestSingleInstanceLock()) {
     const w = Math.round(clamp(width, 40, Math.min(860, area.width)));
     const h = Math.round(clamp(height, 2, Math.min(640, area.height)));
     notchIsland = island && Number.isFinite(island.w) && Number.isFinite(island.h) && island.w > 0 && island.h > 0
-      ? { w: clamp(island.w, 1, w), h: clamp(island.h, 1, h) } : null;
+      ? { w: clamp(island.w, 1, w), h: clamp(island.h, 1, h), y: clamp(island.y, 0, h) } : null;
     syncNotchMouse(screen.getCursorScreenPoint());
     const apply = (size) => {
       if (!notch || notch.isDestroyed()) return;
       notchSize = size;
-      const a = notchArea();
-      try { notch.setBounds({ x: Math.round(a.x + (a.width - size.w) / 2), y: a.y, width: size.w, height: size.h }); } catch {}
+      try { notch.setBounds(notchBounds(screen.getPrimaryDisplay(), size)); } catch {}
     };
     clearTimeout(shrink);
     // Grow at once; shrink after the island's closing animation (both ways at once
@@ -829,10 +831,7 @@ if (!app.requestSingleInstanceLock()) {
   function syncNotchMouse(p) {
     if (!notch || notch.isDestroyed()) return;
     const a = notchArea();
-    const cx = a.x + a.width / 2;
-    const solid = !!notchIsland && notch.isVisible()
-      && p.x >= cx - notchIsland.w / 2 - 1 && p.x <= cx + notchIsland.w / 2 + 1
-      && p.y >= a.y - 1 && p.y <= a.y + notchIsland.h + 1;
+    const solid = notch.isVisible() && overNotchIsland(a, notchIsland, p);
     if (solid === notchSolid) return;
     notchSolid = solid;
     try { notch.setIgnoreMouseEvents(!solid); } catch {}
