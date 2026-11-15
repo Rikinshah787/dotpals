@@ -12,7 +12,7 @@ A small floating pal that watches Claude Code, Codex or any agent and checks its
 npx dotpals@latest setup
 ```
 
-<sub>One command on Windows, macOS or Linux. Free, open source, and your agents’ work stays on your computer. Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
+<sub>One command on Windows, macOS or Linux. Free, open source, and your agents’ work stays on your computer. No Node.js? [One line or a double-click installs it too](#install). Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
 
 [![CI](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml/badge.svg)](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -120,11 +120,29 @@ Dashboard → **Settings → Make your own pal**: pick a body, eyes, something o
 
 ## Install
 
+**Download the app** from the [latest release](https://github.com/Rikinshah787/dotpals/releases/latest): `dotpals-setup-<version>-x64.exe` for Windows (a setup wizard: pick a folder, desktop and Start menu shortcuts, no admin; `-arm64.exe` on ARM) or `dotpals-<version>-mac-arm64.dmg` for macOS (`-mac-x64.dmg` on Intel Macs; drag dotpals into Applications). It needs no Node. The first time it starts it sets everything up like the command below does, and opens a setup guide: it lists the agents on your computer, connects each one and tests it (a pal says hello on the notch). The guide is in the dotpals menu (**Set up agents…**); its setup log is in `~/.dotpals/setup.log`. It isn't signed yet: on Windows click **More info → Run anyway**, on a Mac open it once, then System Settings → Privacy & Security → **Open Anyway**. It updates itself from GitHub: a newer version downloads in the background and installs when dotpals quits (or right away, from the notification). The `dotpals` command is in `~/.dotpals/bin` (add it to your PATH if you want it in every terminal). Without Node, Claude Code's sessions still show (read from its transcripts); approvals from the pal, the file guard and the fix loop need the Claude Code plugin, which needs Node.
+
+Or, with Node 20 or newer:
+
 ```bash
 npx dotpals@latest setup
 ```
 
-Needs Node 20 or newer. It installs the desktop pal in `~/.dotpals` (with its runtime, Electron, about 100 MB, once), adds the Claude Code plugin if you have Claude Code, picks up Codex, starts the pal at login and opens the dashboard. Run it again any time to update. Options: `--no-claude`, `--no-login`, `--no-start`.
+No Node? These install it first (Node.js LTS, for every app), then run the same setup:
+
+```powershell
+# Windows (PowerShell)
+irm https://dotpals.vercel.app/install.ps1 | iex
+```
+
+```bash
+# macOS (Homebrew, or the official installer from nodejs.org, which asks for your password) and Linux
+curl -fsSL https://dotpals.vercel.app/install.sh | bash
+```
+
+Or download `dotpals-setup.bat` (Windows) or `dotpals-setup-mac.zip` (macOS) from the [latest release](https://github.com/Rikinshah787/dotpals/releases/latest) and double-click it. They aren't signed yet, so the first time Windows says "Windows protected your PC" (More info → Run anyway) and macOS says it can't check the file (System Settings → Privacy & Security → Open Anyway). On Linux the installer tells you how to get Node if you need it.
+
+Setup installs the desktop pal in `~/.dotpals` (with its runtime, Electron, about 100 MB, once), adds the Claude Code plugin if you have Claude Code, picks up Codex, starts the pal at login and opens the dashboard. Run it again any time to update. Options: `--no-claude`, `--no-login`, `--no-start`.
 
 - **Only the Claude Code plugin:** `/plugin marketplace add rikinshah787/dotpals`, then `/plugin install dotpals@dotpals`, restart Claude Code and run `/dotpals:pals`.
 - **Codex:** nothing to install. dotpals follows Codex's session logs while the pal is running.
@@ -148,7 +166,7 @@ dotpals doctor      # no pal, notch or agents? checks and fixes it
 dotpals mcp         # the MCP server (below)
 ```
 
-To uninstall (the hooks, the MCP server, the `dotpals` command and `~/.dotpals`), follow **[Uninstalling dotpals](https://dotpals.vercel.app/guide/troubleshooting.html#uninstall)**.
+To uninstall (the hooks, the MCP server, the `dotpals` command, the app and `~/.dotpals`), follow **[Uninstalling dotpals](https://dotpals.vercel.app/guide/troubleshooting.html#uninstall)**.
 
 ## Ask dotpals from any agent (MCP)
 

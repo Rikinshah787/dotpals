@@ -151,6 +151,40 @@ jobs:
           path: ${{ runner.temp }}/smoke
           if-no-files-found: ignore
 
+  packaged:
+    name: Packaged app (.${{ matrix.ext }}) on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # Builds the app people download (electron-builder, unpacked: no installer, quicker) and checks
+    # it works with no Node: test/smoke/packaged.mjs.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, ext: dmg, target: --mac --arm64, exe: dist/mac-arm64/dotpals.app/Contents/MacOS/dotpals }
+          - { os: windows-latest, ext: exe, target: --win --x64, exe: dist/win-unpacked/dotpals.exe }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Install the build tools
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the app
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.target }} --dir --publish never
+
+      - name: Start it and check it works without Node
+        shell: bash
+        env:
+          DOTPALS_APP_EXE: ${{ matrix.exe }}
+        run: node test/smoke/packaged.mjs
+
   linux-desktop:
     name: Blu's hands on a Linux desktop
     runs-on: ubuntu-latest

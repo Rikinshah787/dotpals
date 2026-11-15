@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { home } from '../config.js';
 import { findOnPath } from '../handoff.js';
+import { nodeWrapper } from '../runtime.js';
 
 const own = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]+$/, '');
 
@@ -40,10 +41,11 @@ export function nodePath({ env = process.env, platform = process.platform, execP
 }
 
 /**
- * The command another tool runs for each event: `"/usr/local/bin/node" ".../bridge/hook.js" cursor`.
+ * The command another tool runs for each event: `"/usr/local/bin/node" ".../bridge/hook.js" cursor`. With the
+ * dotpals app installed, its dotpals-node (bridge/runtime.js), which needs no Node; otherwise Node by its full path.
  * On Windows, Cursor, Gemini CLI and Copilot CLI run it in PowerShell, which needs `&` to run a quoted path.
  */
-export function hookCommand(agent, { platform = process.platform, node = nodePath({ platform }) } = {}) {
+export function hookCommand(agent, { platform = process.platform, node = nodeWrapper(platform) ?? nodePath({ platform }) } = {}) {
   const script = `"${slash(join(appRoot(), 'bridge', 'hook.js'))}" ${agent}`;
   if (!node) return `node ${script}`;
   return `${platform === 'win32' ? '& ' : ''}"${slash(node)}" ${script}`;

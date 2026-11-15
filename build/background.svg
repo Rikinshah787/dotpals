@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 380" width="540" height="380">
+  <!-- The Mac disk image's window: the source of build/background.png and background@2x.png. The icons sit at (140, 190) and (400, 190). -->
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7f9fd"/><stop offset="1" stop-color="#e6edfa"/></linearGradient></defs>
+  <rect width="540" height="380" fill="url(#bg)"/>
+  <text x="270" y="62" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="20" font-weight="600" fill="#1a2233">Drag dotpals into Applications</text>
+  <path d="M212 190 Q270 160 326 190" fill="none" stroke="#2f6ff0" stroke-width="4" stroke-linecap="round" stroke-dasharray="2 10"/>
+  <path d="M316 176 L330 192 L310 198" fill="none" stroke="#2f6ff0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="270" y="322" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#5a6478">Then open it from Applications. Your agents show up in the notch.</text>
+</svg>

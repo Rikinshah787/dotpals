@@ -10,3 +10,4 @@ igexport-*.mp4
 
 # Worktrees that helper agents work in
 .claude/worktrees/
+dist/

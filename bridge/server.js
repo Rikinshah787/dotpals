@@ -42,6 +42,9 @@
 //   POST /api/agents/<id>/connect      add dotpals to that agent's config (backs it up first)
 //   POST /api/agents/<id>/disconnect   take it out again
 //   POST /api/agents/<id>/test         run its hook with a sample event and show a pal
+//   POST /api/welcome { ok }           the desktop app, after its first setup: a short scene on the notch
+//   GET  /api/welcome                  → { setup: null | 'ok' | 'failed' } has that setup finished (the setup guide)
+//   GET  /setup                        → the setup guide: connect and test your agents (the app opens it on first install)
 //   GET  /api/usage      → { agents: [...] } plan usage, from usage.js
 //   GET  /api/approvals  → requests waiting for an answer; POST /api/approvals/<id> { decision }
 //   GET  /api/recap      → a note for one agent about the others (?session=&label=&mode=start|prompt)
@@ -1423,6 +1426,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         id: a.id, name: a.name, via: a.via, how: a.how, docs: a.docs, setup: a.setup,
         install: a.install, file: a.file?.() ?? null,
         enabled: enabled(a.id), found, where, connected,
+        installed: a.installed?.() ?? null, // Claude Code: is the plugin installed
         lastEventAt: a.id === 'generic' ? generic : lastSeen[a.id] ?? null,
         ...(a.id === 'generic' ? { endpoint: `http://127.0.0.1:${port}/event` } : {}),
       };
@@ -1464,10 +1468,26 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }
     const harness = a.id === 'generic' ? 'my-agent' : a.id;
     const scene = (next) => setState(session, harness, 'connection test', next, Date.now(), true);
-    scene({ state: 'working', text: 'Hello from the dashboard' });
+    scene({ state: 'working', text: 'Hello from dotpals' });
     setTimeout(() => scene({ state: 'done', text: 'It works!' }), 1800).unref?.();
     setTimeout(() => scene({ state: 'sleeping' }), 5000).unref?.();
     return { ok: true, via };
+  }
+
+  /** The app's first start, when setup is done: a short scene on the notch (it works), and which agents it found. */
+  let setupResult = null; // 'ok' | 'failed' once the app's first setup is done (the setup guide waits for it)
+  function welcome(ok) {
+    setupResult = ok ? 'ok' : 'failed';
+    const scene = (next) => setState('dotpals:welcome', 'dotpals', 'welcome', next, Date.now(), true);
+    const found = agents().filter((a) => a.found && a.id !== 'generic').map((a) => a.name);
+    if (ok) {
+      scene({ state: 'working', text: 'Testing the notch…' });
+      setTimeout(() => scene({ state: 'done', text: found.length ? `dotpals is ready. Watching ${found.join(', ')}.` : 'dotpals is ready. Start a coding agent and it shows up here.' }), 1800).unref?.();
+    } else {
+      scene({ state: 'error', text: 'Setup didn’t finish. Connect your agents on the dashboard’s Agents page.' });
+    }
+    setTimeout(() => scene({ state: 'sleeping' }), ok ? 12_000 : 60_000).unref?.();
+    return { ok: true, found };
   }
 
   async function usage() {
@@ -1600,6 +1620,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const changed = Object.keys(snap.files ?? {});
       return json(res, 200, { branch: snap.branch ?? null, head: snap.head?.slice(0, 7) ?? null, changed: changed.slice(0, 50), more: Math.max(0, changed.length - 50), tooMany: !!snap.tooMany });
     }
+    if (req.method === 'GET' && path === '/api/welcome') return json(res, 200, { setup: setupResult });
     if (req.method === 'GET' && path === '/api/sessions') {
       const list = [...sessionMeta].filter(([id]) => activity.has(id)).map(([id, m]) => ({
         id, cwd: m.cwd ?? null, parent: m.parent ?? null,
@@ -1697,6 +1718,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
       send('config', withLaya());
       return json(res, 200, withLaya());
+    }
+    if (path === '/api/welcome') {
+      let ok = true;
+      try { ok = JSON.parse((await readBody(req)) || '{}').ok !== false; } catch {}
+      return json(res, 200, welcome(ok));
     }
     const action = /^\/api\/agents\/([a-z][a-z0-9-]*)\/(connect|disconnect|test)$/.exec(path);
     if (action) {
@@ -1957,6 +1983,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
     const path = url.pathname === '/' ? '/bridge/index.html'
       : url.pathname === '/dashboard' ? '/bridge/dashboard.html'
+      : url.pathname === '/setup' ? '/bridge/setup.html'
       : url.pathname;
     const file = normalize(join(root, path));
     if (!file.startsWith(root) || !/[\\/](src|bridge|desktop)[\\/]/.test(file)) return res.writeHead(404).end();

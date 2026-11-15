@@ -22,6 +22,7 @@ import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
 import { codexHome } from '../bridge/adapters/codex.js';
 import { ADAPTERS } from '../bridge/adapters/index.js';
 import { findOnPath } from '../bridge/handoff.js';
+import { nodeWrapper, packagedExe } from '../bridge/runtime.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
@@ -96,6 +97,12 @@ const electronRuns = (exe) => spawnSync(exe, ['--version'], { env: { ...process.
 /** The desktop runtime (Electron): there and able to run, or installed again (`fresh`: always). */
 function desktopRuntime(fresh = false) {
   const exe = findElectron();
+  // The dotpals app (.exe, .dmg) is its own runtime: nothing to install here.
+  if (exe && exe === packagedExe()) {
+    if (electronRuns(exe)) { ok(`The dotpals app works (${exe})`); return true; }
+    warn(`The dotpals app (${exe}) won’t run. Install it again: https://github.com/rikinshah787/dotpals/releases/latest`);
+    return false;
+  }
   if (exe && !fresh && electronRuns(exe)) { ok('The desktop runtime (Electron) works'); return true; }
   if (process.env.DOTPALS_ELECTRON) { warn(`DOTPALS_ELECTRON points at your own Electron (${exe}), so it isn’t installed again`); return false; }
   console.log(`  ${dim('…')} ${exe ? 'Installing the desktop runtime (Electron) again' : 'Installing the desktop runtime (Electron, about 100 MB)'}`);
@@ -114,7 +121,7 @@ function desktopRuntime(fresh = false) {
  */
 function macBundle(fresh = false) {
   const exe = findElectron();
-  if (platform() !== 'darwin' || !exe || process.env.DOTPALS_ELECTRON) return;
+  if (platform() !== 'darwin' || !exe || process.env.DOTPALS_ELECTRON || exe === packagedExe()) return;
   const dist = electronDist(exe);
   const had = bundleVersion(macApp);
   const want = bundleVersion(join(dist, 'Electron.app'));
@@ -312,6 +319,9 @@ async function setup(flags) {
   // 5. Claude Code: add the plugin (hooks + /dotpals:pals).
   if (flags.has('--no-claude')) skip('Claude Code: skipped');
   else if (!has('claude')) skip('Claude Code: not found. Later, in Claude Code run: /plugin marketplace add rikinshah787/dotpals, then /plugin install dotpals@dotpals');
+  // The plugin's hooks run `node`. Without it (the dotpals app needs none), Claude Code's sessions
+  // still show, read from its transcripts; the plugin adds approvals, the file guard and the fix loop.
+  else if (!has('node')) skip(`Claude Code: found. Its sessions show up from its transcripts. For approvals from the pal, install Node.js (nodejs.org), then run ${packagedExe() ? `"${join(home(), 'bin', 'dotpals')}"` : 'dotpals'} setup`);
   else {
     const added = run('claude', ['plugin', 'marketplace', 'add', 'rikinshah787/dotpals']);
     const out = `${added.stdout}${added.stderr}`;
@@ -326,7 +336,7 @@ async function setup(flags) {
   if (existsSync(codexHome())) ok('Codex: found. Its sessions show up automatically');
   else skip('Codex: not found (it will be picked up if you install it later)');
 
-  // Agents connected before: connect them again, so their hooks run this install with Node's full path.
+  // Agents connected before: connect them again, so their hooks run this install with Node's full path (or the dotpals app's runtime when it's there).
   for (const a of ADAPTERS) {
     if (a.setup !== 'connect' || !a.command || !a.connected()) continue;
     try { a.connect(); ok(`${a.name}: hooks updated`); } catch (err) { warn(`${a.name}: ${err.message}`); }
@@ -514,7 +524,10 @@ function statusline(flags) {
   if (ours(settings.statusLine)) { ok('Already set up. Claude Code shares its usage limits with dotpals'); return; }
   mkdirSync(home(), { recursive: true });
   writeFileSync(savedFile, `${JSON.stringify({ previous: settings.statusLine ?? null }, null, 2)}\n`);
-  write({ ...settings, statusLine: { type: 'command', command: `node "${script.replace(/\\/g, '/')}"` } });
+  // With the dotpals app, its dotpals-node (no Node needed). Not on Windows: Claude Code may run it
+  // in PowerShell or in Git Bash there, and no one quoted command suits both.
+  const runner = platform() !== 'win32' && nodeWrapper();
+  write({ ...settings, statusLine: { type: 'command', command: `${runner ? `"${runner}"` : 'node'} "${script.replace(/\\/g, '/')}"` } });
   ok(`Claude Code will share its usage limits with dotpals${settings.statusLine ? ' (your status line still shows as before)' : ''}`);
   console.log(`  ${dim(`Backup: ${settingsFile}.dotpals-backup · undo: dotpals statusline --off`)}`);
 }

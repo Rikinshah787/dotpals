@@ -20,7 +20,7 @@
 //   probe({ url, token })   the same for a plugin that runs inside the agent
 //
 // Switch any of them off with { "agents": { "<id>": false } } in ~/.dotpals/config.json.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { codexHome, codexSessions, watchCodex } from './codex.js';
@@ -40,6 +40,10 @@ const claude = {
   detect() {
     const where = join(homedir(), '.claude');
     return { found: existsSync(where), where };
+  },
+  /** Is dotpals' plugin installed in Claude Code? (Claude Code's own list.) The setup guide shows it. */
+  installed() {
+    try { return !!JSON.parse(readFileSync(join(homedir(), '.claude', 'plugins', 'installed_plugins.json'), 'utf8')).plugins?.['dotpals@dotpals']; } catch { return false; }
   },
 };
 

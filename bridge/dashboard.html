@@ -3144,7 +3144,7 @@ npm test && s=done || s=error; curl -s ${url} -d "{\\"session\\":\\"sh\\",\\"har
         const r = await api(`/api/agents/${a.id}/${action}`, {});
         if (action === 'test') {
           notes.set(a.id, r.ok
-            ? { cls: 'ok', text: `${r.via === 'hook' ? 'The hook command ran and reached dotpals. ' : r.via === 'plugin' ? 'The plugin loaded and reached dotpals. ' : ''}Look for a pal saying “Hello from the dashboard”.` }
+            ? { cls: 'ok', text: `${r.via === 'hook' ? 'The hook command ran and reached dotpals. ' : r.via === 'plugin' ? 'The plugin loaded and reached dotpals. ' : ''}Look for a pal saying “Hello from dotpals”.` }
             : { cls: 'bad', text: r.error });
         } else {
           const file = r.file ? ` ${action === 'connect' ? 'Added to' : 'Removed from'} ${r.file}.` : '';
