@@ -3,7 +3,7 @@
 // plugin). Every change backs the original up first, merges instead of
 // overwriting, and can be undone; a file we can't read is never touched.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { home } from '../config.js';
 import { findOnPath } from '../handoff.js';
@@ -31,12 +31,16 @@ const slash = (p) => p.replace(/\\/g, '/');
  * puts a link or shim there (nvm-windows, Volta, Homebrew), it stays put when Node is
  * upgraded, while the running Node's own path can be a version's folder that goes away.
  * fnm's PATH entry is a folder for one terminal, so it's followed to the real one. Then
- * this Node (not in the desktop app, where it's Electron), and last plain `node`.
+ * this Node; in the desktop app (Electron, maybe started at login with a short PATH) Node's usual
+ * install folders instead. Last, plain `node`.
  */
 export function nodePath({ env = process.env, platform = process.platform, execPath = process.execPath, electron = !!process.versions.electron, exists, realpath = realpathSync } = {}) {
   const found = findOnPath('node', { env: { ...env, PATHEXT: '.exe' }, platform, exists });
   if (found && /fnm_multishells/i.test(found)) try { return realpath(found); } catch {}
-  return found ?? (electron ? null : execPath);
+  if (found) return found;
+  if (!electron) return execPath;
+  const usual = platform === 'win32' ? [win32.join(env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe')] : ['/opt/homebrew/bin/node', '/usr/local/bin/node'];
+  return usual.find((f) => (exists ?? existsSync)(f)) ?? null;
 }
 
 /**

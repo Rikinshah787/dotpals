@@ -144,7 +144,7 @@ Needs Node 20 or newer. It installs the desktop pal in `~/.dotpals` (with its ru
 dotpals start       # open the floating pal
 dotpals dashboard   # open the dashboard
 dotpals status      # what's running and connected
-dotpals doctor      # no pal, notch or agents? checks and fixes it
+dotpals doctor      # no pal, notch or agents? checks, fixes what it can, says what to run for the rest
 dotpals mcp         # the MCP server (below)
 ```
 
