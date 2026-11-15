@@ -116,3 +116,22 @@ test('Gemini connect merges into settings.json and disconnect restores it', asyn
   gemini.disconnect();
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), {});
 });
+
+test('Gemini: a hook from before (plain `node`) still counts, Connect upgrades it, Disconnect removes it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-gemini-'));
+  process.env.DOTPALS_GEMINI_DIR = dir;
+  t.after(async () => { delete process.env.DOTPALS_GEMINI_DIR; await rm(dir, { recursive: true, force: true }); });
+  const file = join(dir, 'settings.json');
+  const old = 'node "C:/Users/me/.dotpals/app/bridge/hook.js" gemini';
+  const write = () => writeFile(file, JSON.stringify({ theme: 'Dracula', hooks: { AfterTool: [{ matcher: '*', hooks: [{ name: 'dotpals', type: 'command', command: old }] }] } }));
+  await write();
+  assert.equal(gemini.connected(), true);
+  gemini.connect();
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(after.hooks.AfterTool.length, 1);
+  assert.match(after.hooks.AfterTool[0].hooks[0].command, /^(& )?"[^"]+" ".+\/bridge\/hook\.js" gemini$/);
+  await write();
+  gemini.disconnect();
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { theme: 'Dracula' });
+  assert.equal(gemini.connected(), false);
+});

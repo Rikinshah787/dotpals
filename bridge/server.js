@@ -106,6 +106,7 @@ import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weaken
 import { baseName, buildTurns, sentence } from './ui/recap.js';
 import { findRules, forbids, ruleChecks, ruleRelative } from './rules.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
+import { codexSessions } from './adapters/codex.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
 import { brainKeys, checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
@@ -1445,8 +1446,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         try { await a.probe({ url, token }); } catch (e) { err = e.message; tests.get(`${a.id}:${token}`)?.(false); }
       } else {
         via = 'hook';
-        const child = spawn(a.command?.() ?? '', {
-          shell: true, windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'],
+        // In PowerShell on Windows, as the agents run it (cmd can't run `& "…node.exe"`).
+        const command = a.command?.() ?? '';
+        const win = process.platform === 'win32';
+        const child = spawn(win ? 'powershell.exe' : command, win ? ['-NoProfile', '-NonInteractive', '-Command', command] : [], {
+          shell: !win, windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'],
           env: { ...process.env, DOTPALS_URL: url },
         });
         child.stderr.on('data', (c) => (err += c));
@@ -1471,7 +1475,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   }
 
   async function status() {
-    const codexDir = join(homedir(), '.codex', 'sessions');
+    const codexDir = codexSessions();
     let historySize = 0;
     try { historySize = (await stat(history.file())).size; } catch {}
     return {
@@ -1483,7 +1487,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       entries: activity.all().length,
       adapters: {
         claude: { lastEventAt: lastSeen.claude ?? null, hint: 'Install the Claude Code plugin: /plugin install dotpals@dotpals' },
-        codex: { enabled: config.codex, found: existsSync(codexDir), dir: codexDir, lastEventAt: lastSeen.codex ?? null },
+        codex: { enabled: config.codex, found: adapter('codex').detect().found, dir: codexDir, lastEventAt: lastSeen.codex ?? null },
         generic: { endpoint: `http://127.0.0.1:${port}/event`, lastEventAt: Object.entries(lastSeen).filter(([h]) => h !== 'claude' && h !== 'codex').reduce((m, [, t]) => Math.max(m, t), 0) || null },
       },
       agents: agents(),

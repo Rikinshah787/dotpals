@@ -2,10 +2,11 @@
 // hooks.json, Gemini CLI's settings.json…) or a file in its folder (an OpenCode
 // plugin). Every change backs the original up first, merges instead of
 // overwriting, and can be undone; a file we can't read is never touched.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { home } from '../config.js';
+import { findOnPath } from '../handoff.js';
 
 const own = fileURLToPath(new URL('../..', import.meta.url)).replace(/[\\/]+$/, '');
 
@@ -23,10 +24,32 @@ export function appRoot() {
 
 const slash = (p) => p.replace(/\\/g, '/');
 
-/** The command another tool runs for each event: `node ".../bridge/hook.js" cursor`. */
-export const hookCommand = (agent) => `node "${slash(join(appRoot(), 'bridge', 'hook.js'))}" ${agent}`;
+/**
+ * The Node that hook commands run, by its full path: an agent may run its hooks without
+ * Node on its PATH (an app started from the Start menu or the Dock, or an agent that
+ * doesn't need Node itself). The `node` on PATH comes first: where a version manager
+ * puts a link or shim there (nvm-windows, Volta, Homebrew), it stays put when Node is
+ * upgraded, while the running Node's own path can be a version's folder that goes away.
+ * fnm's PATH entry is a folder for one terminal, so it's followed to the real one. Then
+ * this Node (not in the desktop app, where it's Electron), and last plain `node`.
+ */
+export function nodePath({ env = process.env, platform = process.platform, execPath = process.execPath, electron = !!process.versions.electron, exists, realpath = realpathSync } = {}) {
+  const found = findOnPath('node', { env: { ...env, PATHEXT: '.exe' }, platform, exists });
+  if (found && /fnm_multishells/i.test(found)) try { return realpath(found); } catch {}
+  return found ?? (electron ? null : execPath);
+}
 
-/** Is this one of our commands (from any install location)? */
+/**
+ * The command another tool runs for each event: `"/usr/local/bin/node" ".../bridge/hook.js" cursor`.
+ * On Windows, Cursor, Gemini CLI and Copilot CLI run it in PowerShell, which needs `&` to run a quoted path.
+ */
+export function hookCommand(agent, { platform = process.platform, node = nodePath({ platform }) } = {}) {
+  const script = `"${slash(join(appRoot(), 'bridge', 'hook.js'))}" ${agent}`;
+  if (!node) return `node ${script}`;
+  return `${platform === 'win32' ? '& ' : ''}"${slash(node)}" ${script}`;
+}
+
+/** Is this one of our commands? Known by the script and the agent, from any install location and whatever runs it (plain `node`, its full path or a wrapper). */
 export const isOurs = (command, agent) => new RegExp(`[\\\\/]bridge[\\\\/]hook\\.js"?\\s+${agent}\\b`).test(String(command ?? ''));
 
 export const backupPath = (file) => `${file}.dotpals-backup`;

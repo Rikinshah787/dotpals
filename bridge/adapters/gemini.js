@@ -1,7 +1,7 @@
 // Gemini CLI adapter: Gemini CLI's hooks (https://geminicli.com/docs/hooks/,
 // on by default since v0.26.0).
 //
-// Connect adds `node ".../bridge/hook.js" gemini` to ~/.gemini/settings.json for
+// Connect adds `"<node>" ".../bridge/hook.js" gemini` to ~/.gemini/settings.json for
 // the events below; Gemini runs it with the event as JSON on stdin, hook.js
 // forwards it to POST /hook?agent=gemini and prints {} (which changes nothing).
 // Gemini only runs hooks in folders you've trusted.

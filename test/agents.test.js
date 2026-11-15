@@ -75,7 +75,7 @@ test('agents API: list, connect, test through the real hook, switch off, disconn
   const hooks = JSON.parse(await readFile(join(tmp, 'cursor', 'hooks.json'), 'utf8'));
   assert.ok(hooks.hooks.stop.length);
 
-  // "Send a test event" runs the command from hooks.json (node bridge/hook.js cursor).
+  // "Send a test event" runs the command from hooks.json ("<node>" bridge/hook.js cursor).
   const tested = await call(port, 'POST', '/api/agents/cursor/test', {}, ours);
   assert.deepEqual(tested.json, { ok: true, via: 'hook' });
   const gemini = await call(port, 'POST', '/api/agents/gemini/connect', {}, ours);

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The notch waits before it pops out.** Passing the mouse over the top edge (to a title bar or a browser tab) no longer wakes it: the small island peeks out only after the pointer rests there for a second, and opens after 1.5 s more on the peek. The slim bar opens after 600 ms of hovering instead of 200 ms. Alerts and clicks still open it at once (`TIMING.peekAfter`, `bridge/ui/notch-state.js`).
+- **Codex is found in more places.** dotpals now follows Codex's `CODEX_HOME` when it's set, sees Codex as installed before its first session finishes, and picks up the sessions folder when it appears, without a restart. Setup, `dotpals status`, the Agents page and the usage limits all use the same lookup (`codexHome()`, `codexSessions()` in `bridge/adapters/codex.js`).
+- **Agents connect on Windows without Node on their PATH.** The hooks Connect adds for Cursor, Gemini CLI and Copilot CLI now run Node by its full path (`& "C:/Program Files/nodejs/node.exe" ".../bridge/hook.js" cursor` on Windows, where they run in PowerShell), so events arrive even when the agent was started from the Start menu or the Dock. Running setup again upgrades hooks added before. `dotpals doctor` checks each connected agent's hook still points at a Node that's there, and on Windows that apps started from the Start menu find `node` for the Claude Code plugin (`nodePath()`, `hookCommand()` in `bridge/adapters/setup.js`).
+
+### Docs
+
+- **Uninstalling dotpals.** A full uninstall section in Troubleshooting, linked from every guide page's sidebar and the README. It adds what was missing: removing the MCP server, the Claude Code plugin's marketplace, and the global `dotpals` command (`npm uninstall -g dotpals`).
+
 ## [0.12.0] - 2026-10-14
 
 Talk to Blu: say it to the pal in your notch. Blu looks at your screen when you ask about it, draws on it as it explains (step by step, in its own handwriting), does things on your computer, uses your apps with your yes, and hands coding work to Claude and checks it, with the AI you already have.

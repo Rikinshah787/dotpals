@@ -1,6 +1,6 @@
 // Cursor adapter: Cursor's agent hooks (https://cursor.com/docs/hooks).
 //
-// Connect adds `node ".../bridge/hook.js" cursor` to ~/.cursor/hooks.json for the
+// Connect adds `"<node>" ".../bridge/hook.js" cursor` to ~/.cursor/hooks.json for the
 // hooks below; Cursor runs it with the event as JSON on stdin, and hook.js
 // forwards it to POST /hook?agent=cursor. Cursor reloads hooks.json on save.
 //

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createActivityLog } from '../bridge/activity.js';
 import cursor, { applyCursor, EVENTS } from '../bridge/adapters/cursor.js';
+import { hookCommand, isOurs, nodePath } from '../bridge/adapters/setup.js';
 import { buildTurns } from '../bridge/ui/recap.js';
 import { readiness, testVerdict, weakenedTests, whyStopped } from '../bridge/ui/story.js';
 
@@ -145,7 +146,8 @@ test('Cursor connect merges into hooks.json, backs it up, and disconnect takes o
   assert.equal(after.version, 1);
   assert.equal(after.hooks.afterFileEdit.length, 2);
   assert.equal(after.hooks.afterFileEdit[0].command, './hooks/format.sh');
-  for (const event of EVENTS) assert.match(after.hooks[event].at(-1).command, /^node ".+\/bridge\/hook\.js" cursor$/);
+  // Node by its full path, quoted: the agent may not have it on its PATH.
+  for (const event of EVENTS) assert.match(after.hooks[event].at(-1).command, /^(& )?"[^"]+" ".+\/bridge\/hook\.js" cursor$/);
   // Never the hooks that approve or block.
   for (const blocking of ['preToolUse', 'beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'subagentStart']) assert.equal(after.hooks[blocking], undefined);
   assert.equal(cursor.connected(), true);
@@ -156,6 +158,60 @@ test('Cursor connect merges into hooks.json, backs it up, and disconnect takes o
 
   cursor.disconnect();
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), mine);
+  assert.equal(cursor.connected(), false);
+});
+
+test('hookCommand runs Node by its full path, quoted, with PowerShell’s & on Windows', () => {
+  const mac = hookCommand('cursor', { platform: 'darwin', node: '/Users/me/My Tools/.volta/bin/node' });
+  assert.match(mac, /^"\/Users\/me\/My Tools\/\.volta\/bin\/node" "[^"]+\/bridge\/hook\.js" cursor$/);
+  const win = hookCommand('cursor', { platform: 'win32', node: 'C:\\Program Files\\nodejs\\node.exe' });
+  assert.match(win, /^& "C:\/Program Files\/nodejs\/node\.exe" "[^"]+\/bridge\/hook\.js" cursor$/);
+  // No Node found at all: plain `node`, as before.
+  assert.match(hookCommand('cursor', { node: null }), /^node "[^"]+\/bridge\/hook\.js" cursor$/);
+  // Ours by the script and the agent, whatever runs it.
+  for (const command of [mac, win, 'node "C:/old/place/bridge/hook.js" cursor', '"/Users/me/.dotpals/bin/dotpals-node" "/Users/me/.dotpals/app/bridge/hook.js" cursor']) assert.equal(isOurs(command, 'cursor'), true, command);
+  assert.equal(isOurs(win, 'gemini'), false);
+});
+
+test('nodePath: the node on PATH first, then this Node, never the desktop app’s Electron', () => {
+  const at = (...files) => ({ exists: (f) => files.includes(f) });
+  // A version manager's link on PATH stays put when Node is upgraded: it wins over the running Node's own path.
+  assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin:/Users/me/.volta/bin' }, execPath: '/Users/me/.volta/tools/image/node/22.1.0/bin/node', ...at('/Users/me/.volta/bin/node') }), '/Users/me/.volta/bin/node');
+  const winNode = join('C:\\nvm4w\\nodejs', 'node.exe');
+  assert.equal(nodePath({ platform: 'win32', env: { PATH: 'C:\\Windows;C:\\nvm4w\\nodejs' }, ...at(winNode) }), winNode);
+  // fnm's folder for one terminal is followed to the real one.
+  const fnm = join('C:\\Users\\me\\AppData\\Local\\fnm_multishells\\123_456', 'node.exe');
+  assert.equal(nodePath({ platform: 'win32', env: { PATH: 'C:\\Users\\me\\AppData\\Local\\fnm_multishells\\123_456' }, ...at(fnm), realpath: () => 'C:\\fnm\\node-versions\\v22\\installation\\node.exe' }), 'C:\\fnm\\node-versions\\v22\\installation\\node.exe');
+  // Not on PATH: this Node, but never Electron's binary.
+  assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin' }, execPath: '/opt/node/bin/node', electron: false, ...at() }), '/opt/node/bin/node');
+  assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin' }, execPath: '/Applications/dotpals.app/Contents/MacOS/Electron', electron: true, ...at() }), null);
+});
+
+test('Cursor: hooks from before (plain `node`) still count, Connect upgrades them, Disconnect removes them', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-cursor-'));
+  process.env.DOTPALS_CURSOR_DIR = dir;
+  t.after(async () => { delete process.env.DOTPALS_CURSOR_DIR; await rm(dir, { recursive: true, force: true }); });
+  const file = join(dir, 'hooks.json');
+  const old = 'node "C:/Users/me/.dotpals/app/bridge/hook.js" cursor';
+  const mine = { command: './hooks/format.sh' };
+  const write = () => writeFile(file, JSON.stringify({ version: 1, hooks: { stop: [mine, { command: old, timeout: 5 }], afterFileEdit: [{ command: old, timeout: 5 }] } }));
+  await write();
+  assert.equal(cursor.connected(), true);
+  assert.equal(cursor.command(), old);
+
+  cursor.connect();
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(after.hooks.stop.length, 2);
+  assert.deepEqual(after.hooks.stop[0], mine);
+  for (const event of EVENTS) {
+    assert.equal(after.hooks[event].filter((h) => h.command === old).length, 0, event);
+    assert.match(after.hooks[event].at(-1).command, /^(& )?"[^"]+" ".+\/bridge\/hook\.js" cursor$/, event);
+  }
+
+  // Disconnect takes the old form out too, without connecting first.
+  await write();
+  cursor.disconnect();
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).hooks, { stop: [mine] });
   assert.equal(cursor.connected(), false);
 });
 
