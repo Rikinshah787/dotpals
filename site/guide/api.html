@@ -262,7 +262,7 @@ feed.addEventListener('context', (e) =&gt; console.log('context', JSON.parse(e.d
 <p>Claude Code's entry also has <code>install</code> (the <code>/plugin</code> commands), and the <code>generic</code> entry has <code>endpoint</code>, the address for <code>POST /event</code>.</p>
 <ul>
   <li><strong><code>POST /api/agents/&lt;id&gt;/connect</code></strong> and <strong><code>/disconnect</code></strong> (with <code>x-dotpals: 1</code>) return <code>{ ok: true, file, backup, command?, note?, agent }</code>, where <code>agent</code> is the updated object. An agent that doesn't need connecting, or a config file that can't be read, gets <code>400</code> with the reason; an unknown id gets <code>404</code>.</li>
-  <li><strong><code>POST /api/agents/&lt;id&gt;/test</code></strong> runs the agent's real hook command (or loads its plugin) with a sample event, waits up to 6 seconds for it to arrive, then plays a short scene on a pal. It returns <code>{ ok: true, via }</code>, where <code>via</code> is <code>hook</code>, <code>plugin</code> or <code>bridge</code>, or <code>{ ok: false, via, error }</code>. Test events aren't recorded as activity.</li>
+  <li><strong><code>POST /api/agents/&lt;id&gt;/test</code></strong> runs the agent's real hook command (or loads its plugin) with a sample event, waits up to 15 seconds for it to arrive, then plays a short scene on a pal. It returns <code>{ ok: true, via }</code>, where <code>via</code> is <code>hook</code>, <code>plugin</code> or <code>bridge</code>, or <code>{ ok: false, via, error }</code>. Test events aren't recorded as activity.</li>
 </ul>
 
 <h2 id="dismiss">POST /api/sessions/&lt;id&gt;/dismiss</h2>

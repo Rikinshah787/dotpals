@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { HANDOFF_AGENTS, findOnPath, handoffPrompt, installedAgents, launchCommand, onPath } from '../bridge/handoff.js';
 import { handoffNote } from '../bridge/ui/handoff.js';
 
@@ -88,13 +88,13 @@ test('launchCommand: Windows Terminal, a console window, macOS Terminal, Linux t
 });
 
 test('onPath and installedAgents: what’s installed', () => {
-  const files = new Set([join('C:\\bin', 'codex.cmd'), join('/usr/bin', 'gemini')].map((f) => f.toLowerCase()));
+  const files = new Set([win32.join('C:\\bin', 'codex.cmd'), posix.join('/usr/bin', 'gemini')].map((f) => f.toLowerCase()));
   const exists = (f) => files.has(f.toLowerCase()); // Windows doesn't mind the case
   assert.equal(onPath('codex', { env: { PATH: 'C:\\x;C:\\bin', PATHEXT: '.EXE;.CMD' }, platform: 'win32', exists }), true);
   assert.equal(onPath('claude', { env: { PATH: 'C:\\x;C:\\bin', PATHEXT: '.EXE;.CMD' }, platform: 'win32', exists }), false);
   // Only absolute folders: a "." or relative PATH entry would find a project's own codex.cmd.
-  assert.equal(findOnPath('codex', { env: { PATH: '.;bin;C:\\bin', PATHEXT: '.CMD' }, platform: 'win32', exists: () => true }), join('C:\\bin', 'codex.CMD'));
-  assert.equal(findOnPath('gemini', { env: { PATH: '.:/usr/bin' }, platform: 'linux', exists: () => true }), join('/usr/bin', 'gemini'));
+  assert.equal(findOnPath('codex', { env: { PATH: '.;bin;C:\\bin', PATHEXT: '.CMD' }, platform: 'win32', exists: () => true }), win32.join('C:\\bin', 'codex.CMD'));
+  assert.equal(findOnPath('gemini', { env: { PATH: '.:/usr/bin' }, platform: 'linux', exists: () => true }), posix.join('/usr/bin', 'gemini'));
   assert.deepEqual(installedAgents({ has: (c) => c !== 'claude' }).map((a) => a.id), ['codex', 'gemini']);
   assert.deepEqual(Object.keys(HANDOFF_AGENTS), ['codex', 'claude', 'gemini']);
 });

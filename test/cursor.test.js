@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { createActivityLog } from '../bridge/activity.js';
 import cursor, { applyCursor, EVENTS } from '../bridge/adapters/cursor.js';
 import { hookCommand, isOurs, nodePath } from '../bridge/adapters/setup.js';
@@ -183,10 +183,10 @@ test('nodePath: the node on PATH first, then this Node, never the desktop app’
   const at = (...files) => ({ exists: (f) => files.includes(f) });
   // A version manager's link on PATH stays put when Node is upgraded: it wins over the running Node's own path.
   assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin:/Users/me/.volta/bin' }, execPath: '/Users/me/.volta/tools/image/node/22.1.0/bin/node', ...at('/Users/me/.volta/bin/node') }), '/Users/me/.volta/bin/node');
-  const winNode = join('C:\\nvm4w\\nodejs', 'node.exe');
+  const winNode = win32.join('C:\\nvm4w\\nodejs', 'node.exe');
   assert.equal(nodePath({ platform: 'win32', env: { PATH: 'C:\\Windows;C:\\nvm4w\\nodejs' }, ...at(winNode) }), winNode);
   // fnm's folder for one terminal is followed to the real one.
-  const fnm = join('C:\\Users\\me\\AppData\\Local\\fnm_multishells\\123_456', 'node.exe');
+  const fnm = win32.join('C:\\Users\\me\\AppData\\Local\\fnm_multishells\\123_456', 'node.exe');
   assert.equal(nodePath({ platform: 'win32', env: { PATH: 'C:\\Users\\me\\AppData\\Local\\fnm_multishells\\123_456' }, ...at(fnm), realpath: () => 'C:\\fnm\\node-versions\\v22\\installation\\node.exe' }), 'C:\\fnm\\node-versions\\v22\\installation\\node.exe');
   // Not on PATH: this Node, but never Electron's binary.
   assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin' }, execPath: '/opt/node/bin/node', electron: false, ...at() }), '/opt/node/bin/node');
