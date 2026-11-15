@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-15
+
 ### Added
 
+- **Your AI agent can install dotpals.** Paste `Install dotpals for me: follow https://dotpals.vercel.app/install.md` into Claude Code, Codex, Cursor or any agent that runs commands. It checks for Node.js (and offers the app when there isn't one), runs `npx dotpals@latest setup --yes`, then `dotpals doctor`, offers to connect the other agents it finds through the agents API (asking before it changes their config, then testing each one on the notch) and says what it did. `site/install.md` is also a skill file (`install-dotpals`). The landing page, the README and the guide show the message with a Copy button.
 - **The dotpals app: download, double-click, done.** Each release has a Windows setup wizard (`dotpals-setup-<version>-x64.exe` and `-arm64.exe`: license, install folder, desktop and Start menu shortcuts, then *Run dotpals*; no admin, installs for you only) and macOS disk images that show where to drag it (`dotpals-<version>-mac-arm64.dmg` and `-mac-x64.dmg`). No Node.js needed: the app is its own runtime. Its first start runs setup with the defaults (`~/.dotpals/setup.log`), opens a setup guide (`/setup`, and **Set up agents…** in the tray): it waits for setup, lists the agents on this computer, connects each one with a click and tests it by running its real hook, so a pal says hello on the notch, then says which ones work. The notch also plays a short welcome when setup is done (`GET`/`POST /api/welcome`); on a Mac, opened from the disk image or Downloads, it offers to move itself to Applications. Cursor, Gemini CLI, Copilot CLI and (on macOS and Linux) the status line run their hooks through `~/.dotpals/bin/dotpals-node`, the app as Node, and `~/.dotpals/bin/dotpals` is the `dotpals` command; both quietly do nothing once the app is uninstalled. Without Node.js, setup leaves out the Claude Code plugin (its hooks run `node`) and Claude Code's sessions show from its transcripts. It updates itself: once a day it asks GitHub for a newer release, downloads the installer for your computer in the background (`~/.dotpals/updates`), checks it against the release's `SHA256SUMS.txt` and installs it when dotpals quits, or right away from the notification; settings and history stay. No new dependencies (no electron-updater), so it works unsigned on macOS too. Not signed yet, so Windows and macOS ask once. Built, started and checked on Windows and macOS for every push (CI) and release (`.github/workflows/release-installers.yml`, with `SHA256SUMS.txt`).
 - **Install without Node.js.** One line installs Node.js LTS if you need it (for every app, so your agents' hooks find it too), then runs `npx dotpals@latest setup`: `irm https://dotpals.vercel.app/install.ps1 | iex` on Windows (winget, or the signed installer from nodejs.org), `curl -fsSL https://dotpals.vercel.app/install.sh | bash` on macOS (Homebrew, or the signed installer from nodejs.org) and Linux (where it says how to get Node). Or download `dotpals-setup.bat` or `dotpals-setup-mac.zip` from a release and double-click it; they aren't signed yet, so Windows and macOS ask once. Each release gets them by itself (`.github/workflows/release-installers.yml`).
 
@@ -435,7 +438,8 @@ The first public release.
 
 The first internal version: the `<dot-pal>` web component, and a Claude Code bridge that turns hook events into pal states.
 
-[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/rikinshah787/dotpals/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/rikinshah787/dotpals/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/rikinshah787/dotpals/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/rikinshah787/dotpals/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/rikinshah787/dotpals/compare/v0.9.6...v0.10.0

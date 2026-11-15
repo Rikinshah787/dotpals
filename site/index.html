@@ -77,7 +77,7 @@
     <!-- ================= HERO ================= -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#new">New in 0.12: Talk to Blu →</a></p>
+        <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Open source · MIT · <a href="#install">New in 0.13: the app, and your AI agent installs it →</a></p>
         <h1 id="hero-title">See what your coding agent <em>actually</em> did.</h1>
         <p class="lede">dotpals is a small floating pal that watches Claude Code, Codex or any coding agent and checks its work: what it changed, what it ran, and whether the tests really passed. When Claude breaks the tests, dotpals sends it back to fix them. And any AI tool can ask dotpals what really happened.</p>
 
@@ -89,7 +89,15 @@
           </div>
           <a class="btn btn-star" href="https://github.com/Rikinshah787/dotpals"><span aria-hidden="true">⭐</span> Star on GitHub</a>
         </div>
-        <p class="fine">One command on Windows, macOS or Linux. Free, and your agents’ work stays on your computer. No Node.js? <a href="#install">Download the app</a>, or one line installs Node too. Or straight from GitHub: <code>npx --allow-git=all github:rikinshah787/dotpals setup</code></p>
+        <div class="cta cta-agent">
+          <span class="cta-label">Or ask your AI agent:</span>
+          <div class="install" data-copy="Install dotpals for me: follow https://dotpals.vercel.app/install.md">
+            <span class="prompt" aria-hidden="true">✦</span>
+            <code>Install dotpals for me: follow https://dotpals.vercel.app/install.md</code>
+            <button class="copy-btn" type="button" aria-label="Copy the message for your AI agent">Copy</button>
+          </div>
+        </div>
+        <p class="fine">One command on Windows, macOS or Linux. Or paste the message into Claude Code, Codex, Cursor or any agent: it installs dotpals, connects your agents (asking first) and checks it works. Free, and your agents’ work stays on your computer. No Node.js? <a href="#install">Download the app</a>, or one line installs Node too. Or straight from GitHub: <code>npx --allow-git=all github:rikinshah787/dotpals setup</code></p>
         <p class="visitors" id="visitors" hidden><span class="pulse" aria-hidden="true"></span> <b id="visitors-n"></b> <span id="visitors-label">visitors so far</span></p>
       </div>
 
@@ -542,7 +550,7 @@
     <section class="final" id="install" aria-labelledby="final-title">
       <div class="wrap final-inner">
         <h2 id="final-title">Give your agent <em>a pal.</em></h2>
-        <p class="lede-sm">One command installs the pal, adds the Claude Code plugin if you have it, picks up Codex, and opens the dashboard.</p>
+        <p class="lede-sm">One command installs the pal, adds the Claude Code plugin if you have it, picks up Codex, and opens the dashboard. Or let your AI agent do it.</p>
         <div class="cta cta-center">
           <div class="install" data-copy="npx dotpals@latest setup">
             <span class="prompt" aria-hidden="true">$</span>
@@ -551,6 +559,15 @@
           </div>
           <a class="btn btn-star" href="https://github.com/Rikinshah787/dotpals"><span aria-hidden="true">⭐</span> Star on GitHub</a>
         </div>
+        <div class="cta cta-agent">
+          <span class="cta-label">Or ask your AI agent:</span>
+          <div class="install" data-copy="Install dotpals for me: follow https://dotpals.vercel.app/install.md">
+            <span class="prompt" aria-hidden="true">✦</span>
+            <code>Install dotpals for me: follow https://dotpals.vercel.app/install.md</code>
+            <button class="copy-btn" type="button" aria-label="Copy the message for your AI agent">Copy</button>
+          </div>
+        </div>
+        <p class="fine">The agent follows <a href="./install.md">install.md</a>, the same steps as below, written for agents (it's a skill file too). It says what it runs, and asks before it connects another agent.</p>
         <p class="fine"><strong>No Node.js needed:</strong> <a href="https://github.com/Rikinshah787/dotpals/releases/latest">download the app</a>, the <code>.exe</code> for Windows (a setup wizard, no admin) or the <code>.dmg</code> for macOS. It opens a setup guide that connects your agents and tests each one on the notch, and it updates itself from GitHub. Not signed yet, so the first time click <em>More info → Run anyway</em> on Windows, or <em>Open Anyway</em> in System Settings → Privacy &amp; Security on a Mac.</p>
         <p class="fine">Or let a script install Node.js first. Windows (PowerShell): <code>irm https://dotpals.vercel.app/install.ps1 | iex</code> · macOS and Linux: <code>curl -fsSL https://dotpals.vercel.app/install.sh | bash</code></p>
         <p class="fine">Or <a href="https://github.com/Rikinshah787/dotpals/releases/latest">download and double-click</a> <code>dotpals-setup.bat</code> or <code>dotpals-setup-mac.zip</code>. Not signed yet, so the first time click <em>More info → Run anyway</em> on Windows, or <em>Open Anyway</em> in System Settings → Privacy &amp; Security on a Mac.</p>
