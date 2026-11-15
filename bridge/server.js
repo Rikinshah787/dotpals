@@ -106,6 +106,7 @@ import { changedCode, checkOf, isTestFile, onlyOldFailures, parts, ships, weaken
 import { baseName, buildTurns, sentence } from './ui/recap.js';
 import { findRules, forbids, ruleChecks, ruleRelative } from './rules.js';
 import { ADAPTERS, adapter } from './adapters/index.js';
+import { codexSessions } from './adapters/codex.js';
 import { createChecker, installSdk } from './checker.js';
 import { createLaya } from './laya.js';
 import { brainKeys, checkerKey, configPath, home, loadConfig, saveConfig, validKey } from './config.js';
@@ -1437,26 +1438,33 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     let via = 'bridge';
     if (a.setup === 'connect' && a.connected?.() && (a.probe || a.sample)) {
       const token = `dotpals-test-${Date.now().toString(36)}`;
-      const arrived = new Promise((ok) => { tests.set(`${a.id}:${token}`, ok); setTimeout(() => ok(false), 6000).unref?.(); });
+      // 15 s: a cold PowerShell on a busy Windows PC can take seconds to start. It answers as soon as the event arrives.
+      const arrived = new Promise((ok) => { tests.set(`${a.id}:${token}`, ok); setTimeout(() => ok(false), 15_000).unref?.(); });
       const url = `http://127.0.0.1:${port}/hook`;
       let err = '';
+      let running = false; // the hook, still running when the wait ran out
       if (a.probe) {
         via = 'plugin';
         try { await a.probe({ url, token }); } catch (e) { err = e.message; tests.get(`${a.id}:${token}`)?.(false); }
       } else {
         via = 'hook';
-        const child = spawn(a.command?.() ?? '', {
-          shell: true, windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'],
+        // In PowerShell on Windows, as the agents run it (cmd can't run `& "…node.exe"`).
+        const command = a.command?.() ?? '';
+        const win = process.platform === 'win32';
+        const child = spawn(win ? 'powershell.exe' : command, win ? ['-NoProfile', '-NonInteractive', '-Command', command] : [], {
+          shell: !win, windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'],
           env: { ...process.env, DOTPALS_URL: url },
         });
+        running = true;
+        child.on('exit', () => { running = false; });
         child.stderr.on('data', (c) => (err += c));
-        child.on('error', (e) => (err += e.message));
+        child.on('error', (e) => { running = false; err += e.message; });
         child.stdin.on('error', () => {});
         child.stdin.end(JSON.stringify(a.sample(token)));
       }
       const ok = await arrived;
       tests.delete(`${a.id}:${token}`);
-      if (ok === false) return { ok: false, via, error: `The ${via} ran but nothing reached the bridge.${err.trim() ? ` ${clip(err, 300)}` : ''}` };
+      if (ok === false) return { ok: false, via, error: `The ${via} ran but nothing reached the bridge.${running ? ' It was still running after 15 seconds.' : ''}${err.trim() ? ` ${clip(err, 300)}` : ''}` };
     }
     const harness = a.id === 'generic' ? 'my-agent' : a.id;
     const scene = (next) => setState(session, harness, 'connection test', next, Date.now(), true);
@@ -1471,7 +1479,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   }
 
   async function status() {
-    const codexDir = join(homedir(), '.codex', 'sessions');
+    const codexDir = codexSessions();
     let historySize = 0;
     try { historySize = (await stat(history.file())).size; } catch {}
     return {
@@ -1483,7 +1491,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       entries: activity.all().length,
       adapters: {
         claude: { lastEventAt: lastSeen.claude ?? null, hint: 'Install the Claude Code plugin: /plugin install dotpals@dotpals' },
-        codex: { enabled: config.codex, found: existsSync(codexDir), dir: codexDir, lastEventAt: lastSeen.codex ?? null },
+        codex: { enabled: config.codex, found: adapter('codex').detect().found, dir: codexDir, lastEventAt: lastSeen.codex ?? null },
         generic: { endpoint: `http://127.0.0.1:${port}/event`, lastEventAt: Object.entries(lastSeen).filter(([h]) => h !== 'claude' && h !== 'codex').reduce((m, [, t]) => Math.max(m, t), 0) || null },
       },
       agents: agents(),

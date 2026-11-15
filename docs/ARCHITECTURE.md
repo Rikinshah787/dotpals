@@ -1,6 +1,6 @@
 # dotpals architecture
 
-This document is for contributors. It explains how dotpals is put together: where agent activity comes from, how it becomes one feed, and how the pal, the notch and the dashboard show it. For using dotpals, see the [documentation site](https://rikinshah787.github.io/dotpals/guide/) (source in `site/guide/`).
+This document is for contributors. It explains how dotpals is put together: where agent activity comes from, how it becomes one feed, and how the pal, the notch and the dashboard show it. For using dotpals, see the [documentation site](https://dotpals.vercel.app/guide/) (source in `site/guide/`).
 
 - [The big picture](#the-big-picture)
 - [Components](#components)
@@ -177,7 +177,7 @@ Every integration is listed in `bridge/adapters/index.js` as `{ id, name, via, h
 
 ### Any agent (`generic`)
 
-`POST /event` with `{ session, harness?, label?, cwd?, state?, text?, activity?, helper? }`. `genericEvent()` in `server.js` namespaces activity ids by session, fills defaults for new rows (`kind: "tool"`, `status: "ok"`, a title), and merges follow-ups with the same id. `state`/`text`, or any event `toAgentState()` understands, drives the pal. See the [API reference](https://rikinshah787.github.io/dotpals/guide/api.html).
+`POST /event` with `{ session, harness?, label?, cwd?, state?, text?, activity?, helper? }`. `genericEvent()` in `server.js` namespaces activity ids by session, fills defaults for new rows (`kind: "tool"`, `status: "ok"`, a title), and merges follow-ups with the same id. `state`/`text`, or any event `toAgentState()` understands, drives the pal. See the [API reference](https://dotpals.vercel.app/guide/api.html).
 
 ### The hook forwarder (`hook.js`)
 
@@ -349,9 +349,9 @@ An island that hangs from the top of the screen. Four pieces work together:
 
 **Sizes.** `derive()` returns one of four modes:
 
-- `hidden`: nothing is running, or you've been away (no keyboard or mouse) for 3 minutes. The window shrinks to a thin, invisible strip (220×5 px) at the top edge, so hovering there can still wake it.
-- `peek`: you're hovering that strip, and a small island peeks out. Rest the pointer on it for 600 ms and it opens. Sliding along the top edge (to reach a browser tab, say) restarts that wait, and moving away hides it after 350 ms.
-- `bar`: agents are working. A slim island with a mini pal per agent (up to 4, then "+N"), the current step, the plan step or helper count, and a ring for your highest usage limit. Hover it for 200 ms, or click, to open.
+- `hidden`: nothing is running, or you've been away (no keyboard or mouse) for 3 minutes. The window shrinks to a thin, invisible strip (220×5 px) at the top edge, so resting the pointer there can still wake it.
+- `peek`: the pointer rested on that strip for 1 s, and a small island peeks out; passing over the edge shows nothing. Rest the pointer on the peek for 1.5 s more and it opens. Sliding along the top edge (to reach a browser tab, say) restarts those waits, and moving away hides it after 350 ms.
+- `bar`: agents are working. A slim island with a mini pal per agent (up to 4, then "+N"), the current step, the plan step or helper count, and a ring for your highest usage limit. Hover it for 600 ms, or click, to open.
 - `open`: the big view, 640 px wide.
 
 **The state machine.** `reduce(state, event, now)` returns the next state, `derive(state, now)` says what to show (`{ mode, alert, by, countdown, queued }`), and `nextWake(state, now)` says how many milliseconds until the page should send a `tick` (a dwell finishes, news runs out, it closes by itself). The page passes the time in, so tests can drive it without waiting. Events:
@@ -360,7 +360,7 @@ An island that hangs from the top of the screen. Four pieces work together:
 | --- | --- |
 | `{ type: 'agents', running }` | How many agents are working or waiting for you. |
 | `{ type: 'idle', seconds }` | The computer's idle time. 3 minutes or more means you're away. |
-| `{ type: 'pointer', inside, restless? }` | The pointer moved. `inside`: over the island (or the hidden strip). `restless`: it moved more than a few px, which restarts a peek's wait. |
+| `{ type: 'pointer', inside, restless? }` | The pointer moved. `inside`: over the island (or the hidden strip). `restless`: it moved more than a few px, which restarts the top edge's wait. |
 | `{ type: 'click' }` | A click on the island: it opens. |
 | `{ type: 'close' }` | Esc or the close button. Needs-you alerts are set aside until you open it again. |
 | `{ type: 'alert', id, kind, session }` | An alert: `need`, `done` or `error`. |
@@ -375,7 +375,7 @@ The rules:
 - **Opened by you** (hover, a peek or a click), it closes `afterLeave` (8 s) after the pointer leaves, because an open notch covers browser tabs and title bars. With the pointer resting on it, it closes after `autoClose` (a minute) with no mouse activity. The last stretch (up to 10 s) shows as a shrinking line.
 - After a close, hovering where it was doesn't open it again until the pointer has left.
 
-All the timings are in `TIMING` at the top of the file: `barOpen` 200 ms, `peekOpen` 600 ms, `peekLinger` 350 ms, `doneFor` 5 s, `errorFor` 8 s, `autoClose` 60 s, `afterLeave` 8 s, `countdown` 10 s, `away` 3 min, `staleNews` 15 min.
+All the timings are in `TIMING` at the top of the file: `barOpen` 600 ms, `peekAfter` 1 s, `peekOpen` 1.5 s, `peekLinger` 350 ms, `doneFor` 5 s, `errorFor` 8 s, `autoClose` 60 s, `afterLeave` 8 s, `countdown` 10 s, `away` 3 min, `staleNews` 15 min.
 
 **Feeds from the app.** The window never takes focus, so it can't see the mouse or the keyboard on its own. `desktop/main.js` sends it:
 
@@ -583,7 +583,7 @@ Everything lives in `~/.dotpals` (or `DOTPALS_HOME`):
 
 | Path | Written by | Contents |
 | --- | --- | --- |
-| `config.json` | `bridge/config.js` (Settings, Agents page, tray, `dotpals setup`) | Only known keys with valid values. See [Configuration](https://rikinshah787.github.io/dotpals/guide/configuration.html). |
+| `config.json` | `bridge/config.js` (Settings, Agents page, tray, `dotpals setup`) | Only known keys with valid values. See [Configuration](https://dotpals.vercel.app/guide/configuration.html). |
 | `history.json` | the bridge | `{ version: 1, entries }`: the last `historyDays` days, at most 5000 entries. Uses the same context-retention priorities as the live log, within the age limit. Written 2 s after the last change via a `.tmp` file and a rename. On load, entries that were still running become `stopped`. Not written when `history` is off. |
 | `claude-limits.json` | `bridge/statusline.js` | Claude's `rate_limits`, the latest context window, the model name, and window sizes for the newest 30 sessions. Nothing from the conversation. |
 | `statusline.json` | `dotpals statusline` | `{ previous }`: the status line you had before, so it keeps showing and `--off` can restore it. |

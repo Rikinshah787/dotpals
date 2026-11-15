@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { home } from './config.js';
 
 /** The agents a session can be handed to: the command, and how it takes a first prompt. */
@@ -37,7 +37,7 @@ export function findOnPath(cmd, { env = process.env, platform = process.platform
     .filter((d) => (win ? /^([a-z]:[\\/]|\\\\)/i.test(d) : d.startsWith('/')));
   // On Windows a file without an ending (npm's script for Git Bash) can't be run by cmd.
   const exts = win ? String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
-  for (const d of dirs) for (const x of exts) { const f = join(d, cmd + x); try { if (exists(f)) return f; } catch {} }
+  for (const d of dirs) for (const x of exts) { const f = (win ? win32 : posix).join(d, cmd + x); try { if (exists(f)) return f; } catch {} }
   return null;
 }
 

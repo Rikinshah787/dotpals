@@ -19,6 +19,9 @@ import { fileURLToPath } from 'node:url';
 import { compareVersions, findElectron, installElectron, macApp, openMacApp } from '../desktop/launch.js';
 import { buildMacApp, bundleVersion, electronDist } from '../desktop/mac-app.js';
 import { home, loadConfig, saveConfig, validKey } from '../bridge/config.js';
+import { codexHome } from '../bridge/adapters/codex.js';
+import { ADAPTERS } from '../bridge/adapters/index.js';
+import { findOnPath } from '../bridge/handoff.js';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const appDir = join(home(), 'app');
@@ -182,6 +185,32 @@ async function checkPal(notch, retry = true) {
   return checkPal(notch, false);
 }
 
+// Windows: the PATH a program started from the Start menu gets (the saved system and user PATH), not this terminal's.
+function savedPath() {
+  const read = (key) => /\sPath\s+REG_(?:EXPAND_)?SZ\s+(.*)/i.exec(spawnSync('reg', ['query', key, '/v', 'Path'], { encoding: 'utf8' }).stdout ?? '')?.[1]?.trim() ?? '';
+  return [read('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'), read('HKCU\\Environment')]
+    .join(';').replace(/%([^%;]+)%/g, (m, k) => process.env[k] ?? m);
+}
+
+/**
+ * Hooks need Node. A connected agent's hook command should run a Node (and a dotpals) that's
+ * still there. The Claude Code plugin's hooks run plain `node`, so on Windows, apps started
+ * from the Start menu have to find it on their PATH.
+ */
+function checkHooks() {
+  for (const a of ADAPTERS) {
+    const command = a.setup === 'connect' && a.command?.();
+    if (!command) continue;
+    const missing = [...command.matchAll(/"([^"]+)"/g)].map((m) => m[1]).find((p) => !existsSync(p));
+    if (missing) warn(`${a.name}: its hook runs ${missing}, which isn’t there any more. Run dotpals setup again (or Dashboard → Agents → Connect).`);
+    else if (/^node\s/.test(command)) warn(`${a.name}: its hook runs plain \`node\`, which the agent may not find. Run dotpals setup again (or Dashboard → Agents → Connect) to use Node’s full path.`);
+    else ok(`${a.name}: its hook command runs ${command.match(/"([^"]+)"/)?.[1] ?? command.split(/\s+/)[0]}`);
+  }
+  if (platform() !== 'win32' || !existsSync(join(homedir(), '.claude'))) return;
+  if (findOnPath('node', { env: { PATH: savedPath(), PATHEXT: '.exe' } })) ok('Apps started from the Start menu find node (the Claude Code plugin’s hooks need it)');
+  else warn('Apps started from the Start menu don’t find node, so the Claude Code plugin’s hooks can’t run there. Add Node’s folder to your user PATH (Windows search: “Edit environment variables for your account”), then restart Claude Code and your editor.');
+}
+
 /**
  * Check dotpals works and fix what it can: the port, the desktop runtime (installed again when
  * it's missing or won't run), and the pal and the notch (started when they aren't running).
@@ -197,6 +226,7 @@ async function doctor() {
   }
   if (running) ok(`dotpals ${running} is running on port ${port}`);
   else skip(`dotpals isn’t running yet (port ${port} is free)`);
+  checkHooks();
   if (!desktopRuntime()) { process.exitCode = 1; return; }
   // An older dotpals still running from before an update: restart it on the installed one, like setup does.
   const installed = installedVersion();
@@ -293,8 +323,14 @@ async function setup(flags) {
   }
 
   // 6. Codex: nothing to install, just check it's there.
-  if (existsSync(join(homedir(), '.codex'))) ok('Codex: found. Its sessions show up automatically');
+  if (existsSync(codexHome())) ok('Codex: found. Its sessions show up automatically');
   else skip('Codex: not found (it will be picked up if you install it later)');
+
+  // Agents connected before: connect them again, so their hooks run this install with Node's full path.
+  for (const a of ADAPTERS) {
+    if (a.setup !== 'connect' || !a.command || !a.connected()) continue;
+    try { a.connect(); ok(`${a.name}: hooks updated`); } catch (err) { warn(`${a.name}: ${err.message}`); }
+  }
 
   // Asked for above: Claude's usage limits in the notch, and Laya for local test checks.
   if (prefs.statusline) statusline(new Set());

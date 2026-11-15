@@ -3,7 +3,7 @@
 //
 // Connect writes ~/.copilot/hooks/dotpals.json (or $COPILOT_HOME/hooks), a file
 // of its own, so your other hooks are never touched. Each event runs
-// `node ".../bridge/hook.js" copilot <event>`: Copilot's payloads don't name
+// `"<node>" ".../bridge/hook.js" copilot <event>`: Copilot's payloads don't name
 // their event, so the command does. Only hooks that watch are used; preToolUse
 // is left alone because it can block tools.
 import { existsSync } from 'node:fs';

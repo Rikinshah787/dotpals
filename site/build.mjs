@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = join(root, '_site');
-const DEFAULT_URL = 'https://rikinshah787.github.io/dotpals/';
+const DEFAULT_URL = 'https://dotpals.vercel.app/';
 const IMAGES = ['notch', 'dashboard', 'sessions', 'summary', 'tools', 'files', 'custom-pals'];
 
 rmSync(out, { recursive: true, force: true });

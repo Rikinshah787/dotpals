@@ -1,7 +1,7 @@
 // Gemini CLI adapter: Gemini CLI's hooks (https://geminicli.com/docs/hooks/,
 // on by default since v0.26.0).
 //
-// Connect adds `node ".../bridge/hook.js" gemini` to ~/.gemini/settings.json for
+// Connect adds `"<node>" ".../bridge/hook.js" gemini` to ~/.gemini/settings.json for
 // the events below; Gemini runs it with the event as JSON on stdin, hook.js
 // forwards it to POST /hook?agent=gemini and prints {} (which changes nothing).
 // Gemini only runs hooks in folders you've trusted.
@@ -163,13 +163,17 @@ export function applyGemini(e, log) {
 
 const ours = (group) => Array.isArray(group?.hooks) && group.hooks.some((h) => isOurs(h?.command, ID));
 
-/** Remove our hook groups from a settings object; true if anything changed. */
+/** Remove our hooks from a settings object (a group keeps the user's hooks that share it); true if anything changed. */
 function strip(settings) {
   let changed = false;
   for (const [event, list] of Object.entries(settings.hooks ?? {})) {
     if (!Array.isArray(list)) continue;
-    const kept = list.filter((g) => !ours(g));
-    if (kept.length !== list.length) changed = true;
+    const kept = list.flatMap((g) => {
+      if (!ours(g)) return [g];
+      changed = true;
+      const rest = g.hooks.filter((h) => !isOurs(h?.command, ID));
+      return rest.length ? [{ ...g, hooks: rest }] : [];
+    });
     if (kept.length) settings.hooks[event] = kept;
     else delete settings.hooks[event];
   }

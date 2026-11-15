@@ -18,7 +18,7 @@ npx dotpals@latest setup
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Works with Claude Code and Codex](https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20any%20agent-d97757)
 
-**[Install](#install)** · **[Talk to Blu](#talk-to-blu)** · **[Features](#features)** · **[Plug in any agent](#plug-in-any-agent)** · **[Docs](https://rikinshah787.github.io/dotpals/guide/)**
+**[Install](#install)** · **[Talk to Blu](#talk-to-blu)** · **[Features](#features)** · **[Plug in any agent](#plug-in-any-agent)** · **[Docs](https://dotpals.vercel.app/guide/)**
 
 **[⭐ Star dotpals](https://github.com/Rikinshah787/dotpals/stargazers)** if your agent ever said "Done!" and you weren't sure · **[Tell us what's confusing](https://github.com/Rikinshah787/dotpals/issues/new)**
 
@@ -75,7 +75,7 @@ Coding agents do a lot in a single request: they read dozens of files, edit a ha
   <img src="docs/summary.png" width="250" alt="The dotpals window: a blue pal above a Summary card listing a request, Claude's own summary, and a tally of changed files, commands and skills">
 </p>
 
-Every feature, in detail: **[the guide](https://rikinshah787.github.io/dotpals/guide/features.html)**.
+Every feature, in detail: **[the guide](https://dotpals.vercel.app/guide/features.html)**.
 
 ## Talk to Blu
 
@@ -110,7 +110,7 @@ What it does on your computer is a fixed list, checked again before it runs. It 
 
 **Your privacy.** Your voice stays on your computer. A screenshot goes to Blu's brain only when you ask about the screen, or circle something. With Ollama, nothing leaves your computer at all.
 
-Blu is tested on Windows. macOS (through dotpals.app, so permissions are asked in dotpals' name) and Linux (X11, with `playerctl`, `pactl` and `xdotool`) are new in this release. **[Everything about Blu →](https://rikinshah787.github.io/dotpals/guide/features.html#blu)**
+Blu is tested on Windows. macOS (through dotpals.app, so permissions are asked in dotpals' name) and Linux (X11, with `playerctl`, `pactl` and `xdotool`) are new in this release. **[Everything about Blu →](https://dotpals.vercel.app/guide/features.html#blu)**
 
 ## Make your own pal
 
@@ -144,9 +144,11 @@ Needs Node 20 or newer. It installs the desktop pal in `~/.dotpals` (with its ru
 dotpals start       # open the floating pal
 dotpals dashboard   # open the dashboard
 dotpals status      # what's running and connected
-dotpals doctor      # no pal or notch? checks and fixes it
+dotpals doctor      # no pal, notch or agents? checks, fixes what it can, says what to run for the rest
 dotpals mcp         # the MCP server (below)
 ```
+
+To uninstall (the hooks, the MCP server, the `dotpals` command and `~/.dotpals`), follow **[Uninstalling dotpals](https://dotpals.vercel.app/guide/troubleshooting.html#uninstall)**.
 
 ## Ask dotpals from any agent (MCP)
 
@@ -174,7 +176,7 @@ Your agents' work stays on your computer. The bridge listens only on `127.0.0.1`
 - **Blu**: what you say goes to the AI you picked for Blu's brain (nowhere, with Ollama), with a screenshot only when you ask about the screen.
 - **Cloud (Jev)** test double-check, off by default: an unclear test run's output, with passwords, keys and emails removed.
 
-History is a plain JSON file in `~/.dotpals` (`DOTPALS_HISTORY=0` turns it off). See [SECURITY.md](SECURITY.md) and the [privacy guide](https://rikinshah787.github.io/dotpals/guide/privacy.html).
+History is a plain JSON file in `~/.dotpals` (`DOTPALS_HISTORY=0` turns it off). See [SECURITY.md](SECURITY.md) and the [privacy guide](https://dotpals.vercel.app/guide/privacy.html).
 
 ## How accurate is it?
 
@@ -221,7 +223,7 @@ curl -s localhost:5175/event -d '{
 }'
 ```
 
-Send the same `id` again with `"status": "ok"` when it finishes. The Agents page has copy-paste snippets for curl, PowerShell, Node, Python and the shell. The full event format: **[the guide](https://rikinshah787.github.io/dotpals/guide/agents.html#any-agent)**.
+Send the same `id` again with `"status": "ok"` when it finishes. The Agents page has copy-paste snippets for curl, PowerShell, Node, Python and the shell. The full event format: **[the guide](https://dotpals.vercel.app/guide/agents.html#any-agent)**.
 
 ## Use the pal in your own app
 
@@ -240,11 +242,11 @@ The pal is a dependency-free Web Component, `<dot-pal>`, for chat UIs, IDE panel
 </script>
 ```
 
-Or `npm install dotpals`, then `import 'dotpals'`. States, characters, attributes, events, styling and your own characters: **[the component guide](https://rikinshah787.github.io/dotpals/guide/component.html)**.
+Or `npm install dotpals`, then `import 'dotpals'`. States, characters, attributes, events, styling and your own characters: **[the component guide](https://dotpals.vercel.app/guide/component.html)**.
 
 ## Documentation
 
-The full guide is at **[rikinshah787.github.io/dotpals/guide](https://rikinshah787.github.io/dotpals/guide/)**: every feature, Blu, each agent, the CLI, configuration, the bridge's HTTP API, the `<dot-pal>` component, privacy and troubleshooting. Its source is in [`site/guide/`](site/guide).
+The full guide is at **[dotpals.vercel.app/guide](https://dotpals.vercel.app/guide/)**: every feature, Blu, each agent, the CLI, configuration, the bridge's HTTP API, the `<dot-pal>` component, privacy and troubleshooting. Its source is in [`site/guide/`](site/guide).
 
 ## Roadmap
 

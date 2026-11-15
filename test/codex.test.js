@@ -304,3 +304,58 @@ test('Codex: a test changed to pass between a failing and a passing run is caugh
   assert.match(weak.text, /removed 1 assertion in math\.test\.js/);
   assert.equal(readiness(turn).ready, false);
 });
+
+/** Set env vars for one test, put them back after. */
+function withEnv(t, vars) {
+  const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  t.after(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+}
+
+test('Codex folder: CODEX_HOME is respected, and DOTPALS_CODEX_DIR still wins', async (t) => {
+  const { codexHome, codexSessions } = await import('../bridge/adapters/codex.js');
+  const home = await mkdtemp(join(tmpdir(), 'dotpals-codex-home-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  withEnv(t, { CODEX_HOME: home, DOTPALS_CODEX_DIR: undefined });
+  assert.equal(codexHome(), home);
+  assert.equal(codexSessions(), join(home, 'sessions'));
+  process.env.DOTPALS_CODEX_DIR = join(home, 'elsewhere');
+  assert.equal(codexSessions(), join(home, 'elsewhere'));
+  // Set but empty: the usual ~/.codex.
+  process.env.CODEX_HOME = '';
+  assert.match(codexHome(), /\.codex$/);
+});
+
+test('Codex detect: found when only its folder exists (no session finished yet)', async (t) => {
+  const { adapter } = await import('../bridge/adapters/index.js');
+  const home = await mkdtemp(join(tmpdir(), 'dotpals-codex-home-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  withEnv(t, { CODEX_HOME: home, DOTPALS_CODEX_DIR: undefined });
+  assert.deepEqual(adapter('codex').detect(), { found: true, where: home });
+  await mkdir(join(home, 'sessions'));
+  assert.deepEqual(adapter('codex').detect(), { found: true, where: join(home, 'sessions') });
+  process.env.CODEX_HOME = join(home, 'missing');
+  assert.equal(adapter('codex').detect().found, false);
+});
+
+test('watchCodex picks up a sessions folder made after it started', async (t) => {
+  const dir = join(await mkdtemp(join(tmpdir(), 'dotpals-codex-')), 'sessions');
+  const log = createActivityLog();
+  const stop = watchCodex(log, { dir, interval: 50, emit: () => {}, state: () => {} });
+  t.after(async () => {
+    stop();
+    await sleep(150);
+    await rm(join(dir, '..'), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  await sleep(150); // a few polls with no folder at all
+  const now = new Date();
+  const folder = join(dir, String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0'));
+  await mkdir(folder, { recursive: true });
+  const at = new Date().toISOString();
+  await writeFile(join(folder, 'rollout-late.jsonl'), `${[
+    { timestamp: at, type: 'session_meta', payload: { id: 'late', cwd: '/work/proj' } },
+    { timestamp: at, type: 'event_msg', payload: { type: 'user_message', message: 'hello there' } },
+  ].map((l) => JSON.stringify(l)).join('\n')}\n`);
+  for (let i = 0; i < 30 && !log.findLast('codex:late', (x) => x.kind === 'prompt'); i++) await sleep(50);
+  assert.ok(log.findLast('codex:late', (x) => x.kind === 'prompt'), 'the late session shows up');
+});

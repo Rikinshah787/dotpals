@@ -23,7 +23,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { watchCodex } from './codex.js';
+import { codexHome, codexSessions, watchCodex } from './codex.js';
 import copilot from './copilot.js';
 import cursor from './cursor.js';
 import gemini from './gemini.js';
@@ -43,20 +43,21 @@ const claude = {
   },
 };
 
-const codexDir = () => process.env.DOTPALS_CODEX_DIR || join(homedir(), '.codex', 'sessions');
-
 const codex = {
   id: 'codex',
   name: 'Codex',
   via: 'Session logs',
-  how: 'Nothing to install: dotpals follows the session logs in ~/.codex/sessions (CLI, IDE extension and app).',
+  how: 'Nothing to install: dotpals follows the session logs in ~/.codex/sessions, or $CODEX_HOME/sessions (CLI, IDE extension and app).',
   docs: 'https://developers.openai.com/codex',
   setup: 'auto',
+  // Installed but no session finished yet: there's a Codex folder, but no sessions in it so far.
   detect() {
-    const where = codexDir();
-    return { found: existsSync(where), where };
+    const where = codexSessions();
+    if (existsSync(where)) return { found: true, where };
+    const home = codexHome();
+    return existsSync(home) ? { found: true, where: home } : { found: false, where };
   },
-  watch: (log, opts) => watchCodex(log, { ...opts, dir: codexDir() }),
+  watch: (log, opts) => watchCodex(log, { ...opts, dir: codexSessions() }),
 };
 
 const generic = {

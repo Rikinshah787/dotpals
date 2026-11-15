@@ -1,6 +1,6 @@
-// Codex adapter: follows Codex's session logs (~/.codex/sessions/**/rollout-*.jsonl),
-// so Codex CLI, the Codex IDE extension and the Codex app all show up with
-// nothing to install on the Codex side. Set DOTPALS_CODEX=0 to turn it off.
+// Codex adapter: follows Codex's session logs (~/.codex/sessions/**/rollout-*.jsonl, or
+// $CODEX_HOME/sessions), so Codex CLI, the Codex IDE extension and the Codex app all show up
+// with nothing to install on the Codex side. Set DOTPALS_CODEX=0 to turn it off.
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +10,11 @@ const HARNESS = 'codex';
 const RECENT = 12 * 60 * 60 * 1000; // follow logs touched in the last 12 hours
 const LIVE = 10 * 60 * 1000;        // …but only give a pal to sessions active in the last 10 minutes
 const QUIET_TOOLS = new Set(['wait', 'wait_agent', 'list_agents', 'tool_search']);
+
+/** Codex's own folder: CODEX_HOME when set (Codex reads it too), else ~/.codex. */
+export const codexHome = () => process.env.CODEX_HOME || join(homedir(), '.codex');
+/** Where Codex writes its session logs. DOTPALS_CODEX_DIR points dotpals somewhere else. */
+export const codexSessions = () => process.env.DOTPALS_CODEX_DIR || join(codexHome(), 'sessions');
 
 /** Files touched by an apply_patch body ("*** Update File: path" …). */
 function patchFiles(patch, cwd) {
@@ -135,7 +140,7 @@ const stillRunning = (text) => {
  * `state(session, label, { state, text }, at)` for the pal, and `cwd(session, folder, parent?)`
  * when a session's project folder (and, for a helper, the session that started it) is known.
  */
-export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd = () => {}, dir = join(homedir(), '.codex', 'sessions'), interval = 1000 } = {}) {
+export function watchCodex(log, { emit, state, context = () => {}, cwd: noteCwd = () => {}, dir = codexSessions(), interval = 1000 } = {}) {
   // path → { offset, session, label, cwd, partial, running: (still-running process or cell → entry id), follow: (call id of a check on one → { id, interrupt }) }
   const files = new Map();
   let stopped = false;

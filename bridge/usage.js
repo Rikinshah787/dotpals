@@ -2,15 +2,15 @@
 // 5-hour and weekly allowance you've used, and when it resets.
 //
 //   Codex        writes them to its session logs (token_count → rate_limits),
-//                so they're read straight from ~/.codex/sessions.
+//                so they're read straight from ~/.codex/sessions (or $CODEX_HOME/sessions).
 //   Claude Code  only hands them to a status line command, so bridge/statusline.js
 //                saves them to ~/.dotpals/claude-limits.json (see `dotpals statusline`).
 //
 // Everything is read from files on this computer; nothing is fetched.
 import { readFileSync } from 'node:fs';
 import { open, readdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { codexSessions } from './adapters/codex.js';
 import { home } from './config.js';
 
 export const claudeLimitsFile = () => join(home(), 'claude-limits.json');
@@ -38,7 +38,7 @@ async function claude() {
 }
 
 /** The newest rate_limits in Codex's logs (the last few days, newest file first). */
-async function codex(dir = process.env.DOTPALS_CODEX_DIR || join(homedir(), '.codex', 'sessions')) {
+async function codex(dir = codexSessions()) {
   const files = [];
   for (let days = 0; days < 7; days++) {
     const d = new Date(Date.now() - days * 86_400_000);

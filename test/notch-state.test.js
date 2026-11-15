@@ -34,18 +34,19 @@ test('minimized, the bar hides while agents work; alerts and the top-edge peek s
   s = reduce(s, { type: 'tuck', on: true }, 20); // minimizing also closes it
   assert.equal(mode(s, 20), 'hidden');
   s = reduce(s, outside, 30);
-  s = reduce(s, inside, 40); // the top edge still peeks, and opens after a dwell
-  assert.equal(mode(s, 40), 'peek');
-  s = reduce(s, tick, 40 + T.peekOpen);
-  assert.equal(mode(s, 40 + T.peekOpen), 'open');
-  s = reduce(s, { type: 'close' }, 1000);
-  s = reduce(s, { type: 'alert', id: 'a', kind: 'need', session: 'x' }, 1100);
-  assert.equal(mode(s, 1100), 'open'); // someone needs you: it still shows
-  s = reduce(s, { type: 'resolve', id: 'a' }, 1200);
-  s = reduce(s, outside, 1300);
-  assert.equal(mode(s, 1300), 'hidden');
-  s = reduce(s, { type: 'tuck', on: false }, 1400);
-  assert.equal(mode(s, 1400), 'bar');
+  s = reduce(s, inside, 40); // the top edge still peeks after a rest, and opens after another
+  s = reduce(s, tick, 40 + T.peekAfter);
+  assert.equal(mode(s, 40 + T.peekAfter), 'peek');
+  s = reduce(s, tick, 40 + T.peekAfter + T.peekOpen);
+  assert.equal(mode(s, 40 + T.peekAfter + T.peekOpen), 'open');
+  s = reduce(s, { type: 'close' }, 10_000);
+  s = reduce(s, { type: 'alert', id: 'a', kind: 'need', session: 'x' }, 10_100);
+  assert.equal(mode(s, 10_100), 'open'); // someone needs you: it still shows
+  s = reduce(s, { type: 'resolve', id: 'a' }, 10_200);
+  s = reduce(s, outside, 10_300);
+  assert.equal(mode(s, 10_300), 'hidden');
+  s = reduce(s, { type: 'tuck', on: false }, 10_400);
+  assert.equal(mode(s, 10_400), 'bar');
 });
 
 test('minimize closes it in one click, also while it shows "just finished"', () => {
@@ -63,33 +64,62 @@ test('minimize closes it in one click, also while it shows "just finished"', () 
   assert.equal(mode(s, 60), 'bar');
 });
 
-test('hovering the hidden strip peeks at once, opens after a dwell, and hides again if you leave', () => {
+test('the hidden strip peeks once the pointer rests there, opens after a second dwell, and hides again if you leave', () => {
+  // Passing over the top edge (to a title bar or a tab) shows nothing.
   let s = run([[0, inside]]);
-  assert.equal(mode(s, 0), 'peek');
-  s = reduce(s, tick, T.peekOpen - 1);
-  assert.equal(mode(s, T.peekOpen - 1), 'peek');
-  assert.equal(nextWake(s, T.peekOpen - 1), 1);
-  s = reduce(s, tick, T.peekOpen);
-  assert.equal(mode(s, T.peekOpen), 'open');
-  assert.equal(derive(s, T.peekOpen).by, 'peek');
+  assert.equal(mode(s, 0), 'hidden');
+  assert.equal(nextWake(s, 0), T.peekAfter); // ask again when the peek is due
+  s = reduce(s, outside, T.peekAfter - 1);
+  assert.equal(mode(s, T.peekAfter - 1), 'hidden');
+  assert.equal(nextWake(s, T.peekAfter - 1), Infinity);
+
+  // Resting there: it peeks, then opens once the pointer rests on the peek too.
+  const p = T.peekAfter;
+  s = run([[0, inside], [p, tick]]);
+  assert.equal(mode(s, p), 'peek');
+  assert.equal(nextWake(s, p), T.peekOpen);
+  s = reduce(s, tick, p + T.peekOpen - 1);
+  assert.equal(mode(s, p + T.peekOpen - 1), 'peek');
+  assert.equal(nextWake(s, p + T.peekOpen - 1), 1);
+  s = reduce(s, tick, p + T.peekOpen);
+  assert.equal(mode(s, p + T.peekOpen), 'open');
+  assert.equal(derive(s, p + T.peekOpen).by, 'peek');
 
   // Left during the peek: it lingers a moment, then hides.
-  s = run([[0, inside], [200, outside]]);
-  assert.equal(mode(s, 200), 'peek');
-  assert.equal(nextWake(s, 200), T.peekLinger);
-  s = reduce(s, tick, 200 + T.peekLinger);
-  assert.equal(mode(s, 200 + T.peekLinger), 'hidden');
-  // …and a later hover starts the dwell over.
-  s = run([[1000, inside], [1000 + T.peekOpen - 50, tick]], s);
-  assert.equal(mode(s, 1000 + T.peekOpen - 50), 'peek');
+  s = run([[0, inside], [p, tick], [p + 200, outside]]);
+  assert.equal(mode(s, p + 200), 'peek');
+  assert.equal(nextWake(s, p + 200), T.peekLinger);
+  s = reduce(s, tick, p + 200 + T.peekLinger);
+  assert.equal(mode(s, p + 200 + T.peekLinger), 'hidden');
+  // …and a later hover starts both dwells over.
+  s = run([[10_000, inside], [10_000 + p - 50, tick]], s);
+  assert.equal(mode(s, 10_000 + p - 50), 'hidden');
+  // Back on a peek that still lingers: it stays a peek, and only the open dwell starts over.
+  s = run([[0, inside], [p, tick], [p + 200, outside], [p + 300, inside], [p + 300 + T.peekOpen - 1, tick]]);
+  assert.equal(mode(s, p + 300 + T.peekOpen - 1), 'peek');
+  s = reduce(s, tick, p + 300 + T.peekOpen);
+  assert.equal(mode(s, p + 300 + T.peekOpen), 'open');
+
+  // Alerts and clicks don't wait for any of that.
+  s = run([[0, inside], [10, { type: 'alert', id: 'n', kind: 'need', session: 'a' }]]);
+  assert.equal(mode(s, 10), 'open');
+  s = run([[0, inside], [10, { type: 'click' }]]);
+  assert.equal(mode(s, 10), 'open');
 });
 
-test('a peek only opens once the pointer rests: sliding along the top edge keeps it a peek', () => {
+test('the top edge only peeks, and a peek only opens, once the pointer rests: sliding along it starts over', () => {
   const slide = { type: 'pointer', inside: true, restless: true };
-  let s = run([[0, inside], [300, slide], [600, slide], [900, slide], [900 + T.peekOpen - 10, tick]]);
-  assert.equal(mode(s, 900 + T.peekOpen - 10), 'peek');
-  s = reduce(s, tick, 900 + T.peekOpen);
-  assert.equal(mode(s, 900 + T.peekOpen), 'open');
+  const p = T.peekAfter;
+  let s = run([[0, inside], [600, slide], [1200, slide], [1800, slide], [1800 + p - 10, tick]]);
+  assert.equal(mode(s, 1800 + p - 10), 'hidden');
+  s = reduce(s, tick, 1800 + p);
+  assert.equal(mode(s, 1800 + p), 'peek');
+  // Sliding over the peek keeps it a peek, and starts its open dwell over.
+  const t = 1800 + p + 500;
+  s = run([[t, slide], [t + T.peekOpen - 10, tick]], s);
+  assert.equal(mode(s, t + T.peekOpen - 10), 'peek');
+  s = reduce(s, tick, t + T.peekOpen);
+  assert.equal(mode(s, t + T.peekOpen), 'open');
   // Over the bar, moving about doesn't matter: it opens after its short hover.
   s = run([[0, { type: 'agents', running: 1 }], [0, inside], [100, slide], [T.barOpen, tick]]);
   assert.equal(mode(s, T.barOpen), 'open');

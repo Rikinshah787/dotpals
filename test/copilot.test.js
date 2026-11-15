@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -143,4 +143,19 @@ test('Copilot connect writes its own hooks file; disconnect removes it', async (
   copilot.disconnect();
   assert.equal(existsSync(file), false);
   assert.equal(copilot.connected(), false);
+});
+
+test('Copilot: a hooks file from before (plain `node`) still counts, Connect upgrades it, Disconnect removes it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-copilot-'));
+  process.env.DOTPALS_COPILOT_DIR = dir;
+  t.after(async () => { delete process.env.DOTPALS_COPILOT_DIR; await rm(dir, { recursive: true, force: true }); });
+  const file = join(dir, 'hooks', 'dotpals.json');
+  await mkdir(join(dir, 'hooks'));
+  await writeFile(file, JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: 'command', command: 'node "C:/Users/me/.dotpals/app/bridge/hook.js" copilot sessionStart', timeoutSec: 5 }] } }));
+  assert.equal(copilot.connected(), true);
+  copilot.connect();
+  assert.match(copilot.command(), /^(& )?"[^"]+" ".+\/bridge\/hook\.js" copilot sessionStart$/);
+  assert.equal(existsSync(`${file}.dotpals-backup`), false);
+  copilot.disconnect();
+  assert.equal(existsSync(file), false);
 });

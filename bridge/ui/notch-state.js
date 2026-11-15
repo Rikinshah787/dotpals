@@ -4,11 +4,12 @@
 // says when to ask again (a dwell finishes, a "done" runs out, it auto-closes).
 //
 //   hidden  nothing running, or you've been away for a while. A thin invisible
-//           strip at the top edge stays, so hovering there can wake it.
-//   peek    you're hovering that strip: a small island peeks out. Stay a moment
-//           and it opens; move away and it hides again.
+//           strip at the top edge stays, so resting the pointer there can wake it.
+//   peek    the pointer rested on that strip for a second: a small island peeks out.
+//           Passing over the edge (to a title bar or a browser tab) shows nothing.
+//           Rest on the peek a little longer and it opens; move away and it hides again.
 //   bar     agents are working: a slim island with their pals and the current step.
-//           Hover it briefly, or click, to open. Minimized (tucked), it hides instead,
+//           Hover it for a moment, or click, to open. Minimized (tucked), it hides instead,
 //           like when nothing's running: alerts still show, the top edge still peeks.
 //   open    the big view. An alert (an agent needs you, finished, failed, or is changing
 //           a file another agent just changed) opens it
@@ -20,8 +21,9 @@
 // then "done", "error" and "clash" news, in the order they came. News waits while you're away.
 
 export const TIMING = {
-  barOpen: 200,         // hovering the bar this long opens it
-  peekOpen: 600,        // hovering a peek this long opens it
+  barOpen: 600,         // hovering the bar this long opens it
+  peekAfter: 1000,      // resting on the hidden strip this long shows a peek
+  peekOpen: 1500,       // resting on a peek this long (after it shows) opens it
   peekLinger: 350,      // a peek you moved away from hides after this
   doneFor: 5000,        // a "done" alert shows this long
   errorFor: 8000,       // an "error" alert shows this long
@@ -39,7 +41,7 @@ export function initialState() {
     running: 0,       // agents working or waiting for you
     away: false,      // no input on the computer for TIMING.away
     hover: false,     // the pointer is over the island (or the hidden strip)
-    hoverAt: 0,       // when it got there
+    hoverAt: 0,       // when it got there (or last moved a fair way)
     armed: true,      // hovering may open it (false after a close, until the pointer leaves)
     peekUntil: 0,     // a peek you left stays until then
     tucked: false,    // minimized: no bar until the agents finish (alerts and peeks still show)
@@ -89,7 +91,7 @@ export function derive(s, now, T = TIMING) {
     return { mode: 'open', alert, by: s.open ? s.open.by : 'alert', countdown, queued };
   }
   const rest = restMode(s);
-  if (rest === 'hidden' && s.armed && (s.hover || now < s.peekUntil)) return { mode: 'peek', alert: null, by: null, countdown: null, queued };
+  if (rest === 'hidden' && s.armed && ((s.hover && now - s.hoverAt >= T.peekAfter) || now < s.peekUntil)) return { mode: 'peek', alert: null, by: null, countdown: null, queued };
   return { mode: rest, alert: null, by: null, countdown: null, queued };
 }
 
@@ -98,7 +100,7 @@ export function derive(s, now, T = TIMING) {
  *   { type: 'agents', running }        how many agents are working or waiting for you
  *   { type: 'idle', seconds }          the computer's idle time (no keyboard or mouse)
  *   { type: 'pointer', inside, restless? }   the pointer moved (or clicked, or scrolled); inside: over
- *                                      the island; restless: it moved a fair way (restarts a peek's dwell)
+ *                                      the island; restless: it moved a fair way (restarts the top edge's dwell)
  *   { type: 'click' }                  a click on the island: opens it
  *   { type: 'close' }                  Esc, or a close button: closes, sets needs-you alerts aside
  *   { type: 'tuck', on }               minimize (on): closes it, no bar until no agent is working
@@ -123,10 +125,12 @@ export function reduce(prev, ev, now, T = TIMING) {
     case 'pointer':
       s.away = false; // it moved: you're here
       if (ev.inside) {
-        if (!s.hover) { s.hover = true; s.hoverAt = now; }
-        // A peek opens once the pointer rests on it: sliding along the top edge (to
-        // reach a browser tab, say) keeps starting the dwell over.
-        else if (ev.restless && !s.open && restMode(s) === 'hidden') s.hoverAt = now;
+        // The top edge peeks once the pointer rests there, and opens once it rests on the
+        // peek: passing over it or sliding along it (to reach a browser tab, say) keeps
+        // starting the dwell over. Over a peek already showing, only the second dwell does.
+        const restart = wasPeek ? now - T.peekAfter : now;
+        if (!s.hover) { s.hover = true; s.hoverAt = restart; }
+        else if (ev.restless && !s.open && restMode(s) === 'hidden') s.hoverAt = restart;
         if (s.open) s.open = { ...s.open, activeAt: now, leftAt: null };
         else {
           // Moving over news ("done", "error") makes it yours: it stays open like one
@@ -193,10 +197,11 @@ function settle(s, now, T, wasOpen) {
   if (s.open && alert?.kind !== 'need' && now >= closesAt(s, T)) s.open = null;
   // Once it closes, hovering where it was doesn't open it again until the pointer leaves.
   if (wasOpen && !s.open && !alert) { s.armed = !s.hover; s.peekUntil = 0; }
-  // A hover that lasts opens it: briefly over the bar, a little longer over a peek.
+  // A hover that lasts opens it: a moment over the bar; over the top edge, once it has
+  // peeked and the pointer rested on the peek too.
   if (!s.open && !alert && s.hover && s.armed) {
     const rest = restMode(s);
-    const dwell = rest === 'bar' ? T.barOpen : T.peekOpen;
+    const dwell = rest === 'bar' ? T.barOpen : T.peekAfter + T.peekOpen;
     if (now - s.hoverAt >= dwell) s.open = { by: rest === 'bar' ? 'hover' : 'peek', at: now, activeAt: now };
   }
   return s;
@@ -206,7 +211,10 @@ function settle(s, now, T, wasOpen) {
 export function nextWake(s, now, T = TIMING) {
   const at = [];
   const alert = shownAlert(s);
-  if (!s.open && !alert && s.hover && s.armed) at.push(s.hoverAt + (restMode(s) === 'bar' ? T.barOpen : T.peekOpen));
+  if (!s.open && !alert && s.hover && s.armed) {
+    if (restMode(s) === 'bar') at.push(s.hoverAt + T.barOpen);
+    else at.push(s.hoverAt + T.peekAfter, s.hoverAt + T.peekAfter + T.peekOpen); // it peeks, then opens
+  }
   if (s.peekUntil > now) at.push(s.peekUntil);
   if (alert && isNews(alert) && alert.shownAt != null) at.push(alert.shownAt + lasts(alert, T));
   if (s.open && alert?.kind !== 'need') {
