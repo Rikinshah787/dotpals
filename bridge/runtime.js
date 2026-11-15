@@ -10,7 +10,7 @@
 // otherwise does nothing and succeeds, as it does when the script is gone: a hook left behind never
 // gets in an agent's way.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { home } from './config.js';
 
 export const runtimeFile = () => join(home(), 'runtime.json');
@@ -38,7 +38,7 @@ const pct = (s) => String(s).replace(/%/g, '%%'); // cmd expands %…% even insi
 
 /** The two scripts' names and contents for `exe` (the app) and `app` (its folder, holding bin/dotpals.js). */
 export function wrappers({ exe, app, platform = process.platform }) {
-  const cli = join(app, 'bin', 'dotpals.js');
+  const cli = (platform === 'win32' ? win32 : posix).join(app, 'bin', 'dotpals.js'); // for that platform's shell, wherever the tests run
   if (platform === 'win32') {
     // setlocal: what it sets stays in here, not in the window that ran it.
     const head = '@echo off\r\nsetlocal\r\nrem Made by the dotpals app each time it starts. Runs dotpals\' scripts on the app itself.\r\n';
