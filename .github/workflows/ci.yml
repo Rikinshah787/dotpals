@@ -162,7 +162,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, ext: dmg, target: --mac --arm64, files: 'dotpals-VERSION-mac-arm64.dmg' }
+          - { os: macos-latest, ext: dmg, target: --mac dmg --arm64, files: 'dotpals-VERSION-mac-arm64.dmg' }
           - { os: windows-latest, ext: exe, target: --win, files: 'dotpals-setup-VERSION-x64.exe dotpals-setup-VERSION-arm64.exe' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -178,6 +178,8 @@ jobs:
         shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Sign (ad hoc, no secrets) on pull requests too, like a release: otherwise electron-builder skips it there.
+          CSC_FOR_PULL_REQUEST: 'true'
         run: npx electron-builder ${{ matrix.target }} --publish never
 
       - name: The downloads have the names the updater looks for
