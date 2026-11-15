@@ -154,15 +154,16 @@ jobs:
   packaged:
     name: Packaged app (.${{ matrix.ext }}) on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # Builds the app people download (electron-builder, unpacked: no installer, quicker) and checks
-    # it works with no Node: test/smoke/packaged.mjs.
-    timeout-minutes: 20
+    # Builds what people download (the .dmg, the setup wizards), checks their names (the updater looks
+    # for them), and checks the app works with no Node (test/smoke/packaged.mjs) as installed: on
+    # Windows by the wizard, run silently like an update; on macOS copied out of the disk image.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, ext: dmg, target: --mac --arm64, exe: dist/mac-arm64/dotpals.app/Contents/MacOS/dotpals }
-          - { os: windows-latest, ext: exe, target: --win --x64, exe: dist/win-unpacked/dotpals.exe }
+          - { os: macos-latest, ext: dmg, target: --mac --arm64, files: 'dotpals-VERSION-mac-arm64.dmg' }
+          - { os: windows-latest, ext: exe, target: --win, files: 'dotpals-setup-VERSION-x64.exe dotpals-setup-VERSION-arm64.exe' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -177,13 +178,40 @@ jobs:
         shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder ${{ matrix.target }} --dir --publish never
+        run: npx electron-builder ${{ matrix.target }} --publish never
 
-      - name: Start it and check it works without Node
+      - name: The downloads have the names the updater looks for
         shell: bash
-        env:
-          DOTPALS_APP_EXE: ${{ matrix.exe }}
-        run: node test/smoke/packaged.mjs
+        run: |
+          V=$(node -p "require('./package.json').version")
+          ls dist
+          for f in ${{ matrix.files }}; do test -f "dist/${f//VERSION/$V}" || { echo "missing: dist/${f//VERSION/$V}"; exit 1; }; done
+
+      - name: Install it with the wizard (silently, as an update does), start it, uninstall it
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = node -p "require('./package.json').version"
+          Start-Process -Wait -FilePath "dist\dotpals-setup-$v-x64.exe" -ArgumentList '/S'
+          $dir = "$env:LOCALAPPDATA\Programs\dotpals"
+          if (!(Test-Path "$dir\dotpals.exe")) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Depth 1; throw "not installed in $dir" }
+          $env:DOTPALS_APP_EXE = "$dir\dotpals.exe"
+          node test/smoke/packaged.mjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Start-Process -Wait -FilePath "$dir\Uninstall dotpals.exe" -ArgumentList '/S'
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\dotpals.exe") { throw "still there after uninstalling" }
+
+      - name: Copy it out of the disk image (as an update does), start it
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          V=$(node -p "require('./package.json').version")
+          m=$(mktemp -d) && hdiutil attach -nobrowse -readonly -mountpoint "$m" "dist/dotpals-$V-mac-arm64.dmg"
+          ditto "$m/dotpals.app" "$RUNNER_TEMP/Apps/dotpals.app"
+          hdiutil detach "$m" -quiet
+          codesign -v "$RUNNER_TEMP/Apps/dotpals.app"
+          DOTPALS_APP_EXE="$RUNNER_TEMP/Apps/dotpals.app/Contents/MacOS/dotpals" node test/smoke/packaged.mjs
 
   linux-desktop:
     name: Blu's hands on a Linux desktop

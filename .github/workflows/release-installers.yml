@@ -54,7 +54,7 @@ jobs:
       matrix:
         include:
           - { name: macOS, os: macos-latest, target: --mac, exe: dist/mac-arm64/dotpals.app/Contents/MacOS/dotpals, files: 'dist/*.dmg' }
-          - { name: Windows, os: windows-latest, target: --win --x64, exe: dist/win-unpacked/dotpals.exe, files: 'dist/*.exe' }
+          - { name: Windows, os: windows-latest, target: --win, exe: dist/win-unpacked/dotpals.exe, files: 'dist/*.exe' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -76,14 +76,6 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.target }} --publish never
-
-      # Built on its own: both architectures in one build make a single combined installer, without -x64/-arm64 in its name.
-      - name: Build for Windows on ARM
-        if: matrix.name == 'Windows'
-        shell: bash
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win --arm64 --publish never
 
       - name: Start it and check it works without Node
         shell: bash
