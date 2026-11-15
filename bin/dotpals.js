@@ -211,7 +211,7 @@ function checkHooks() {
     const missing = [...command.matchAll(/"([^"]+)"/g)].map((m) => m[1]).find((p) => !existsSync(p));
     if (missing) warn(`${a.name}: its hook runs ${missing}, which isn’t there any more. Run dotpals setup again (or Dashboard → Agents → Connect).`);
     else if (/^node\s/.test(command)) warn(`${a.name}: its hook runs plain \`node\`, which the agent may not find. Run dotpals setup again (or Dashboard → Agents → Connect) to use Node’s full path.`);
-    else ok(`${a.name}: its hook command runs ${command.match(/"([^"]+)"/)[1]}`);
+    else ok(`${a.name}: its hook command runs ${command.match(/"([^"]+)"/)?.[1] ?? command.split(/\s+/)[0]}`);
   }
   if (platform() !== 'win32' || !existsSync(join(homedir(), '.claude'))) return;
   if (findOnPath('node', { env: { PATH: savedPath(), PATHEXT: '.exe' } })) ok('Apps started from the Start menu find node (the Claude Code plugin’s hooks need it)');

@@ -191,6 +191,9 @@ test('nodePath: the node on PATH first, then this Node, never the desktop app’
   // Not on PATH: this Node, but never Electron's binary.
   assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin' }, execPath: '/opt/node/bin/node', electron: false, ...at() }), '/opt/node/bin/node');
   assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin' }, execPath: '/Applications/dotpals.app/Contents/MacOS/Electron', electron: true, ...at() }), null);
+  // The desktop app started at login has a short PATH: Node's usual folders.
+  assert.equal(nodePath({ platform: 'darwin', env: { PATH: '/usr/bin' }, electron: true, ...at('/opt/homebrew/bin/node') }), '/opt/homebrew/bin/node');
+  assert.equal(nodePath({ platform: 'win32', env: { PATH: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' }, electron: true, ...at('C:\\Program Files\\nodejs\\node.exe') }), 'C:\\Program Files\\nodejs\\node.exe');
 });
 
 test('Cursor: hooks from before (plain `node`) still count, Connect upgrades them, Disconnect removes them', async (t) => {

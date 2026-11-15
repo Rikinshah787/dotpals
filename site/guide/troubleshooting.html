@@ -246,7 +246,7 @@ node ~/.dotpals/app/bin/dotpals.js status</code></pre>
   <li>On the dashboard's Agents page, <strong>Disconnect</strong> every agent you connected. Their hook commands point at <code>~/.dotpals/app</code>.</li>
   <li>Remove the MCP server if you added it. For Claude Code, run this in the folder you added it from:
 <pre><code>claude mcp remove dotpals</code></pre>
-For Codex, delete the <code>[mcp_servers.dotpals]</code> section from <code>~/.codex/config.toml</code>. In Cursor and other tools, delete the <code>dotpals</code> server from their MCP settings.</li>
+For Codex, delete the <code>[mcp_servers.dotpals]</code> section from its <code>config.toml</code>: <code>~/.codex/config.toml</code>, or the one in <code>CODEX_HOME</code> if you set that. In Cursor and other tools, delete the <code>dotpals</code> server from their MCP settings.</li>
   <li>In the tray menu, turn off <em>Open when I log in</em>, then choose <em>Quit dotpals</em>.</li>
   <li>Remove the dotpals plugin in Claude Code's <code>/plugin</code> menu, or from a terminal:
 <pre><code>claude plugin uninstall dotpals@dotpals

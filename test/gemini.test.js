@@ -135,3 +135,19 @@ test('Gemini: a hook from before (plain `node`) still counts, Connect upgrades i
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { theme: 'Dracula' });
   assert.equal(gemini.connected(), false);
 });
+
+test('Gemini: a hook of yours in the same group as ours survives Connect again and Disconnect', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'dotpals-gemini-'));
+  process.env.DOTPALS_GEMINI_DIR = dir;
+  t.after(async () => { delete process.env.DOTPALS_GEMINI_DIR; await rm(dir, { recursive: true, force: true }); });
+  const file = join(dir, 'settings.json');
+  const mine = { name: 'mine', type: 'command', command: './my-hook.sh' };
+  const old = { name: 'dotpals', type: 'command', command: 'node "C:/Users/me/.dotpals/app/bridge/hook.js" gemini', timeout: 5000 };
+  await writeFile(file, JSON.stringify({ hooks: { AfterTool: [{ matcher: '*', hooks: [old, mine] }] } }));
+  gemini.connect(); // what setup does for an agent connected before
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.deepEqual(after.hooks.AfterTool[0], { matcher: '*', hooks: [mine] }, 'yours stays, ours moves to its own group');
+  assert.equal(after.hooks.AfterTool.filter((g) => g.hooks.some((h) => h.name === 'dotpals')).length, 1);
+  gemini.disconnect();
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).hooks.AfterTool, [{ matcher: '*', hooks: [mine] }]);
+});
