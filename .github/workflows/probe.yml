@@ -1,0 +1,14 @@
+name: PowerShell stdin probe
+on: push
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node probe/run.mjs
+        shell: bash
