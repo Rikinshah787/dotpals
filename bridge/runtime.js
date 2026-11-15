@@ -43,8 +43,9 @@ export function wrappers({ exe, app, platform = process.platform }) {
     // setlocal: what it sets stays in here, not in the window that ran it.
     const head = '@echo off\r\nsetlocal\r\nrem Made by the dotpals app each time it starts. Runs dotpals\' scripts on the app itself.\r\n';
     return {
-      // Hooks pass the script with forward slashes, which `if exist` doesn't take. The app gone: Node, if there is one.
-      'dotpals-node.cmd': `${head}set "DOTPALS_SCRIPT=%~1"\r\nif not exist "%DOTPALS_SCRIPT:/=\\%" exit /b 0\r\nif not exist "${pct(exe)}" (\r\n  where node >nul 2>nul || exit /b 0\r\n  node %*\r\n  exit /b %errorlevel%\r\n)\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${pct(exe)}" %*\r\nexit /b %errorlevel%\r\n`,
+      // Hooks pass the script with forward slashes, which `if exist` doesn't take. The app gone: Node, if there is one
+      // (after a label: in a ( ) block cmd reads %errorlevel% before node runs).
+      'dotpals-node.cmd': `${head}set "DOTPALS_SCRIPT=%~1"\r\nif not exist "%DOTPALS_SCRIPT:/=\\%" exit /b 0\r\nif not exist "${pct(exe)}" goto node\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${pct(exe)}" %*\r\nexit /b %errorlevel%\r\n:node\r\nwhere node >nul 2>nul || exit /b 0\r\nnode %*\r\nexit /b %errorlevel%\r\n`,
       'dotpals.cmd': `${head}if not exist "${pct(exe)}" (echo The dotpals app isn't installed any more. & exit /b 1)\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${pct(exe)}" "${pct(cli)}" %*\r\nexit /b %errorlevel%\r\n`,
     };
   }

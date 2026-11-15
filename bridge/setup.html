@@ -191,7 +191,7 @@
         c.disabled = working;
         c.onclick = () => act(a, 'connect');
         acts.append(c);
-      } else {
+      } else if (a.setup !== 'plugin' || a.installed) {
         const t = el('button', '', works.has(a.id) ? 'Test again' : 'Test');
         t.disabled = working;
         t.onclick = () => act(a, 'test');

@@ -39,6 +39,7 @@ test('wrappers (Windows): .cmd files with CRLF, % doubled, and hook paths with f
     assert.match(text, /exit \/b %errorlevel%/);
   }
   assert.ok(w['dotpals-node.cmd'].includes('if not exist "%DOTPALS_SCRIPT:/=\\%" exit /b 0'));
+  for (const text of Object.values(w)) assert.ok(!/\([^)]*%errorlevel%/.test(text), 'no %errorlevel% inside ( ): cmd reads it before the command runs');
 });
 
 test('writeRuntime: runtime.json and the scripts; nodeWrapper only while the app is still there', () => withHome((dir) => {

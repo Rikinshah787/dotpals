@@ -104,9 +104,12 @@ function setup(first) {
 }
 
 /** After the first install: a short scene on the notch (bridge/server.js → welcome), so you see it work. */
-function welcome(ok) {
+function welcome(ok, tries = 60) {
   const port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175;
-  fetch(`http://127.0.0.1:${port}/api/welcome`, { method: 'POST', headers: { 'x-dotpals': '1' }, body: JSON.stringify({ ok }) }).catch(() => {});
+  // Setup can finish before the bridge listens (the guide waits for this): try again each second for a minute.
+  fetch(`http://127.0.0.1:${port}/api/welcome`, { method: 'POST', headers: { 'x-dotpals': '1' }, body: JSON.stringify({ ok }) })
+    .then((r) => { if (!r.ok) throw new Error(); })
+    .catch(() => { if (tries > 1) setTimeout(() => welcome(ok, tries - 1), 1000).unref?.(); });
 }
 
 /**
@@ -124,7 +127,9 @@ async function checkForUpdate() {
     const latest = String(release.tag_name ?? '').replace(/^v/, '');
     if (!latest || compareVersions(latest, version) <= 0) return writeFileSync(stamp, JSON.stringify({ at: Date.now() }));
     const name = process.platform === 'darwin' ? `dotpals-${latest}-mac-${process.arch}.dmg` : process.platform === 'win32' ? `dotpals-setup-${latest}-${process.arch}.exe` : null;
-    const url = (n) => release.assets?.find((a) => a.name === n)?.browser_download_url;
+    // Only files the Release downloads workflow attached (GitHub Actions), not ones uploaded by hand. Not a signature:
+    // that needs signed builds, which are planned.
+    const url = (n) => release.assets?.find((a) => a.name === n && a.uploader?.login === 'github-actions[bot]')?.browser_download_url;
     if (!name || !url(name) || !url('SHA256SUMS.txt')) return; // Linux, or the release is still being built: next time
     const sums = await (await fetch(url('SHA256SUMS.txt'), { signal: AbortSignal.timeout(10_000) })).text();
     const sum = sums.split('\n').map((l) => l.trim().split(/\s+\*?/)).find(([, n]) => n === name)?.[0];
