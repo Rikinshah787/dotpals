@@ -75,6 +75,7 @@ if (!app.requestSingleInstanceLock()) {
   function handleArgs(argv) {
     if (argv.includes('--open-at-login')) openAtLogin(true);
     if (argv.includes('--dashboard')) openDashboard();
+    if (argv.includes('--setup')) openSetup(argv.includes('--first'));
     if (argv.includes('--notch')) setNotchMode('always');
     if (argv.includes('--notch-auto')) setNotchMode('auto');
     if (argv.includes('--no-notch')) setNotchMode('off');
@@ -156,6 +157,28 @@ if (!app.requestSingleInstanceLock()) {
     dashboard.loadURL(`${bridge}/dashboard${hash ? `#${hash}` : ''}`);
   }
   ipcMain.on('dashboard:open', (_, at) => openDashboard(at));
+
+  // The setup guide (bridge/setup.html): connect and test each agent. The app opens it after its
+  // first install (--setup --first: it waits for setup); the tray's "Set up agents…" opens it again.
+  let guide = null;
+  function openSetup(first) {
+    if (guide && !guide.isDestroyed()) { guide.show(); guide.focus(); return; }
+    guide = new BrowserWindow({
+      width: 600, height: 680, resizable: false, maximizable: false, fullscreenable: false,
+      title: 'Set up dotpals', icon, backgroundColor: '#0b0b0e', autoHideMenuBar: true,
+      webPreferences: { sandbox: true, contextIsolation: true },
+    });
+    guide.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/i.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    // "Open the dashboard": in its own window, and the guide is done.
+    guide.webContents.on('will-navigate', (e, url) => {
+      e.preventDefault();
+      if (url.startsWith(`${bridge}/dashboard`)) { openDashboard(); guide.close(); }
+    });
+    guide.loadURL(`${bridge}/setup${first ? '?first=1' : ''}`);
+  }
 
   // Talk (the notch's Talk tab): the shortcut shows the notch and it listens. It takes a
   // screenshot first, of what you were looking at before the notch opens over it; it stays on
@@ -614,6 +637,7 @@ if (!app.requestSingleInstanceLock()) {
         { label: 'Never', type: 'radio', checked: notchMode() === 'off', click: () => setNotchMode('off') },
       ] },
       { label: 'Dashboard', click: openDashboard },
+      { label: 'Set up agents…', click: () => openSetup(false) },
       { label: 'Talk to Blu', ...(talkShortcut ? { accelerator: talkShortcut } : {}), click: talkInNotch },
       { label: 'Dictate (type with your voice)', ...(dictateShortcut ? { accelerator: dictateShortcut } : {}), click: dictateKey },
       { label: 'Circle something, ask Blu', ...(circleShortcut ? { accelerator: circleShortcut } : {}), click: circleKey },

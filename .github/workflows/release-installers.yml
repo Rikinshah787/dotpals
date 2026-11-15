@@ -1,0 +1,106 @@
+name: Release downloads
+
+# Attaches everything people download to each published release:
+#   the app      dotpals-<version>-mac-arm64.dmg / -mac-x64.dmg (Apple silicon, Intel) and
+#                dotpals-setup-<version>-x64.exe / -arm64.exe (one click, no admin), built by
+#                electron-builder with no Node needed, each started and checked first
+#   installers   dotpals-setup.bat (Windows) and dotpals-setup-mac.zip (dotpals-setup.command,
+#                zipped so it stays runnable once downloaded): they run the one-line installers in site/
+#   SHA256SUMS.txt
+# Not signed (no certificates yet): Windows SmartScreen and macOS Gatekeeper warn once; the guide's
+# troubleshooting page says how to open them. Uploading again replaces them (--clobber). For a release
+# made before this workflow: Actions → Release downloads → Run workflow, with its tag.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the downloads to (for example v0.13.0)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Zip the Mac installer and attach both to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd installers
+          test -x dotpals-setup.command
+          zip -X ../dotpals-setup-mac.zip dotpals-setup.command
+          cd ..
+          gh release upload "$TAG" dotpals-setup-mac.zip installers/dotpals-setup.bat --clobber --repo "$GITHUB_REPOSITORY"
+
+  app:
+    name: The app for ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, target: --mac, exe: dist/mac-arm64/dotpals.app/Contents/MacOS/dotpals, files: 'dist/*.dmg' }
+          - { name: Windows, os: windows-latest, target: --win, exe: dist/win-unpacked/dotpals.exe, files: 'dist/*.exe' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Install the build tools
+        run: npm ci --no-audit --no-fund
+
+      - name: The release tag matches package.json
+        shell: bash
+        run: test "${TAG#v}" = "$(node -p "require('./package.json').version")"
+
+      - name: Build
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.target }} --publish never
+
+      - name: Start it and check it works without Node
+        shell: bash
+        env:
+          DOTPALS_APP_EXE: ${{ matrix.exe }}
+        run: node test/smoke/packaged.mjs
+
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" ${{ matrix.files }} --clobber --repo "$GITHUB_REPOSITORY"
+
+  checksums:
+    needs: [installers, app]
+    runs-on: ubuntu-latest
+    steps:
+      - name: SHA256SUMS.txt for every download
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir files && cd files
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.dmg' --pattern '*.exe' --pattern '*.zip' --pattern '*.bat'
+          sha256sum * > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+          gh release upload "$TAG" ../SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"

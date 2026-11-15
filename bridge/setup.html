@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up dotpals</title>
+  <!--
+    The setup guide: the app opens it after its first install (desktop/packaged.js → --setup, ?first=1),
+    and the tray's "Set up agents…" opens it again. Three steps: welcome (waits for the first setup),
+    connect and test each agent found here (the dashboard's /api/agents/<id>/connect and /test:
+    a test runs the agent's real hook and shows a pal on the notch), and done.
+  -->
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0e; --panel: #121217; --raise: #1a1a20; --line: #26262d; --line-strong: #34343c;
+      --text: #f2f2f5; --muted: #9a9aa5; --faint: #62626d;
+      --ok: #46a758; --bad: #f2555a; --link: #6cb6ff; --blu: #2f6ff0;
+      --h-claude: #d95926; --h-codex: #3987e5; --h-other: #199e70;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-rounded, "Segoe UI Variable Text", system-ui, sans-serif; display: flex; flex-direction: column; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font: inherit; color: inherit; background: var(--raise); border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+    button:hover { border-color: #4a4a54; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.primary { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+    :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+    code { font: 12px ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace; background: var(--raise); padding: 1px 5px; border-radius: 5px; }
+
+    .steps { display: flex; justify-content: center; gap: 8px; padding: 22px 0 6px; }
+    .steps i { width: 28px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+    .steps i.on { background: var(--text); }
+    main { flex: 1; overflow: auto; padding: 18px 36px; }
+    section[hidden] { display: none; }
+    h1 { font-size: 22px; margin: 6px 0 8px; letter-spacing: -.01em; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 16px 36px 22px; border-top: 1px solid var(--line); }
+    footer .right { display: flex; gap: 8px; margin-left: auto; }
+
+    .hero { text-align: center; padding-top: 18px; }
+    .hero svg { width: 96px; height: 96px; }
+    .hero p { max-width: 420px; margin: 0 auto 12px; }
+    .status { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 13px; }
+    .spin { width: 12px; height: 12px; border: 2px solid var(--line-strong); border-top-color: var(--text); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+    .ok { color: var(--ok); }
+    .bad { color: var(--bad); }
+
+    .agents { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+    .agent { display: grid; grid-template-columns: 10px 1fr auto; gap: 4px 12px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    .agent > i { width: 10px; height: 10px; border-radius: 50%; background: var(--h-other); }
+    .agent.h-claude > i { background: var(--h-claude); }
+    .agent.h-codex > i { background: var(--h-codex); }
+    .agent b { font-weight: 600; }
+    .agent .note { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); }
+    .agent .note.ok { color: var(--ok); }
+    .agent .note.bad { color: var(--bad); }
+    .agent .acts { display: flex; gap: 6px; }
+    .agent .acts button { padding: 5px 12px; font-size: 13px; }
+    .faint { color: var(--faint); font-size: 12.5px; }
+    ul.done { padding-left: 18px; color: var(--muted); }
+    ul.done li { margin-bottom: 8px; }
+    ul.done b { color: var(--text); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="steps" aria-hidden="true"><i></i><i></i><i></i></div>
+  <main>
+    <section id="s1" class="hero">
+      <svg viewBox="0 0 1024 1024" aria-hidden="true"><path d="M512 96c-210 0-380 170-380 380v380c0 39 32 72 72 72h616c40 0 72-33 72-72V476c0-210-170-380-380-380z" fill="#2f6ff0"/><ellipse cx="372" cy="512" rx="62" ry="80" fill="#141414"/><ellipse cx="652" cy="512" rx="62" ry="80" fill="#141414"/><circle cx="394" cy="480" r="20" fill="#fff"/><circle cx="674" cy="480" r="20" fill="#fff"/><path d="M432 690q80 52 160 0" fill="none" stroke="#141414" stroke-width="30" stroke-linecap="round"/></svg>
+      <h1>Welcome to dotpals</h1>
+      <p>dotpals watches your coding agents and checks their work: which files changed, which commands ran, and whether the tests really passed.</p>
+      <p>Next: connect your agents and test them. It takes about a minute.</p>
+      <div class="status" id="ready" role="status"></div>
+    </section>
+
+    <section id="s2" hidden>
+      <h1>Connect your agents</h1>
+      <p>These are on this computer. Connect each one, then press <b>Test</b>: a pal says hello at the top of your screen, so you know it works.</p>
+      <div class="agents" id="agents"></div>
+      <div class="faint" id="missing"></div>
+    </section>
+
+    <section id="s3" hidden>
+      <h1>You’re all set</h1>
+      <ul class="done">
+        <li><b>The notch</b> at the top of your screen shows what your agents are doing, as they do it.</li>
+        <li><b>The dashboard</b> has the whole story: every file changed, command run and test result.</li>
+        <li><b>dotpals opens when you log in.</b> Its menu is the dotpals icon in the <span id="where-menu">menu bar</span>; <b>Set up agents…</b> there brings this guide back.</li>
+        <li>Another agent? Anything can post to <code id="endpoint">http://127.0.0.1:5175/event</code>. The dashboard’s Agents page has examples.</li>
+      </ul>
+      <p id="summary"></p>
+    </section>
+  </main>
+  <footer>
+    <button id="back" hidden>Back</button>
+    <div class="right">
+      <button id="dashboard" hidden>Open the dashboard</button>
+      <button id="next" class="primary">Get started</button>
+    </div>
+  </footer>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const get = async (path) => (await fetch(path)).json();
+    const post = async (path) => {
+      const r = await fetch(path, { method: 'POST', headers: { 'x-dotpals': '1', 'content-type': 'application/json' }, body: '{}' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `The bridge said ${r.status}.`);
+      return j;
+    };
+    if (/Win/.test(navigator.platform)) $('where-menu').textContent = 'system tray';
+
+    let step = 1;
+    let agents = [];
+    const notes = new Map(); // agent id → { cls, text }
+    const busy = new Set();
+    const works = new Set(); // agents whose test reached dotpals
+
+    function show(n) {
+      step = n;
+      for (const i of [1, 2, 3]) $(`s${i}`).hidden = i !== n;
+      document.querySelectorAll('.steps i').forEach((d, i) => d.classList.toggle('on', i < n));
+      $('back').hidden = n === 1;
+      $('dashboard').hidden = n !== 3;
+      $('next').textContent = n === 1 ? 'Get started' : n === 2 ? 'Next' : 'Finish';
+      if (n === 2) loadAgents();
+      if (n === 3) $('summary').textContent = works.size ? `Tested and working: ${agents.filter((a) => works.has(a.id)).map((a) => a.name).join(', ')}.` : '';
+      $('next').focus();
+    }
+    $('back').onclick = () => show(step - 1);
+    $('next').onclick = () => (step < 3 ? show(step + 1) : window.close());
+    $('dashboard').onclick = () => { location.href = '/dashboard'; };
+
+    // Step 1: on the first start, wait for setup (it connects Claude Code); a while later, let them go on anyway.
+    async function waitForSetup() {
+      const first = new URLSearchParams(location.search).has('first');
+      const ready = $('ready');
+      if (!first) return;
+      $('next').disabled = true;
+      ready.replaceChildren(el('span', 'spin'), 'Getting things ready…');
+      const until = Date.now() + 90_000;
+      for (;;) {
+        const { setup } = await get('/api/welcome').catch(() => ({}));
+        if (setup === 'ok') { ready.replaceChildren(el('span', 'ok', '✓ Ready')); break; }
+        if (setup === 'failed') { ready.replaceChildren(el('span', 'bad', 'Setup didn’t finish. You can still connect your agents here.')); break; }
+        if (Date.now() > until) { ready.replaceChildren('Still setting up in the background. You can go on.'); break; }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      $('next').disabled = false;
+      $('next').focus();
+    }
+
+    // Step 2: one row per agent found here.
+    async function loadAgents() {
+      try {
+        const all = (await get('/api/agents')).agents;
+        agents = all.filter((a) => a.id !== 'generic');
+        const any = all.find((a) => a.id === 'generic');
+        if (any?.endpoint) $('endpoint').textContent = any.endpoint;
+      } catch { $('agents').replaceChildren(el('p', 'bad', 'Couldn’t reach dotpals. Is it running?')); return; }
+      render();
+    }
+
+    function status(a) {
+      if (a.setup === 'plugin') return a.installed
+        ? { cls: 'ok', text: '✓ Plugin installed. Restart Claude Code to load it.' }
+        : { cls: '', text: 'Its sessions show from their transcripts. For approvals and the fix loop, run /plugin install dotpals@dotpals in Claude Code (it needs Node.js).' };
+      if (a.setup === 'auto') return { cls: 'ok', text: '✓ Nothing to set up: dotpals reads its session logs.' };
+      return a.connected ? { cls: 'ok', text: '✓ Connected' } : { cls: '', text: `Adds dotpals’ hooks to ${a.file ?? 'its settings'} (the original is backed up).` };
+    }
+
+    function render() {
+      const found = agents.filter((a) => a.found);
+      $('agents').replaceChildren(...(found.length ? found.map(row) : [el('p', '', 'No coding agents found yet. Install one (Claude Code, Codex, Cursor, Gemini CLI, OpenCode or Copilot CLI), then come back with Set up agents… in the dotpals menu.')]));
+      const missing = agents.filter((a) => !a.found).map((a) => a.name);
+      $('missing').textContent = missing.length ? `Not on this computer: ${missing.join(', ')}.` : '';
+    }
+
+    function row(a) {
+      const r = el('div', `agent h-${a.id === 'claude' || a.id === 'codex' ? a.id : 'other'}`);
+      const acts = el('div', 'acts');
+      const working = busy.has(a.id);
+      if (a.setup === 'connect' && !a.connected) {
+        const c = el('button', 'primary', 'Connect');
+        c.disabled = working;
+        c.onclick = () => act(a, 'connect');
+        acts.append(c);
+      } else if (a.setup !== 'plugin' || a.installed) {
+        const t = el('button', '', works.has(a.id) ? 'Test again' : 'Test');
+        t.disabled = working;
+        t.onclick = () => act(a, 'test');
+        acts.append(t);
+      }
+      const n = notes.get(a.id) ?? status(a);
+      r.append(el('i'), el('b', '', a.name), acts, el('div', `note ${n.cls}`, n.text));
+      return r;
+    }
+
+    async function act(a, action) {
+      busy.add(a.id);
+      notes.set(a.id, { cls: '', text: action === 'connect' ? 'Connecting…' : 'Testing… look at the top of your screen.' });
+      render();
+      try {
+        if (action === 'connect') {
+          const r = await post(`/api/agents/${a.id}/connect`);
+          if (r.agent) agents = agents.map((x) => (x.id === a.id ? r.agent : x));
+          a = agents.find((x) => x.id === a.id);
+          notes.set(a.id, { cls: '', text: 'Connected. Testing… look at the top of your screen.' });
+          render();
+        }
+        const t = await post(`/api/agents/${a.id}/test`);
+        if (t.ok) works.add(a.id); else works.delete(a.id);
+        notes.set(a.id, t.ok
+          ? { cls: 'ok', text: `✓ It works. ${t.via === 'hook' ? 'Its hook ran and reached dotpals' : t.via === 'plugin' ? 'Its plugin ran and reached dotpals' : 'dotpals can show it'}: a pal said “Hello from dotpals” on the notch.${a.setup === 'connect' ? ` Restart ${a.name} if it’s open.` : ''}` }
+          : { cls: 'bad', text: `✗ ${t.error}` });
+      } catch (err) {
+        notes.set(a.id, { cls: 'bad', text: `✗ ${err.message || 'Couldn’t reach dotpals.'}` });
+      }
+      busy.delete(a.id);
+      render();
+    }
+
+    show(1);
+    waitForSetup();
+  </script>
+</body>
+</html>

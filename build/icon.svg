@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- The app icon (Blu): the source of build/icon.png, which the .exe and .dmg are made with. -->
+  <defs>
+    <radialGradient id="body" cx="0.4" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#5b9bff"/>
+      <stop offset="1" stop-color="#1f5fe0"/>
+    </radialGradient>
+  </defs>
+  <path d="M512 96c-210 0-380 170-380 380v380c0 39 32 72 72 72h616c40 0 72-33 72-72V476c0-210-170-380-380-380z" fill="url(#body)"/>
+  <ellipse cx="372" cy="512" rx="62" ry="80" fill="#141414"/>
+  <ellipse cx="652" cy="512" rx="62" ry="80" fill="#141414"/>
+  <circle cx="394" cy="480" r="20" fill="#fff"/>
+  <circle cx="674" cy="480" r="20" fill="#fff"/>
+  <path d="M432 690q80 52 160 0" fill="none" stroke="#141414" stroke-width="30" stroke-linecap="round"/>
+</svg>

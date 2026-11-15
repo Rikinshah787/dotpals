@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 314" width="164" height="314">
+  <!-- The Windows installer's welcome and finish pages: the source of build/installerSidebar.bmp (164 × 314). -->
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f6ff0"/><stop offset="1" stop-color="#173f9e"/></linearGradient></defs>
+  <rect width="164" height="314" fill="url(#bg)"/>
+  <g transform="translate(37 70) scale(0.088)"><path d="M512 96c-210 0-380 170-380 380v380c0 39 32 72 72 72h616c40 0 72-33 72-72V476c0-210-170-380-380-380z" fill="#ffffff"/><ellipse cx="372" cy="512" rx="62" ry="80" fill="#141414"/><ellipse cx="652" cy="512" rx="62" ry="80" fill="#141414"/><circle cx="394" cy="480" r="20" fill="#fff"/><circle cx="674" cy="480" r="20" fill="#fff"/><path d="M432 690q80 52 160 0" fill="none" stroke="#141414" stroke-width="30" stroke-linecap="round"/></g>
+  <text x="82" y="190" text-anchor="middle" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" fill="#fff">dotpals</text>
+  <text x="82" y="216" text-anchor="middle" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif" font-size="11" fill="#dbe6ff">See what your coding</text>
+  <text x="82" y="231" text-anchor="middle" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif" font-size="11" fill="#dbe6ff">agent actually did.</text>
+</svg>

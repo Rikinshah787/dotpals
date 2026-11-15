@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packagedExe } from '../bridge/runtime.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const shared = process.env.DOTPALS_HOME || join(homedir(), '.dotpals');
@@ -19,13 +20,14 @@ const shared = process.env.DOTPALS_HOME || join(homedir(), '.dotpals');
 /** Path to the Electron executable, or null if it isn't installed. */
 export function findElectron() {
   if (process.env.DOTPALS_ELECTRON) return process.env.DOTPALS_ELECTRON;
-  for (const dir of [join(root, 'node_modules', 'electron'), join(shared, 'node_modules', 'electron')]) {
+  const electronIn = (dir) => {
     try {
       const exe = join(dir, 'dist', readFileSync(join(dir, 'path.txt'), 'utf8').trim());
-      if (existsSync(exe)) return exe;
-    } catch {}
-  }
-  return null;
+      return existsSync(exe) ? exe : null;
+    } catch { return null; }
+  };
+  // A checkout's own Electron first (development), then the dotpals app (.exe, .dmg), then the one setup downloaded.
+  return electronIn(join(root, 'node_modules', 'electron')) ?? packagedExe() ?? electronIn(join(shared, 'node_modules', 'electron'));
 }
 
 /**
@@ -78,12 +80,16 @@ export const macApp = join(shared, 'dotpals.app');
  * it prints. Returns false when there's no dotpals.app to start (the caller starts Electron).
  */
 export function openMacApp(main, args = [], log) {
-  if (process.platform !== 'darwin' || process.env.DOTPALS_ELECTRON || !existsSync(join(macApp, 'Contents', 'MacOS', 'Electron'))) return false;
+  if (process.platform !== 'darwin' || process.env.DOTPALS_ELECTRON) return false;
+  // The dotpals app, when it's what runs (it starts its own code; `main` is just passed along).
+  const exe = findElectron();
+  const app = exe && exe === packagedExe() ? exe.split('/Contents/MacOS/')[0] : macApp;
+  if (!existsSync(app === macApp ? join(macApp, 'Contents', 'MacOS', 'Electron') : app)) return false;
   // `open` gives it the system's environment, not ours: pass on PATH and dotpals' own settings.
   // Only those: what's passed shows in the process list (a key in TYPESAFE_API_KEY would too).
   const env = Object.entries(process.env).filter(([k]) => /^(PATH|PORT|DOTPALS_\w+)$/.test(k));
   const out = log ? ['--stdout', log, '--stderr', log] : [];
-  spawn('open', ['-n', '-g', ...env.flatMap(([k, v]) => ['--env', `${k}=${v}`]), ...out, '-a', macApp, '--args', main, ...args], { detached: true, stdio: 'ignore' }).unref();
+  spawn('open', ['-n', '-g', ...env.flatMap(([k, v]) => ['--env', `${k}=${v}`]), ...out, '-a', app, '--args', main, ...args], { detached: true, stdio: 'ignore' }).unref();
   return true;
 }
 
