@@ -137,6 +137,19 @@ test('GET /api/usage answers with a list', async (t) => {
   assert.ok(Array.isArray(res.json.agents));
 });
 
+test('the setup guide: its page, the first setup’s result, and Claude Code’s plugin state', async (t) => {
+  const { port, server } = await start();
+  t.after(async () => { server.closeAllConnections?.(); await new Promise((r) => server.close(r)); });
+  const page = await call(port, 'GET', '/setup');
+  assert.equal(page.status, 200);
+  assert.deepEqual((await call(port, 'GET', '/api/welcome')).json, { setup: null }, 'no setup yet: the guide waits');
+  assert.equal((await call(port, 'POST', '/api/welcome', { ok: true })).status, 403, 'a page elsewhere can’t post it');
+  assert.equal((await call(port, 'POST', '/api/welcome', { ok: true }, ours)).json.ok, true);
+  assert.deepEqual((await call(port, 'GET', '/api/welcome')).json, { setup: 'ok' });
+  const claude = (await call(port, 'GET', '/api/agents')).json.agents.find((a) => a.id === 'claude');
+  assert.equal(typeof claude.installed, 'boolean');
+});
+
 test('the plugin only opens the installed copy when it is at least as new (compareVersions)', async () => {
   const { compareVersions } = await import('../desktop/launch.js');
   assert.deepEqual([compareVersions('0.9.3', '0.9.2'), compareVersions('0.9.2', '0.9.3'), compareVersions('1.0.0', '0.9.9'), compareVersions('0.9.2', '0.9.2')], [1, -1, 1, 0]);

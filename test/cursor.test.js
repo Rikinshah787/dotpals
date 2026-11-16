@@ -129,8 +129,14 @@ test('applyCursor: a test edited to pass between a failing and a passing run is 
 
 test('Cursor connect merges into hooks.json, backs it up, and disconnect takes only ours out', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'dotpals-cursor-'));
+  const home = process.env.DOTPALS_HOME;
   process.env.DOTPALS_CURSOR_DIR = dir;
-  t.after(async () => { delete process.env.DOTPALS_CURSOR_DIR; await rm(dir, { recursive: true, force: true }); });
+  process.env.DOTPALS_HOME = dir; // not yours: with the dotpals app installed, hooks would run on its dotpals-node
+  t.after(async () => {
+    delete process.env.DOTPALS_CURSOR_DIR;
+    if (home === undefined) delete process.env.DOTPALS_HOME; else process.env.DOTPALS_HOME = home;
+    await rm(dir, { recursive: true, force: true });
+  });
   const file = join(dir, 'hooks.json');
   const mine = { version: 1, hooks: { afterFileEdit: [{ command: './hooks/format.sh' }] }, other: true };
   await writeFile(file, JSON.stringify(mine));

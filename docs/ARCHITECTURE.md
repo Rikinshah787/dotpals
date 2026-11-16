@@ -59,7 +59,7 @@ This document is for contributors. It explains how dotpals is put together: wher
 2. **The bridge keeps one feed.** It merges entries by id, tracks each session's live state, and streams everything to viewers over Server-Sent Events. It keeps a local history in `~/.dotpals`.
 3. **Viewers render it.** The pal, the notch and the dashboard are plain HTML pages. They group entries into requests and chapters in the browser, with the same rules (the story engine).
 
-Everything runs on your computer. Nothing is fetched from, or sent to, the internet, with two exceptions you choose: the optional cloud test checker, and [Blu](#blu) when you talk to it (its speech models are downloaded once; what you say goes to the AI you picked, unless that's Ollama; "play …" looks the song up; your apps are called at their own addresses).
+Everything runs on your computer. Nothing is fetched from, or sent to, the internet, except the downloaded app's update check (it asks GitHub once a day for a newer release, and downloads it; see [The downloaded app](#the-downloaded-app)) and two things you choose: the optional cloud test checker, and [Blu](#blu) when you talk to it (its speech models are downloaded once; what you say goes to the AI you picked, unless that's Ollama; "play …" looks the song up; your apps are called at their own addresses).
 
 ## Components
 
@@ -335,6 +335,16 @@ Claude Code ── PermissionRequest (sync hook, timeout 130 s) ──▶ hook.j
 - On macOS the app lives in the menu bar, not the Dock. On Linux it enables transparent visuals.
 
 `desktop/launch.js` finds Electron (`DOTPALS_ELECTRON`, then this package's `node_modules`, then `~/.dotpals/node_modules`), installs it into `~/.dotpals` with `--install`, and starts the app with `ELECTRON_RUN_AS_NODE` removed from the environment.
+
+### The downloaded app
+
+The .exe and .dmg from each release are built by electron-builder (`build` in `package.json`, asar off) and start at `desktop/packaged.js`, which then runs `desktop/main.js` like `dotpals start` does. No Node is needed: the app is its own runtime.
+
+- **On macOS** it moves itself to Applications when opened from the disk image, Downloads or a quarantine copy (`app.moveToApplicationsFolder()`), because hooks point at its path. It takes PATH from your login shell, so it finds Claude Code.
+- **Every start** writes `~/.dotpals/runtime.json` (`{ exe, app, version }`) and `~/.dotpals/bin` (`bridge/runtime.js`): `dotpals-node` runs a script on the app (`ELECTRON_RUN_AS_NODE=1`) and `dotpals` is the command. `hookCommand()` uses `dotpals-node` while the app is there (`nodeWrapper()`), otherwise Node by its full path (`nodePath()`). When the app is gone, the wrappers fall back to `node` or do nothing, so hooks never fail.
+- **The first start, and after an update**, runs `dotpals setup --yes --no-start --no-path` on the app in the background (`~/.dotpals/setup.log`). The first start also opens the **setup guide** (`bridge/setup.html` at `/setup`, `--setup --first`), shows the notch and opens at login. When setup exits, it posts `/api/welcome` (trying again each second until the bridge answers), which plays a test scene on the notch and tells the guide.
+- **Updates.** At most once a day (`checkForUpdate()`), it reads GitHub's latest release, takes this computer's installer (`dotpals-<version>-mac-<arch>.dmg` or `dotpals-setup-<version>-<arch>.exe`) and `SHA256SUMS.txt`, only if GitHub Actions uploaded them, downloads the installer to `~/.dotpals/updates` and checks its SHA-256. It installs when the app quits, or at once from the notification: on Windows the setup wizard runs silently (`/S`, `--force-run` to start it again); on macOS a shell script waits for the app to exit, mounts the disk image and copies `dotpals.app` over this one (`ditto`), so no signing is needed. No dependency (no electron-updater).
+- **Releases.** `.github/workflows/release-installers.yml` builds, checks and attaches the disk images, one setup wizard per Windows architecture, the double-click installers and `SHA256SUMS.txt` to each published release. CI builds the same downloads on every push, installs the Windows one silently, copies the Mac app out of its disk image, and runs `test/smoke/packaged.mjs` on them.
 
 ### The notch
 
@@ -614,6 +624,7 @@ Also:
 - **Static files** are served only from `src/`, `bridge/` and `desktop/` inside the package, after path normalisation.
 - **The desktop app** uses sandboxed, context-isolated pages with a narrow preload API, and opens only `http(s)`, `vscode:`, `cursor:` (and, from the pal, `file:`) links outside the app.
 - **Never in the agent's way, unless you ask.** `hook.js` always exits 0 with short timeouts. The fix loop (`loop-hook.js`, on by default) can send Claude back or hold back a commit, but it fails open: no bridge or no answer in time, and Claude carries on. The Cursor and Copilot CLI integrations use only hooks that observe. The OpenCode plugin never throws. Approvals are off unless you turn them on, and always fall back to the terminal.
+- **Updates of the downloaded app** come only from GitHub's latest release: files uploaded by GitHub Actions, checked against the release's `SHA256SUMS.txt`. That checks the download, not who made it: the builds aren't signed yet, so anyone who can publish a release in the repository could ship an update.
 - **Careful with other tools' files.** Connect backs up the original, merges instead of overwriting, writes atomically, and refuses to touch a file it can't parse. Disconnect removes only what dotpals added.
 - **Blu: what's on your screen is untrusted.** A screenshot, an app's answer and your agents' sessions hold text someone else wrote. Blu's instructions say never to follow orders in them, but the real limits are in code: `parseBuddyReply()` and main.js's second `action()` check keep only the fixed list of actions (nothing that closes, deletes, sends or buys), click, type and keys need `blu.click`, `hands.run()` checks your settings a third time, and a brain with its own tools on (Gemini CLI, Cursor) never gets a look or a plan.
 - **Changes in your apps need your yes.** `POST /api/talk/apps` refuses a change without `confirmed`; a look gets only read-only tools; even a confirmed change never gets the tools `never()` names. For apps used through Claude Code's own connectors these limits are instructions only (see [Your apps](#your-apps)).

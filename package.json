@@ -1,6 +1,6 @@
 {
   "name": "dotpals",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "See what your coding agent actually did, and make it fix the tests it broke: a floating pal for Claude Code, Codex and any agent that checks every file changed, command run and test result, plus an MCP server any AI tool can ask for the evidence. New: talk to Blu, who sees your screen, draws on it as it explains and uses your apps. Also a zero-dependency animated Web Component for agent UIs.",
   "keywords": [
     "claude-code",
@@ -78,18 +78,116 @@
     "test": "node --test --test-timeout=300000",
     "setup": "node bin/dotpals.js setup",
     "dashboard": "node bin/dotpals.js dashboard",
-    "accuracy": "node scripts/accuracy.mjs"
+    "accuracy": "node scripts/accuracy.mjs",
+    "dist": "electron-builder --publish never"
   },
   "optionalDependencies": {
     "@typesafe-ai/sdk": "^0.7.0"
   },
   "devDependencies": {
-    "electron": "^45.2.1"
+    "electron": "^45.2.1",
+    "electron-builder": "26.18.1"
   },
   "engines": {
     "node": ">=20"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "build": {
+    "appId": "dev.dotpals.desktop",
+    "productName": "dotpals",
+    "copyright": "MIT License, dotpals contributors",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES",
+      "src/**",
+      "bridge/**",
+      "desktop/**",
+      "bin/**",
+      "hooks/**",
+      "commands/**",
+      ".claude-plugin/**"
+    ],
+    "asar": false,
+    "extraMetadata": {
+      "main": "desktop/packaged.js"
+    },
+    "artifactName": "dotpals-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSAppleEventsUsageDescription": "When you ask, dotpals moves windows, presses keys, pastes what you dictate and controls music in your other apps.",
+        "NSMicrophoneUsageDescription": "dotpals listens only while you use Talk or Dictate."
+      }
+    },
+    "dmg": {
+      "title": "dotpals ${version}",
+      "iconSize": 100,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 140,
+          "y": 190
+        },
+        {
+          "x": 400,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "license": "LICENSE",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "artifactName": "dotpals-setup-${version}-${arch}.${ext}",
+      "shortcutName": "dotpals"
+    }
   }
 }
