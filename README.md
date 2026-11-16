@@ -12,7 +12,10 @@ A small floating pal that watches Claude Code, Codex or any agent and checks its
 npx dotpals@latest setup
 ```
 
-<sub>One command on Windows, macOS or Linux, or [ask your AI agent to install it](#install). Free, open source, and your agents’ work stays on your computer. No Node.js? [Download the app](#install). Or straight from GitHub: `npx --allow-git=all github:rikinshah787/dotpals setup`</sub>
+**Or ask your AI agent:** `Install dotpals for me: follow https://dotpals.vercel.app/install.md`<br>
+**No Node.js?** [Download the app](https://github.com/Rikinshah787/dotpals/releases/latest) for Windows or macOS.
+
+<sub>Windows, macOS or Linux. Free, open source, and your agents’ work stays on your computer. [All the ways to install](#install).</sub>
 
 [![CI](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml/badge.svg)](https://github.com/rikinshah787/dotpals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -115,7 +118,7 @@ What it does on your computer is a fixed list, checked again before it runs. It 
 
 **Your privacy.** Your voice stays on your computer. A screenshot goes to Blu's brain only when you ask about the screen, or circle something. With Ollama, nothing leaves your computer at all.
 
-Blu is tested on Windows. macOS (through dotpals.app, so permissions are asked in dotpals' name) and Linux (X11, with `playerctl`, `pactl` and `xdotool`) are new in this release. **[Everything about Blu →](https://dotpals.vercel.app/guide/features.html#blu)**
+Blu is tested on Windows. macOS (through dotpals.app, so permissions are asked in dotpals' name) and Linux (X11, with `playerctl`, `pactl` and `xdotool`) are new since 0.12. **[Everything about Blu →](https://dotpals.vercel.app/guide/features.html#blu)**
 
 ## Make your own pal
 
@@ -125,7 +128,11 @@ Dashboard → **Settings → Make your own pal**: pick a body, eyes, something o
 
 ## Install
 
-**Ask your AI agent.** Paste this into Claude Code, Codex, Cursor or any agent that can run commands:
+Three ways in. They all end the same: the pal on your screen, the notch at the top, and Claude Code and Codex connected.
+
+### Ask your AI agent
+
+Paste this into Claude Code, Codex, Cursor or any agent that can run commands:
 
 ```text
 Install dotpals for me: follow https://dotpals.vercel.app/install.md
@@ -133,7 +140,9 @@ Install dotpals for me: follow https://dotpals.vercel.app/install.md
 
 It checks for Node, runs the setup below, runs `dotpals doctor`, offers to connect your other agents (asking before it changes their config) and tells you what it did. [install.md](site/install.md) is also a skill file: save it as `~/.claude/skills/install-dotpals/SKILL.md` and `/install-dotpals` does the same.
 
-**Download the app** from the [latest release](https://github.com/Rikinshah787/dotpals/releases/latest). It needs no Node.
+### Download the app (no Node.js)
+
+From the [latest release](https://github.com/Rikinshah787/dotpals/releases/latest):
 
 - **Windows:** `dotpals-setup-<version>-x64.exe` (`-arm64.exe` on ARM), a setup wizard: pick a folder, desktop and Start menu shortcuts, no admin.
 - **macOS:** `dotpals-<version>-mac-arm64.dmg` (`-mac-x64.dmg` on Intel Macs); drag dotpals into Applications.
@@ -142,13 +151,13 @@ It checks for Node, runs the setup below, runs `dotpals doctor`, offers to conne
 - **Updates itself from GitHub:** a newer version downloads in the background and installs when dotpals quits (or right away, from the notification).
 - The `dotpals` command is in `~/.dotpals/bin` (add it to your PATH if you want it in every terminal). Without Node, Claude Code's sessions still show (read from its transcripts); approvals from the pal, the file guard and the fix loop need the Claude Code plugin, which needs Node.
 
-Or, with Node 20 or newer:
+### One command (Node.js 20 or newer)
 
 ```bash
 npx dotpals@latest setup
 ```
 
-No Node? These install it first (Node.js LTS, for every app), then run the same setup:
+No Node.js? These install it first (Node.js LTS, for every app), then run the same setup:
 
 ```powershell
 # Windows (PowerShell)
@@ -162,7 +171,9 @@ curl -fsSL https://dotpals.vercel.app/install.sh | bash
 
 Or download `dotpals-setup.bat` (Windows) or `dotpals-setup-mac.zip` (macOS) from the [latest release](https://github.com/Rikinshah787/dotpals/releases/latest) and double-click it. They aren't signed yet, so the first time Windows says "Windows protected your PC" (More info → Run anyway) and macOS says it can't check the file (System Settings → Privacy & Security → Open Anyway). On Linux the installer tells you how to get Node if you need it.
 
-Setup installs the desktop pal in `~/.dotpals` (with its runtime, Electron, about 100 MB, once), adds the Claude Code plugin if you have Claude Code, picks up Codex, starts the pal at login and opens the dashboard. Run it again any time to update. Options: `--no-claude`, `--no-login`, `--no-start`.
+Setup installs the desktop pal in `~/.dotpals` (with its runtime, Electron, about 100 MB, once), adds the Claude Code plugin if you have Claude Code, picks up Codex, starts the pal at login and opens the dashboard. Run it again any time to update. Options: `--yes` (no questions, keep the defaults), `--no-claude`, `--no-login`, `--no-start`, `--no-path`. Straight from GitHub instead of npm: `npx --allow-git=all github:rikinshah787/dotpals setup`.
+
+### Your other agents
 
 - **Only the Claude Code plugin:** `/plugin marketplace add rikinshah787/dotpals`, then `/plugin install dotpals@dotpals`, restart Claude Code and run `/dotpals:pals`.
 - **Codex:** nothing to install. dotpals follows Codex's session logs while the pal is running.
