@@ -18,7 +18,7 @@
 import { app, dialog, Notification } from 'electron';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -44,10 +44,15 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   const shellPath = process.platform === 'darwin' ? loginShellPath() : Promise.resolve();
   mkdirSync(home(), { recursive: true });
-  writeRuntime({ exe: process.execPath, app: own, version });
-
   const dir = join(home(), 'app');
   const installed = versionOf(dir);
+  // A newer dotpals installed since (npx dotpals@latest setup): run that one, on this app.
+  const newer = installed && compareVersions(installed, version) > 0 && existsSync(join(dir, 'desktop', 'main.js'));
+  // The `dotpals` command runs the same one, so its setup can't put this older copy back.
+  writeRuntime({ exe: process.execPath, app: newer ? dir : own, version: newer ? installed : version });
+  // Installers of updates installed since (the Windows one stays in use until it's done, so it goes here, at the next start).
+  try { rmSync(join(home(), 'updates'), { recursive: true, force: true }); } catch {} // still running: the next start
+
   if (!installed || compareVersions(installed, version) < 0) {
     shellPath.then(() => setup(!installed)); // needs PATH to find Claude Code
     // The first time: the setup guide (connect and test your agents), the notch, and open at login, like setup's defaults.
@@ -57,8 +62,6 @@ if (!app.requestSingleInstanceLock()) {
     setTimeout(checkForUpdate, 30_000);
     setInterval(checkForUpdate, 6 * 3_600_000); // it runs for days: look again (at most once a day)
   });
-  // A newer dotpals installed since (npx dotpals@latest setup): run that one, on this app.
-  const newer = installed && compareVersions(installed, version) > 0 && existsSync(join(dir, 'desktop', 'main.js'));
   await import(newer ? pathToFileURL(join(dir, 'desktop', 'main.js')).href : './main.js');
 }
 
@@ -146,7 +149,10 @@ async function checkForUpdate() {
     note = new Notification({ title: `dotpals ${latest} is ready`, body: 'It installs when dotpals quits. Click to restart and update now.' });
     note.on('click', () => { install(true); app.quit(); });
     note.show();
-  } catch {}
+  } catch (err) {
+    // Tried again next time; the reason goes to ~/.dotpals/update.log.
+    try { appendFileSync(join(home(), 'update.log'), `${new Date().toISOString()} ${err?.message ?? err}\n`); } catch {}
+  }
 }
 
 /** Installs the downloaded update once dotpals has quit; with relaunch, dotpals starts again after. Settings and history stay. */
