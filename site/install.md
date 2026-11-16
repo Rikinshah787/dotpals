@@ -18,7 +18,8 @@ node --version
 - **v20 or newer:** go to step 2.
 - **Missing or older:** ask the user which they prefer, then stop until they answer:
   - **The app, no Node.js needed** (they download and open it themselves): https://github.com/Rikinshah787/dotpals/releases/latest. Windows: `dotpals-setup-<version>-x64.exe` (`-arm64.exe` on ARM). Mac: `dotpals-<version>-mac-arm64.dmg` (`-mac-x64.dmg` on Intel). It isn't signed yet: on Windows click More info → Run anyway; on a Mac, System Settings → Privacy & Security → Open Anyway. It sets itself up and opens a setup guide, so you're done after that.
-  - **Install Node.js LTS, then dotpals.** Windows (PowerShell): `irm https://dotpals.vercel.app/install.ps1 | iex`. macOS or Linux: `curl -fsSL https://dotpals.vercel.app/install.sh | bash`. It may ask for their password, so the user may have to run it in their own terminal. It runs step 2 itself; then go to step 3.
+  - **Install Node.js LTS, then dotpals.** Windows (PowerShell): `irm https://dotpals.vercel.app/install.ps1 | iex`. macOS: `curl -fsSL https://dotpals.vercel.app/install.sh | bash`. It may ask for their password, so the user may have to run it in their own terminal. It runs step 2 itself; then go to step 3.
+  - **Linux:** there is no app yet. The user installs Node.js 20 or newer with their package manager or from https://nodejs.org/en/download, then you go on with step 2.
 
 ## 2. Install
 
@@ -47,11 +48,11 @@ curl -s http://127.0.0.1:5175/api/agents
 For each agent with `"setup": "connect"`, `"found": true` and `"connected": false` (Cursor, Gemini CLI, OpenCode, GitHub Copilot CLI), ask the user before you connect it: connecting adds one hook to that agent's config, backing the config up first. Then, for each `<id>` they said yes to:
 
 ```
-curl -s -X POST http://127.0.0.1:5175/api/agents/<id>/connect
-curl -s -X POST http://127.0.0.1:5175/api/agents/<id>/test
+curl -s --fail-with-body -X POST -H "x-dotpals: 1" http://127.0.0.1:5175/api/agents/<id>/connect
+curl -s --fail-with-body -X POST -H "x-dotpals: 1" http://127.0.0.1:5175/api/agents/<id>/test
 ```
 
-The test runs the agent's real hook with a sample event, and a pal says hello on the notch. On Windows PowerShell, write `curl.exe` instead of `curl`.
+The `x-dotpals: 1` header is required: dotpals refuses a POST without it. The test runs the agent's real hook with a sample event, and a pal says hello on the notch; `"ok": true` with `"via": "hook"` or `"plugin"` means it works. On Windows PowerShell, write `curl.exe` instead of `curl`.
 
 ## 5. Tell the user
 

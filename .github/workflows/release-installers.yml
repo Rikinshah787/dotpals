@@ -25,6 +25,11 @@ permissions:
 env:
   TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
+# One run per tag at a time (queued, not cancelled), so an older run can't upload its checksums last.
+concurrency:
+  group: release-downloads-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   installers:
     runs-on: ubuntu-latest
@@ -32,6 +37,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false # npm ci and the build never see the write token; only the upload step gets it
 
       - name: Zip the Mac installer and attach both to the release
         shell: bash
@@ -59,6 +65,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false # npm ci and the build never see the write token; only the upload step gets it
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -91,6 +98,8 @@ jobs:
 
   checksums:
     needs: [installers, app]
+    # Also when a build failed: the ones that did upload replaced files, so the sums must match them.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: SHA256SUMS.txt for every download

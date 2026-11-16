@@ -277,7 +277,8 @@ async function setup(flags) {
   if (here.replace(/[\\/]+$/, '') !== appDir) {
     mkdirSync(home(), { recursive: true });
     rmSync(appDir, { recursive: true, force: true });
-    for (const part of ['package.json', 'LICENSE', 'THIRD_PARTY_NOTICES', 'src', 'bridge', 'desktop', 'bin', 'hooks', 'commands', '.claude-plugin']) {
+    // package.json last: the app reads its version to know setup is done, so a setup cut short runs again.
+    for (const part of ['LICENSE', 'THIRD_PARTY_NOTICES', 'src', 'bridge', 'desktop', 'bin', 'hooks', 'commands', '.claude-plugin', 'package.json']) {
       if (existsSync(join(here, part))) cpSync(join(here, part), join(appDir, part), { recursive: true });
     }
   }

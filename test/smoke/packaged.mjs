@@ -68,6 +68,7 @@ async function main(exe) {
     fetch(`${bridge}/events`, { signal: ctrl.signal }).then(async (r) => {
       let text = '';
       for await (const c of r.body) { text += Buffer.from(c); const m = /"session":"dotpals:welcome"[^\n]*"state":"(working|done)"[^\n]*"text":"([^"]*)"/.exec(text); if (m) { ctrl.abort(); return ok(m[2]); } }
+      ok(null); // the stream ended without it: try again
     }).catch(() => ok(null));
   }), 15_000));
   await step('the dotpals command works without Node', () => {

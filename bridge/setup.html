@@ -120,7 +120,7 @@
     let agents = [];
     const notes = new Map(); // agent id → { cls, text }
     const busy = new Set();
-    const works = new Set(); // agents whose test reached dotpals
+    const works = new Map(); // agent id → true: its hook or plugin reached dotpals; false: only shown on the notch (Claude Code, Codex)
 
     function show(n) {
       step = n;
@@ -130,7 +130,10 @@
       $('dashboard').hidden = n !== 3;
       $('next').textContent = n === 1 ? 'Get started' : n === 2 ? 'Next' : 'Finish';
       if (n === 2) loadAgents();
-      if (n === 3) $('summary').textContent = works.size ? `Tested and working: ${agents.filter((a) => works.has(a.id)).map((a) => a.name).join(', ')}.` : '';
+      if (n === 3) {
+        const names = (v) => agents.filter((a) => works.get(a.id) === v).map((a) => a.name).join(', ');
+        $('summary').textContent = [names(true) && `Tested and working: ${names(true)}.`, names(false) && `Set up, and shows up the next time you use it: ${names(false)}.`].filter(Boolean).join(' ');
+      }
       $('next').focus();
     }
     $('back').onclick = () => show(step - 1);
@@ -215,11 +218,12 @@
           render();
         }
         const t = await post(`/api/agents/${a.id}/test`);
-        if (t.ok) works.add(a.id); else works.delete(a.id);
-        notes.set(a.id, t.ok
-          ? { cls: 'ok', text: `✓ It works. ${t.via === 'hook' ? 'Its hook ran and reached dotpals' : t.via === 'plugin' ? 'Its plugin ran and reached dotpals' : 'dotpals can show it'}: a pal said “Hello from dotpals” on the notch.${a.setup === 'connect' ? ` Restart ${a.name} if it’s open.` : ''}` }
-          : { cls: 'bad', text: `✗ ${t.error}` });
+        if (t.ok) works.set(a.id, t.via !== 'bridge'); else works.delete(a.id);
+        notes.set(a.id, !t.ok ? { cls: 'bad', text: `✗ ${t.error}` }
+          : t.via === 'bridge' ? { cls: 'ok', text: `✓ Set up. A pal said “Hello from dotpals” on the notch; ${a.name} shows up there the next time you use it.` }
+          : { cls: 'ok', text: `✓ It works. ${t.via === 'hook' ? 'Its hook ran and reached dotpals' : 'Its plugin ran and reached dotpals'}: a pal said “Hello from dotpals” on the notch.${a.setup === 'connect' ? ` Restart ${a.name} if it’s open.` : ''}` });
       } catch (err) {
+        works.delete(a.id);
         notes.set(a.id, { cls: 'bad', text: `✗ ${err.message || 'Couldn’t reach dotpals.'}` });
       }
       busy.delete(a.id);
