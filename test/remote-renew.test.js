@@ -59,7 +59,7 @@ test('the pairing link carries the address by default and the name on request', 
   assert.equal(pairingUrl({ ...cfg, publicUrl: 'https://dp.example.com' }, 'X', ['192.168.1.69'], { name: true, own: 'x.local' }), 'https://dp.example.com/pair#X');
 });
 
-test('when the address changes, the running server serves a certificate for the new one, with no restart', { skip: !openssl && 'needs openssl' }, async () => {
+test('when the address changes, the running server serves a certificate for the new one, with no restart', { skip: !openssl && 'needs openssl' }, async (t) => {
   let ips = ['192.168.1.69'];
   const cfg = { enabled: true, bind: 'local', port, tlsAuto: true, tlsCert: '', tlsKey: '', publicUrl: '' };
   const logs = [];
@@ -68,6 +68,7 @@ test('when the address changes, the running server serves a certificate for the 
     api: () => {}, snapshot: () => {}, turn: () => null, log: (l) => logs.push(l),
     renewMs: 40, addressesNow: () => ips, certs: (o) => ensureCerts({ ...o, openssl, name: 'NIGHTHAWK' }),
   });
+  t.after(() => server.stop());
   await server.apply();
   assert.equal(server.state().running, true, server.state().error ?? '');
   // What the computer-side API hands the pairing screen: a link that matches what's being served.
@@ -98,7 +99,7 @@ test('when the address changes, the running server serves a certificate for the 
   await server.stop();
 });
 
-test('a failed renewal is reported and the old certificate keeps serving', { skip: !openssl && 'needs openssl' }, async () => {
+test('a failed renewal is reported and the old certificate keeps serving', { skip: !openssl && 'needs openssl' }, async (t) => {
   let ips = ['192.168.1.69'];
   let broken = false;
   const cfg = { enabled: true, bind: 'local', port: port2, tlsAuto: true, tlsCert: '', tlsKey: '', publicUrl: '' };
@@ -107,6 +108,7 @@ test('a failed renewal is reported and the old certificate keeps serving', { ski
     api: () => {}, snapshot: () => {}, turn: () => null,
     renewMs: 40, addressesNow: () => ips, certs: (o) => { if (broken) throw new Error('openssl req failed: disk full'); return ensureCerts({ ...o, openssl, name: 'NIGHTHAWK' }); },
   });
+  t.after(() => server.stop());
   await server.apply();
   assert.equal(server.state().running, true);
   broken = true;

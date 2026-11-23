@@ -21,11 +21,18 @@
   const fromHash = clean(location.hash.slice(1));
   if (location.hash) history.replaceState(null, '', location.pathname); // out of the address bar and the history entry
   $('code').value = show(fromHash);
-  $('code').addEventListener('input', () => { const at = $('code').selectionStart; $('code').value = show($('code').value); try { $('code').setSelectionRange(at, at); } catch {} });
+  $('code').addEventListener('input', () => {
+    const input = $('code');
+    const before = clean(input.value.slice(0, input.selectionStart)).length;
+    const formatted = show(input.value);
+    const at = show(clean(input.value).slice(0, before)).length;
+    input.value = formatted;
+    try { input.setSelectionRange(at, at); } catch {}
+  });
   guessName().then((n) => { if (!$('name').value) $('name').value = n; });
 
   async function claim() {
-    if (location.protocol !== 'https:' && !['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)) return msg('Open the HTTPS pairing address before sending a code.', 'bad');
+    if (location.protocol !== 'https:') return msg('Open the HTTPS pairing address before sending a code.', 'bad');
     const code = clean($('code').value);
     if (code.length !== 12) return msg('The code has 12 letters and numbers.', 'bad');
     $('go').disabled = true;

@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { gzip as gzipCb } from 'node:zlib';
 import { promisify } from 'node:util';
-import { allowed, createAssets, csp, inlineHashes, negotiate } from './remote-assets.js';
+import { allowed, chooseEncoding, createAssets, csp, inlineHashes, negotiate } from './remote-assets.js';
 import { createHub } from './remote-hub.js';
 import { createLimiter, createRemote, permission, remotePatch } from './remote.js';
 import qrcode from './vendor/qrcode.js';
@@ -74,26 +74,25 @@ export function qrRows(text) {
   return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (__, c) => (qr.isDark(r, c) ? '1' : '0')).join(''));
 }
 
-const readJson = (req, max = 4096) => new Promise((ok, fail) => {
-  const chunks = [];
-  let size = 0;
-  req.on('data', (c) => { size += c.length; if (size > max) { fail(Object.assign(new Error('too large'), { status: 413 })); req.destroy(); } else chunks.push(c); });
-  req.on('end', () => {
-    try {
-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('bad json');
-      ok(body);
-    } catch { fail(Object.assign(new Error('bad json'), { status: 400 })); }
-  });
-  req.on('error', fail);
-});
 const readBuffer = (req, max = 1024 * 1024) => new Promise((ok, fail) => {
   const chunks = [];
   let size = 0;
-  req.on('data', (c) => { size += c.length; if (size > max) fail(Object.assign(new Error('too large'), { status: 413 })); else chunks.push(c); });
+  req.on('data', (c) => {
+    if (size > max) return;
+    size += c.length;
+    if (size > max) { chunks.length = 0; fail(Object.assign(new Error('too large'), { status: 413 })); }
+    else chunks.push(c);
+  });
   req.on('end', () => ok(Buffer.concat(chunks)));
   req.on('error', fail);
+  req.on('aborted', () => fail(new Error('request aborted')));
 });
+async function readJson(req, max = 4096) {
+  const bytes = await readBuffer(req, max);
+  const body = JSON.parse(bytes.toString('utf8') || '{}');
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('bad json');
+  return body;
+}
 const out = (res, status, data, extra = {}) => res.writeHead(status, { ...SECURITY, 'content-type': 'application/json', 'cache-control': 'no-store', ...extra }).end(JSON.stringify(data));
 const loopback = (a = '') => /^(127\.|::1$|::ffff:127\.)/.test(a);
 
@@ -118,7 +117,11 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
   const assets = createAssets({ root, transform });
 
   /** Encrypted, or this computer talking to itself. Behind your own tunnel or proxy (on this computer), its X-Forwarded-Proto counts. */
-  const proxied = (req) => config().bind === 'local' && loopback(req.socket.remoteAddress) && req.headers['x-forwarded-proto'] === 'https' && /^https:\/\//.test(config().publicUrl ?? '');
+  const proxied = (req) => {
+    const cfg = config();
+    if (cfg.bind !== 'local' || !loopback(req.socket.remoteAddress) || req.headers['x-forwarded-proto'] !== 'https') return false;
+    try { const url = new URL(cfg.publicUrl); return url.protocol === 'https:' && req.headers.host === url.host; } catch { return false; }
+  };
   const encrypted = (req) => {
     if (req.socket.encrypted) return true;
     return proxied(req);
@@ -133,13 +136,14 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       return origin === new URL(`${protocol}//${req.headers.host}`).origin;
     } catch { return false; }
   };
-  const bearer = (req) => { const c = cookieOf(req); return c ? `Bearer ${c}` : req.headers.authorization; };
+  const bearer = (req) => { const c = encrypted(req) && cookieOf(req); return c ? `Bearer ${c}` : req.headers.authorization; };
   const cookieHeader = (value, maxAge, secure) => `${COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
   function sendEntry(req, res, entry) {
     const headers = { ...SECURITY, 'content-type': entry.type, etag: entry.etag, 'cache-control': 'no-cache', vary: 'accept-encoding' };
     if (entry.type.startsWith('text/html')) headers['content-security-policy'] = (entry.csp ??= csp(inlineHashes(entry.body.toString('utf8'))));
-    if (req.headers['if-none-match'] === entry.etag) { res.writeHead(304, headers); return res.end(); }
     const [body, encoding] = negotiate(entry, req.headers['accept-encoding']);
+    if (!body) return res.writeHead(406, headers).end();
+    if (req.headers['if-none-match'] === entry.etag) { res.writeHead(304, headers); return res.end(); }
     if (encoding) headers['content-encoding'] = encoding;
     headers['content-length'] = body.length;
     res.writeHead(200, headers);
@@ -147,22 +151,26 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
   }
 
   async function claim(req, res) {
-    if (!isSecure(req)) return out(res, 426, { error: 'This address isn’t encrypted (http). Pair over https: use a tunnel, Tailscale, or your own certificate (Settings → Remote).' });
+    if (!encrypted(req)) return out(res, 426, { error: 'Pair over HTTPS: use a supported proxy, Tailscale, or your own certificate (Settings → Remote).' });
     if (req.headers['x-dotpals'] !== '1' || !originOk(req)) return out(res, 403, { error: 'forbidden' });
-    if (!claims.hit(req.socket.remoteAddress ?? '?')) return out(res, 429, { error: 'Too many tries. Wait a minute.' });
     let body;
     try { body = await readJson(req); } catch (err) { return out(res, err.status ?? 400, { error: err.message }); }
     const made = remote.finishPairing(body.code, body.name);
-    if (!made) return out(res, 403, { error: 'That code didn’t work. It may have expired: make a new one on the computer.' });
-    const secure = encrypted(req);
+    // Never trust a client-supplied forwarding address or make valid claims share the proxy's failure budget.
+    if (!made) {
+      if (!claims.hit(req.socket.remoteAddress ?? '?')) return out(res, 429, { error: 'Too many tries. Wait a minute.' });
+      return out(res, 403, { error: 'That code didn’t work. It may have expired: make a new one on the computer.' });
+    }
     log(`remote: paired "${remote.device(made.id)?.name}"`);
-    return out(res, 200, { ok: true, name: remote.device(made.id)?.name }, { 'set-cookie': cookieHeader(`${made.id}.${made.secret}`, YEAR_AND_A_BIT, secure) });
+    return out(res, 200, { ok: true, name: remote.device(made.id)?.name }, { 'set-cookie': cookieHeader(`${made.id}.${made.secret}`, YEAR_AND_A_BIT, true) });
   }
 
   /** Gzip an API answer when the device accepts it: the bridge's handlers answer with writeHead(...).end(json). */
   function compressApi(req, res) {
     for (const [key, value] of Object.entries(SECURITY)) res.setHeader(key, value);
-    if (!/\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) return;
+    const coding = chooseEncoding(req.headers['accept-encoding']);
+    if (coding !== 'gzip') return;
+    const allowIdentity = !!chooseEncoding(req.headers['accept-encoding'], ['identity']);
     const writeHead = res.writeHead.bind(res);
     const end = res.end.bind(res);
     let held = null;
@@ -172,8 +180,8 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       res.end = end;
       const [status, headers = {}] = held ?? [res.statusCode, {}];
       const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
-      if (buf && buf.length > 1024 && !headers['content-encoding']) {
-        gzipAsync(buf).then((z) => { writeHead(status, { ...headers, 'content-encoding': 'gzip', vary: 'accept-encoding' }); end(z); }).catch(() => { writeHead(status, headers); end(buf); });
+      if (buf && (buf.length > 1024 || !allowIdentity) && !headers['content-encoding']) {
+        gzipAsync(buf).then((z) => { writeHead(status, { ...headers, 'content-encoding': 'gzip', vary: 'accept-encoding' }); end(z); }).catch(() => { if (!allowIdentity) { writeHead(406); end(); } else { writeHead(status, headers); end(buf); } });
       } else { writeHead(status, headers); end(buf); }
       return res;
     };
@@ -185,6 +193,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     if (req.method !== 'POST') return out(res, 405, { error: 'method not allowed' }, { allow: 'POST' });
     let body;
     try { body = await readJson(req, 8192); } catch (err) { return out(res, err.status ?? 400, { error: err.message }); }
+    if (!remote.device(id)) return out(res, 401, { error: 'not paired' });
     if (path === '/api/remote/me/prefs') return out(res, 200, remote.update(id, { name: body.name }));
     if (path === '/api/remote/me/signout') {
       remote.revoke(id);
@@ -199,7 +208,8 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     const url = new URL(req.url, 'http://x');
     const since = req.headers['last-event-id'] || url.searchParams.get('since') || '';
     hub.join(req, res, {
-      since, deviceId: device.id, compress: /\bgzip\b/.test(req.headers['accept-encoding'] ?? ''),
+      since, deviceId: device.id, compress: chooseEncoding(req.headers['accept-encoding']) === 'gzip',
+      include: (event, data) => event !== 'activity' || (data?.at ?? 0) >= Date.now() - config().historyDays * 86_400_000,
       snapshot: (emit) => snapshot(emit, { days: config().historyDays }),
     });
   };
@@ -221,24 +231,28 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
 
     if (permission({ control: true }, req.method, path) === 'blocked') return out(res, 403, { error: 'not available from a paired device' });
     if (!originOk(req) || (req.method === 'POST' && req.headers['x-dotpals'] !== '1')) return out(res, 403, { error: 'forbidden' });
-    const device = remote.authenticate(bearer(req));
+    let device = remote.authenticate(bearer(req));
     if (!device) return out(res, 401, { error: 'not paired' });
     const verdict = permission(device, req.method, path);
     if (verdict === 'blocked') return out(res, 403, { error: 'not available from a paired device' });
     if (verdict === 'control') return out(res, 403, { error: 'control', message: 'This device can look but not change things. Turn on “Let this device control” for it, on the computer (Settings → Remote).' });
+    if (!chooseEncoding(req.headers['accept-encoding'], path.startsWith('/api/remote/') ? ['identity'] : ['gzip', 'identity'])) return res.writeHead(406, SECURITY).end();
 
     if (path === '/events') return live(req, res, device);
     if (path === '/api/remote/me' || path.startsWith('/api/remote/me/')) return meApi(req, res, path, device);
-
-    if (req.method === 'POST' && path === '/api/config') {
+    if (req.method === 'POST') {
       let body;
-      try { body = JSON.parse((await readBuffer(req)).toString('utf8') || '{}'); } catch (err) { return out(res, err.status ?? 400, { error: 'bad json' }); }
-      if (!body || typeof body !== 'object' || Array.isArray(body)) return out(res, 400, { error: 'bad json' });
-      if (Object.hasOwn(body, 'remote')) return out(res, 403, { error: 'forbidden' });
-      const { patch, denied } = remotePatch(body, device);
-      if (denied.length) return out(res, 403, { error: 'control', message: `This device can't change: ${denied.join(', ')}. Turn on “Let this device control” for it, on the computer.` });
+      try { body = await readJson(req, 1024 * 1024); } catch (err) { return out(res, err.status ?? 400, { error: err.status === 413 ? 'too large' : 'bad json' }); }
+      device = remote.device(device.id);
+      if (!device) return out(res, 401, { error: 'not paired' });
+      if (permission(device, req.method, path) !== 'ok') return out(res, 403, { error: 'control', message: 'The device no longer has control.' });
+      if (path === '/api/config') {
+        const { patch, denied } = remotePatch(body, device);
+        if (denied.length) return out(res, 403, { error: 'control', message: `This device can’t change: ${denied.join(', ')}. Some settings are only available on the computer.` });
+        body = patch;
+      }
       compressApi(req, res);
-      return api(shim(req, JSON.stringify(patch)), res, path, { device });
+      return api(shim(req, JSON.stringify(body)), res, path, { device });
     }
     compressApi(req, res);
     return api(req, res, path, { device });
@@ -255,14 +269,16 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
   function loadTls(cfg) {
     if (cfg.tlsAuto) {
       const made = certs({ dir: dir(), ips: addressesNow() });
-      addressesSeen = made.addresses.join(',');
-      if (made.created.cert) certNote = `Issued a certificate for ${made.addresses.join(', ')}`;
       const cert = readFileSync(made.cert);
-      renewAt = Date.parse(new X509Certificate(cert).validTo) - 30 * 86_400_000;
-      return { cert, key: readFileSync(made.key) };
+      return { cert, key: readFileSync(made.key), addresses: made.addresses.join(','), renewal: Date.parse(new X509Certificate(cert).validTo) - 30 * 86_400_000 };
     }
     if (cfg.tlsCert && cfg.tlsKey) return { cert: readFileSync(cfg.tlsCert), key: readFileSync(cfg.tlsKey) };
     return null;
+  }
+  function recordTls(tls) {
+    addressesSeen = tls?.addresses ?? '';
+    renewAt = tls?.renewal ?? 0;
+    certNote = addressesSeen ? `Serving a certificate for ${addressesSeen}` : null;
   }
   /** While serving our own certificate: when this computer's addresses change, issue a new one and swap it in (no dropped connections). */
   function watchAddresses() {
@@ -275,6 +291,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
         if (!now || (now === addressesSeen && Date.now() < renewAt) || !server?.setSecureContext) return;
         const tls = loadTls(config());
         server.setSecureContext(tls);
+        recordTls(tls);
         lastError = null;
         log(`remote: certificate renewed for ${addressesSeen}`);
       } catch (err) { lastError = `Couldn’t renew the certificate: ${err.message}`; }
@@ -322,7 +339,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     s.maxConnections = 64;
     await new Promise((ok) => {
       s.once('error', (err) => { lastError = err.code === 'EADDRINUSE' ? `Port ${cfg.port} is already in use. Pick another in Settings → Remote.` : err.message; ok(); });
-      s.listen(cfg.port, cfg.bind === 'lan' ? '0.0.0.0' : '127.0.0.1', () => { server = s; runKey = key; watchAddresses(); log(`remote client → ${cfg.bind === 'lan' ? 'network' : 'this computer only'}, port ${cfg.port}`); ok(); });
+      s.listen(cfg.port, cfg.bind === 'lan' ? '0.0.0.0' : '127.0.0.1', () => { server = s; runKey = key; recordTls(options); watchAddresses(); log(`remote client → ${cfg.bind === 'lan' ? 'network' : 'this computer only'}, port ${cfg.port}`); ok(); });
     });
   }
 
@@ -333,8 +350,8 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       enabled: !!cfg.enabled, running: !!server, error: lastError, port: cfg.port, bind: cfg.bind,
       secure: servesTls(cfg) || /^https:/.test(cfg.publicUrl ?? ''), publicUrl: cfg.publicUrl || '',
       // Where a phone on your network would look: the addresses, the name, and (with our own certificate) the CA to trust.
-      lan: cfg.bind === 'lan' ? { addresses: cfg.tlsAuto ? privateAddresses() : lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
-      addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id) })), waiting: remote.waiting(), streams: hub.size(),
+      lan: cfg.bind === 'lan' ? { addresses: cfg.tlsAuto ? addressesSeen.split(',').filter(Boolean) : lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
+      addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id) })), waiting: remote.waiting(), claimed: remote.claimed(), streams: hub.size(),
     });
     if (req.method === 'GET' && path === '/api/remote') return json(res, 200, view());
     if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
@@ -343,12 +360,13 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: 'bad json' });
     if (path === '/api/remote/pair') {
       if (!server) return json(res, 409, { error: 'The remote client is off. Turn it on first.' });
-      if (cfg.bind === 'lan' && !servesTls(cfg)) return json(res, 409, { error: 'Enable LAN HTTPS before making a pairing code.' });
-      const { token, expiresAt } = remote.startPairing();
-      const url = pairingUrl(cfg, token);
+      const covered = cfg.tlsAuto ? addressesSeen.split(',').filter(Boolean) : lanAddresses();
+      if (!(servesTls(cfg) || (cfg.bind === 'local' && /^https:\/\//.test(cfg.publicUrl ?? '')))) return json(res, 409, { error: 'Configure HTTPS before making a pairing code.' });
+      const { token, expiresAt, id } = remote.startPairing();
+      const url = pairingUrl(cfg, token, covered);
       // The same code by name, for phones whose IP changes or that can resolve .local: shown beside the QR code.
       const byName = cfg.bind === 'lan' && !cfg.publicUrl && localName() ? pairingUrl(cfg, token, lanAddresses(), { name: true }) : null;
-      return json(res, 200, { code: token, expiresAt, url, byName, secure: /^https:/.test(url), qr: qrRows(url) });
+      return json(res, 200, { id, code: token, expiresAt, url, byName, secure: /^https:/.test(url), qr: qrRows(url) });
     }
     if (path === '/api/remote/pair/cancel') { remote.cancelPairing(); return json(res, 200, { ok: true }); }
     if (path === '/api/remote/revoke-all') { for (const d of remote.devices()) { hub.drop(d.id); } remote.revokeAll(); return json(res, 200, view()); }

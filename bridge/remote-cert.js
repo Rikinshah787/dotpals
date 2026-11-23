@@ -8,10 +8,10 @@
 // certificate is renewed from it, and only `ca.pem` (public) is ever put on a phone.
 // Needs `openssl` (Git for Windows ships one); nothing else.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, networkInterfaces, platform, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { X509Certificate, randomBytes } from 'node:crypto';
+import { createPrivateKey, X509Certificate, randomBytes } from 'node:crypto';
 
 export const certDir = (home) => join(home, 'remote-cert');
 
@@ -118,11 +118,20 @@ export function ensureCerts({ dir, openssl = findOpenssl(), ips = privateAddress
     const r = run(openssl, ['x509', '-in', 'cert.pem', '-noout', '-checkend', String(30 * 86400)], { cwd: dir, encoding: 'utf8', env: opensslEnv(dir) });
     aging = r.status !== 0; // non-zero: it ends within 30 days
   }
-  if (created.ca || aging || current !== want || !existsSync(p('key.pem'))) {
+  let matchingKey = false;
+  try { matchingKey = new X509Certificate(readFileSync(p('cert.pem'))).checkPrivateKey(createPrivateKey(readFileSync(p('key.pem')))); } catch {}
+  if (created.ca || aging || current !== want || !matchingKey) {
     writeFileSync(p('ext.cnf'), leafExtensions(want));
-    sh(openssl, ['req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'key.pem', '-out', 'leaf.csr', '-subj', '/CN=dotpals'], dir, run);
-    sh(openssl, ['x509', '-req', '-in', 'leaf.csr', '-CA', 'ca.pem', '-CAkey', 'ca-key.pem', '-set_serial', `0x${randomBytes(8).toString('hex')}`, '-out', 'cert.pem', '-days', '800', '-extfile', 'ext.cnf'], dir, run);
-    lock(p('key.pem'));
+    try {
+      sh(openssl, ['req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'key.next.pem', '-out', 'leaf.csr', '-subj', '/CN=dotpals'], dir, run);
+      lock(p('key.next.pem'));
+      sh(openssl, ['x509', '-req', '-in', 'leaf.csr', '-CA', 'ca.pem', '-CAkey', 'ca-key.pem', '-set_serial', `0x${randomBytes(8).toString('hex')}`, '-out', 'cert.next.pem', '-days', '800', '-extfile', 'ext.cnf'], dir, run);
+      renameSync(p('key.next.pem'), p('key.pem'));
+      renameSync(p('cert.next.pem'), p('cert.pem'));
+    } finally {
+      rmSync(p('key.next.pem'), { force: true });
+      rmSync(p('cert.next.pem'), { force: true });
+    }
     writeFileSync(p('names.txt'), want);
     created.cert = true;
   }
