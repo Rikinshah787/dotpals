@@ -10,6 +10,7 @@
 //   dotpals statusline [--off]                share Claude Code's usage limits (for the notch)
 //   dotpals bridge                            run only the bridge (no window)
 //   dotpals laya [--remove]                   set up Laya, the free local test checker (or delete it)
+//   dotpals remote cert                       https for your own network: a private CA and a certificate for this computer, with steps for your phone
 //   dotpals mcp                               an MCP server: any assistant can ask dotpals what your agents did
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
@@ -618,6 +619,43 @@ async function laya(flags) {
   finish(s.running ? { ...s, message: 'Laya is set up and answers on this computer' } : s);
 }
 
+/**
+ * `dotpals remote cert`: https on your own network. Makes a private CA (once) and a server certificate for this
+ * computer's addresses, points the remote client at it, and says how to trust the CA on a phone.
+ */
+async function remoteCommand(sub, flags) {
+  if (sub !== 'cert') { console.log('Usage: dotpals remote cert   (https for your own network: see docs/REMOTE.md)'); process.exitCode = sub ? 1 : 0; return; }
+  const { caFingerprint, certDir, ensureCerts, localName } = await import('../bridge/remote-cert.js');
+  let made;
+  try { made = ensureCerts({ dir: certDir(home()) }); } catch (err) { warn(err.message); process.exitCode = 1; return; }
+  ok(made.created.ca ? 'Made a private certificate authority (name-restricted to your own network)' : 'Using your existing certificate authority');
+  ok(made.created.cert ? `Made a server certificate for ${made.addresses.join(', ')}${localName() ? ` and ${localName()}` : ''}` : 'The server certificate is current');
+  // tlsAuto: the app keeps this certificate current by itself from now on (a new address gets a new certificate, no restart).
+  const patch = { remote: { tlsAuto: true, tlsCert: '', tlsKey: '', bind: 'lan' } };
+  saveConfig(patch);
+  ok('The remote client will serve https on your network, and renew the certificate itself when the address changes');
+  const port = loadConfig().remote.port;
+  const name = localName();
+  console.log(`
+  ${bold('On each phone or tablet, once')}
+    1. Copy ${bold(made.ca)} to it (USB, AirDrop, a file share: it's public, no secret).
+       Its fingerprint, to compare on the phone: ${dim(caFingerprint(certDir(home())) ?? '')}
+    2. ${bold('Android')}: Settings → Security → More security settings → Encryption & credentials → Install a certificate → CA certificate.
+       ${bold('iPhone/iPad')}: open the file, Settings → Profile Downloaded → Install; then Settings → General → About → Certificate Trust Settings → turn it on.
+    3. Turn the remote client on (Settings → Remote) and scan the QR code, or open ${bold(`https://${made.addresses[0]}:${port}/pair`)}${name ? `\n       ${dim(`${name} also works on devices that can look up .local names (Apple devices do; support on Android and on some routers varies, so check on yours). The address always works.`)}` : ''}
+
+  ${dim('The CA can only vouch for private addresses and .local names, so installing it can’t make a real website look trusted.')}
+  ${dim('If your computer’s address changes, dotpals issues a new certificate by itself (the CA stays, so phones keep working). Only a changed .local name needs this run again.')}
+  ${dim('Firefox on Android keeps its own list: Settings → About → tap the logo 5 times → Secret settings → Use third party CA certificates.')}
+`);
+  if (flags.has('--no-restart')) return;
+  // A running dotpals picks it up now (no restart); if it isn't running, the saved settings apply when it starts.
+  try {
+    const res = await fetch(`${bridge}/api/config`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(patch), signal: AbortSignal.timeout(5000) });
+    if (res.ok) ok('Applied to the running dotpals');
+  } catch { skip('dotpals isn’t running: it will use this when it starts'); }
+}
+
 const [command = 'help', ...rest] = process.argv.slice(2);
 const flags = new Set(rest);
 switch (command) {
@@ -642,6 +680,7 @@ switch (command) {
   // Like `node bridge/server.js`: it quits when setup asks, so the pal can take over.
   case 'bridge': await import('../bridge/server.js').then((m) => m.startBridge({ onQuit: () => process.exit(0) })); break;
   case 'laya': await laya(flags); break;
+  case 'remote': await remoteCommand(rest[0], flags); break;
   // An MCP server on stdin and stdout (bridge/mcp.js): nothing else may print to stdout here.
   case 'mcp': (await import('../bridge/mcp.js')).serve(); break;
   default:

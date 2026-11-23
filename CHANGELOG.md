@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in HTTPS remote dashboard with QR pairing, device revocation and scoped permissions.
+
 ## [0.13.0] - 2026-11-15
 
 ### Added

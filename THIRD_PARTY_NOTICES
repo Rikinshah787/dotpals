@@ -73,3 +73,12 @@ Not bundled with this repository. Choosing Set up Laya (or running `dotpals laya
 installs Laya from PyPI into `~/.dotpals/laya`; alternatively, Local mode can
 send requests to a `laya-serve` instance you install and run yourself. Laya is
 made by Convai Innovations and licensed under the Apache License 2.0.
+
+================================================================================
+qrcode-generator 2.0.4 (bridge/vendor/qrcode.js)
+https://github.com/kazuhikoarase/qrcode-generator
+================================================================================
+
+MIT License. Copyright (c) 2009 Kazuhiko Arase. Used unmodified to draw the
+pairing QR code for the remote client. 'QR Code' is a registered trademark of
+DENSO WAVE INCORPORATED.

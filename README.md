@@ -199,6 +199,10 @@ dotpals mcp         # the MCP server (below)
 
 To uninstall (the hooks, the MCP server, the `dotpals` command, the app and `~/.dotpals`), follow **[Uninstalling dotpals](https://dotpals.vercel.app/guide/troubleshooting.html#uninstall)**.
 
+## On your phone or foldable
+
+Settings → Remote enables an optional browser dashboard for a phone or tablet. Pair with a QR code; desktop controls decide what each device can do. Set-up, what a device may do, and how it's secured: **[docs/REMOTE.md](docs/REMOTE.md)**.
+
 ## Ask dotpals from any agent (MCP)
 
 `dotpals mcp` is an [MCP](https://modelcontextprotocol.io) server: Claude Code, Codex, Cursor and other assistants ask dotpals what your agents really did, and get the evidence instead of the agent's word. It only reads, from the pal running on this computer.
@@ -221,6 +225,8 @@ Codex and Cursor: command `npx`, arguments `dotpals mcp` (for Codex, under `[mcp
 ## Privacy
 
 Your agents' work stays on your computer. The bridge listens only on `127.0.0.1`, reads Claude Code's and Codex's logs locally, and sends nothing anywhere. The exceptions are your choice:
+
+- **Remote client** (off by default, [docs/REMOTE.md](docs/REMOTE.md)): opens a separate authenticated listener for paired devices over HTTPS. They can read private dashboard/session data; powerful changes require a per-device control switch set on the computer. See [SECURITY.md](SECURITY.md) for boundaries and limitations.
 
 - **Blu**: what you say goes to the AI you picked for Blu's brain (nowhere, with Ollama), with a screenshot only when you ask about the screen.
 - **Cloud (Jev)** test double-check, off by default: an unclear test run's output, with passwords, keys and emails removed.
