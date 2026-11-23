@@ -54,27 +54,39 @@ function init() {
     const unknownControl = new Set();
     const editing = () => card.contains(document.activeElement) && document.activeElement.matches('input, select, textarea');
     let revision = 0;
+    let deviceChange = false;
+    const visible = () => card.getClientRects().length > 0;
     const draw = () => {
       if (!state) return;
       const nodes = [el('h2', '', 'Remote')];
       nodes.push(el('p', 'muted', 'Use dotpals from your phone or tablet: the same dashboard, live. Off until you turn it on.'));
       nodes.push(row('Remote client', state.error || (state.running ? `Listening on port ${state.port}${state.bind === 'lan' ? ' (your network)' : ' (this computer only: put a tunnel or Tailscale in front)'}.` : 'Off.'),
-        sw(state.enabled, async (i) => { await save({ enabled: i.checked }); })));
+        sw(state.enabled, async (i) => { try { await save({ enabled: i.checked }); } catch (e) { i.checked = state.enabled; toast(e.message); } }, 'Remote client')));
       if (state.enabled) {
         const where = el('select'); where.setAttribute('aria-label', 'Who can reach it');
         for (const [v, t] of [['local', 'This computer only (use a tunnel or Tailscale)'], ['lan', 'Anything on my network']]) where.add(new Option(t, v, false, v === state.bind));
         where.onchange = () => save({ bind: where.value });
         const port = el('input'); port.type = 'number'; port.min = 1024; port.max = 65535; port.value = state.port;
         port.setAttribute('aria-label', 'Remote port');
-        port.onchange = () => save({ port: Number(port.value) }).catch((e) => toast(e.message));
+        port.onchange = () => {
+          if (!port.value || !port.validity.valid) { port.reportValidity(); return; }
+          save({ port: Number(port.value) }).catch((e) => toast(e.message));
+        };
         nodes.push(row('Port', 'Use this port in the HTTPS address or proxy configuration.', port));
         nodes.push(row('Reachable from', 'A phone needs https to install the app and get notifications: use a tunnel (Cloudflare, Tailscale) or your own certificate.', where));
         const url = el('input'); url.type = 'url'; url.placeholder = 'https://dotpals.example.com'; url.value = state.publicUrl; url.setAttribute('aria-label', 'Public address');
-        url.onchange = () => save({ publicUrl: url.value.trim() }).catch((e) => toast(e.message));
+        url.onchange = () => {
+          const value = url.value.trim();
+          if (value) {
+            try { const u = new URL(value); if (u.protocol !== 'https:' || u.username || u.password) throw new Error(); }
+            catch { toast('Enter an HTTPS address without a username or password.'); return; }
+          }
+          save({ publicUrl: value }).catch((e) => toast(e.message));
+        };
         nodes.push(row('Address your devices open', 'The https address of your tunnel or proxy. Leave empty to use this computer’s address on your network. It goes in the QR code.', url));
         if (state.bind === 'lan') {
           const lan = state.lan ?? {};
-          const auto = sw(lan.auto, (i) => save({ tlsAuto: i.checked, ...(i.checked ? { tlsCert: '', tlsKey: '' } : {}) }).catch((e) => toast(e.message)), 'https on my network');
+          const auto = sw(lan.auto, (i) => save({ tlsAuto: i.checked }).catch((e) => toast(e.message)), 'https on my network');
           nodes.push(row('https on my network', lan.auto
             ? `dotpals keeps its own certificate and renews it when this computer’s address changes${lan.note ? `. ${lan.note}` : ''}. It needs openssl (Git for Windows has one).`
             : 'Turn on to serve https here with a private certificate, no tunnel. Each phone trusts it once.', auto));
@@ -103,7 +115,7 @@ function init() {
       if (state.devices.length) {
         nodes.push(el('h3', '', 'Paired devices'));
         for (const d of state.devices) nodes.push(deviceRow(d));
-        nodes.push(row('Sign out every device', 'Removes all of them at once.', btn('Sign out all', async () => { if (confirm('Sign out every paired device?')) { state = await call('/api/remote/revoke-all', {}); draw(); } }, 'danger')));
+        nodes.push(row('Sign out every device', 'Removes all of them at once.', btn('Sign out all', async () => { if (confirm('Sign out every paired device?')) await mutateDevice('/api/remote/revoke-all', {}, 'Sign out not confirmed'); }, 'danger')));
       }
       card.replaceChildren(...nodes);
       clearInterval(tick);
@@ -121,26 +133,38 @@ function init() {
       }
     }
     const refresh = async ({ preserveEdit = false } = {}) => {
-      if (pendingControl.size || (preserveEdit && editing())) return;
+      if (deviceChange || (preserveEdit && editing())) return;
       const requestRevision = revision;
-      const stale = () => requestRevision !== revision || pendingControl.size || (preserveEdit && editing());
+      const stale = () => requestRevision !== revision || deviceChange || (preserveEdit && editing());
       try {
         const next = await call('/api/remote');
         if (stale()) return;
         state = next;
         unknownControl.clear();
         if (pairing && state.claimed?.includes(pairing.id)) { pairing = null; toast('Device paired'); }
+        else if (pairing && (!state.enabled || (state.pendingPairs && !state.pendingPairs.includes(pairing.id)))) pairing = null;
         draw();
       } catch (e) { if (!stale() && !state) card.replaceChildren(el('h2', '', 'Remote'), el('p', 'bad', e.message)); }
     };
-    async function save(patch) { await call('/api/config', { remote: patch }); await new Promise((r) => setTimeout(r, 250)); await refresh(); }
+    async function save(patch) { revision++; await call('/api/config', { remote: patch }); if (patch.enabled === false) pairing = null; await new Promise((r) => setTimeout(r, 250)); await refresh(); }
+    async function mutateDevice(path, patch, failure, id) {
+      if (deviceChange) { toast('Wait for the current device change, then try again.'); return; }
+      deviceChange = true;
+      revision++;
+      try { state = await call(path, patch); }
+      catch (e) {
+        toast(`${failure}: ${e.message}`);
+        try { state = await call('/api/remote'); unknownControl.clear(); }
+        catch { if (id) unknownControl.add(id); }
+      } finally { if (id) pendingControl.delete(id); deviceChange = false; draw(); }
+    }
     async function start() { try { pairing = await call('/api/remote/pair', {}); draw(); } catch (e) { toast(e.message); } }
     async function cancel() { try { await call('/api/remote/pair/cancel', {}); pairing = null; draw(); } catch (e) { toast(e.message); } }
     function deviceRow(d) {
       const box = el('div', 'rc-device');
       box.style.cssText = 'border-top:1px solid var(--line);padding:6px 0';
       const name = el('input'); name.value = d.name; name.maxLength = 40; name.setAttribute('aria-label', `Name of ${d.name}`);
-      name.onchange = async () => { state = await call(`/api/remote/devices/${d.id}`, { name: name.value }); draw(); };
+      name.onchange = () => mutateDevice(`/api/remote/devices/${d.id}`, { name: name.value }, 'Rename not confirmed');
       const status = d.open ? 'Open now' : `Last seen ${when(d.lastSeen)}`;
       box.append(row(status, "Shown on your computer.", name));
       const unknown = unknownControl.has(d.id);
@@ -148,27 +172,22 @@ function init() {
           const control = i.checked;
           i.checked = d.control;
           if (control && !confirm(`Let “${d.name}” control dotpals, including starting coding tasks?`)) return;
-          revision++;
+          if (deviceChange) { toast('Wait for the current device change, then try again.'); return; }
           pendingControl.add(d.id);
           i.disabled = true;
-          try { state = await call(`/api/remote/devices/${d.id}`, { control }); }
-          catch (e) {
-            toast(e.message);
-            try { state = await call('/api/remote'); }
-            catch { unknownControl.add(d.id); }
-          } finally { pendingControl.delete(d.id); draw(); }
+          await mutateDevice(`/api/remote/devices/${d.id}`, { control }, 'Control change not confirmed', d.id);
         }, unknown ? `Control permission for ${d.name} is unknown. Refresh to check.` : `Let ${d.name} control`);
       controlSwitch.disabled = pendingControl.has(d.id) || unknown;
       controlSwitch.indeterminate = unknown;
       box.append(row('Let this device control', unknown ? 'Permission is unknown. Refresh to check.' : 'Off: it can look and change appearance. On: it can also hand off sessions, rewind and start coding tasks. Permission prompts and Apps stay on the desktop.', controlSwitch));
       const acts = el('div', 'acts'); acts.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;padding-bottom:8px';
-      acts.append(btn('Sign out', async () => { state = await call(`/api/remote/devices/${d.id}/revoke`, {}); draw(); }, 'danger'));
+      acts.append(btn('Sign out', () => mutateDevice(`/api/remote/devices/${d.id}/revoke`, {}, 'Sign out not confirmed'), 'danger'));
       box.append(acts);
       return box;
     }
     refresh();
-    addEventListener('hashchange', () => { if (location.hash.startsWith('#settings/remote')) refresh(); });
-    setInterval(() => { if (location.hash.startsWith('#settings/remote') && !document.hidden) refresh({ preserveEdit: true }); }, 4000);
+    addEventListener('hashchange', () => requestAnimationFrame(() => { if (visible()) refresh({ preserveEdit: true }); }));
+    setInterval(() => { if (visible() && !document.hidden) refresh({ preserveEdit: true }); }, 4000);
   }
   // -- on a paired device --------------------------------------------------------------------------------
   async function deviceFace() {
@@ -181,7 +200,11 @@ function init() {
       nodes.push(row(me.control ? 'This device can control dotpals' : 'This device can look, not control', me.control ? 'Hand-offs, rewinds, coding tasks and settings are allowed. Permission cards and desktop actions still need the desktop.' : 'Turn it on from the computer: Settings → Remote → Let this device control.'));
 
       nodes.push(el('h3', '', 'Sign out'));
-      nodes.push(row('Sign this device out', 'You’ll pair again to use it.', btn('Sign out', async () => { if (!confirm('Sign this device out?')) return; await call('/api/remote/me/signout', {}); location.replace('/pair'); }, 'danger')));
+      nodes.push(row('Sign this device out', 'You’ll pair again to use it.', btn('Sign out', async () => {
+        if (!confirm('Sign this device out?')) return;
+        try { await call('/api/remote/me/signout', {}); location.replace('/pair'); }
+        catch (e) { toast(`Sign out not confirmed: ${e.message}`); }
+      }, 'danger')));
       card.replaceChildren(...nodes);
     }
     async function load() { try { me = await call('/api/remote/me'); draw(); } catch (e) { card.replaceChildren(el('h2', '', 'This device'), el('p', 'bad', e.message)); } }
