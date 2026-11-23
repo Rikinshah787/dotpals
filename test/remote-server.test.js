@@ -2,6 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { get, request } from 'node:http';
 import { createServer as createNet } from 'node:net';
+import { Readable } from 'node:stream';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,9 @@ const { startBridge } = await import('../bridge/server.js');
 const { hostAllowed, pairingUrl, qrRows } = await import('../bridge/remote-server.js');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const publicUrl = 'https://paired.example';
+const proxy = { 'x-forwarded-proto': 'https', host: 'paired.example' };
+const close = (server) => new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); });
 // Ports the system says are free right now. A random pick from a range other test files also use sometimes landed on
 // one of theirs, and a clash on the REMOTE port isn't an error (the bridge just logs it), so the test failed instead of retrying.
 const port = () => new Promise((ok) => { const s = createNet().listen(0, '127.0.0.1', () => { const { port: p } = s.address(); s.close(() => ok(p)); }); });
@@ -27,19 +31,34 @@ async function boot() {
     const main = await port();
     const remotePort = await port();
     if (main === remotePort) continue;
-    saveConfig({ remote: { enabled: true, bind: 'local', port: remotePort } });
+    saveConfig({ remote: { enabled: true, bind: 'local', port: remotePort, publicUrl } });
+    let server;
     try {
-      const server = await startBridge({ port: main, log: () => {} });
-      for (let t = 0; t < 40; t++) { try { await fetch(`http://127.0.0.1:${remotePort}/pair`); break; } catch { await wait(50); } }
-      return { main, remote: remotePort, server };
-    } catch (err) { if (!['EADDRINUSE', 'EACCES'].includes(err.code)) throw err; }
+      server = await startBridge({ port: main, log: () => {} });
+      for (let t = 0; t < 40; t++) {
+        const state = await (await fetch(`http://127.0.0.1:${main}/api/remote`, { signal: AbortSignal.timeout(1000) })).json();
+        if (state.running && state.port === remotePort) return { main, remote: remotePort, server };
+        if (state.error) break;
+        await wait(50);
+      }
+      await close(server);
+    } catch (err) { if (server) await close(server); if (!['EADDRINUSE', 'EACCES'].includes(err.code)) throw err; }
   }
   throw new Error('no free ports');
 }
 const ctx = await boot();
-after(() => new Promise((r) => { ctx.server.closeAllConnections?.(); ctx.server.close(() => r()); }));
+after(() => close(ctx.server));
 
-const R = (path, init = {}) => fetch(`http://127.0.0.1:${ctx.remote}${path}`, init);
+// Use HTTP directly so the test proxy can preserve Host on Node versions whose fetch rewrites it.
+const R = (path, init = {}) => new Promise((resolve, reject) => {
+  const req = request({ host: '127.0.0.1', port: ctx.remote, path, method: init.method, headers: { ...proxy, ...init.headers }, signal: init.signal }, (res) => {
+    const body = init.method === 'HEAD' || res.statusCode === 304 ? null : Readable.toWeb(res);
+    if (!body) res.resume();
+    resolve(new Response(body, { status: res.statusCode, headers: res.headers }));
+  });
+  req.on('error', reject);
+  req.end(init.body);
+});
 const M = (path, body) => fetch(`http://127.0.0.1:${ctx.main}${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
 const post = (path, body, cookie) => R(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body ?? {}) });
 
@@ -73,6 +92,9 @@ test('pairing: a code works once and sets an HttpOnly, SameSite=Strict cookie', 
   assert.match(set, /^dp_device=[\w-]+\.[\w-]+;/);
   assert.match(set, /HttpOnly/);
   assert.match(set, /SameSite=Strict/);
+  assert.match(set, /; Secure/);
+  assert.ok((await (await M('/api/remote')).json()).claimed.includes(p.made.id));
+  assert.equal((await fetch(`http://127.0.0.1:${ctx.remote}/api/status`, { headers: { cookie: p.cookie } })).status, 401, 'plaintext never accepts the browser cookie');
   assert.match(p.made.url, /\/pair#[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
   assert.ok(p.made.qr.length > 20 && /^[01]+$/.test(p.made.qr[0]));
   cookie = p.cookie;
@@ -88,6 +110,18 @@ test('pairing refuses a request that is not from our own page', async () => {
   const foreign = await R('/pair/claim', { method: 'POST', headers: { 'x-dotpals': '1', origin: 'https://evil.example' }, body: JSON.stringify({ code: made.code }) });
   assert.equal(foreign.status, 403);
   assert.equal((await post('/pair/claim', { code: made.code, name: 'ok' })).status, 200); // still unused
+});
+
+test('a valid HTTPS claim can succeed after rejected claims on a shared proxy', async () => {
+  const made = await (await M('/api/remote/pair', {})).json();
+  const plain = await fetch(`http://127.0.0.1:${ctx.remote}/pair/claim`, { method: 'POST', headers: { 'x-dotpals': '1' }, body: JSON.stringify({ code: made.code }) });
+  assert.equal(plain.status, 426);
+  assert.equal(plain.headers.get('set-cookie'), null);
+  const oversized = await R('/pair/claim', { method: 'POST', headers: { 'x-dotpals': '1' }, body: 'x'.repeat(4097) });
+  assert.equal(oversized.status, 413);
+  for (let i = 0; i < 9; i++) await post('/pair/claim', { code: 'not a code' });
+  assert.equal((await post('/pair/claim', { code: 'not a code' })).status, 429);
+  assert.equal((await post('/pair/claim', { code: made.code, name: 'After throttling' })).status, 200);
 });
 
 test('a paired device can read, but not run things', async () => {
@@ -126,22 +160,42 @@ test('a browser-origin Talk request passes only for a controlling device from th
   assert.equal((await R('/api/talk/plan', { method: 'POST', headers: { ...headers, origin: 'https://evil.example' }, body: '{}' })).status, 403);
   assert.equal((await fetch(`http://127.0.0.1:${ctx.main}/api/talk/plan`, { method: 'POST', headers, body: '{}' })).status, 403, 'the local listener never trusts a claimed remote origin');
   await M(`/api/remote/devices/${deviceId}`, { control: false });
-  await M('/api/config', { remote: { publicUrl: '' } });
+  await M('/api/config', { remote: { publicUrl } });
 });
 
 test('settings: safe ones change, powerful ones need the control switch', async () => {
   const ok = await post('/api/config', { sounds: false }, cookie);
   assert.equal(ok.status, 200);
   assert.equal((await ok.json()).sounds, false);
-  const denied = await post('/api/config', { sounds: true, chat: true, remote: { enabled: false } }, cookie);
+  const denied = await post('/api/config', { sounds: true, fixLoop: false }, cookie);
   assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error, 'control');
   assert.equal((await (await M('/api/config')).json()).sounds, false); // nothing half applied
+  assert.equal((await (await M('/api/config')).json()).fixLoop, true);
   await M(`/api/remote/devices/${deviceId}`, { control: true });
   assert.equal((await post('/api/config', { sounds: true }, cookie)).status, 200);
+  assert.equal((await post('/api/config', { chat: true }, cookie)).status, 403);
   const remoteEdit = await post('/api/config', { remote: { enabled: false } }, cookie);
   assert.equal(remoteEdit.status, 403); // never from a device, even with control
   assert.equal((await (await M('/api/remote')).json()).running, true);
   await M(`/api/remote/devices/${deviceId}`, { control: false });
+});
+
+test('a settings write rechecks the device after its body is read', async () => {
+  await M(`/api/remote/devices/${deviceId}`, { control: true });
+  const body = JSON.stringify({ fixLoop: false });
+  let req;
+  const result = new Promise((resolve, reject) => {
+    req = request({ host: '127.0.0.1', port: ctx.remote, method: 'POST', path: '/api/config', headers: { ...proxy, cookie, 'x-dotpals': '1', 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); resolve(res.statusCode); });
+    req.on('error', reject);
+    req.setTimeout(3000, () => req.destroy(new Error('settings write timed out')));
+    req.write(body.slice(0, 1));
+  });
+  try {
+    await M(`/api/remote/devices/${deviceId}`, { control: false });
+    req.end(body.slice(1));
+    assert.equal(await result, 403);
+  } finally { req.destroy(); }
 });
 
 test('unlisted APIs stay local even with control, and local test traffic needs the exact origin', async () => {
@@ -150,7 +204,7 @@ test('unlisted APIs stay local even with control, and local test traffic needs t
     for (const path of ['/api/apps', '/api/approvals', '/api/recap']) assert.equal((await R(path, { headers: { cookie } })).status, 403, path);
     for (const path of ['/api/apps/add', '/api/talk/apps', '/api/history/clear']) assert.equal((await post(path, {}, cookie)).status, 403, path);
     assert.equal((await R('/api/remote/me/prefs', { method: 'POST', headers: { cookie, 'x-dotpals': '1', origin: `https://127.0.0.1:${ctx.remote}` }, body: '{}' })).status, 403);
-    const local = await R('/api/remote/me/prefs', { method: 'POST', headers: { cookie, 'x-dotpals': '1', origin: `http://127.0.0.1:${ctx.remote}` }, body: '{}' });
+    const local = await R('/api/remote/me/prefs', { method: 'POST', headers: { cookie, 'x-dotpals': '1', origin: publicUrl }, body: '{}' });
     assert.equal(local.status, 200);
   } finally { await M(`/api/remote/devices/${deviceId}`, { control: false }); }
 });
@@ -225,8 +279,16 @@ test('the dashboard is served as an installable app with a strict, hash-based CS
 async function readUntilReady(reader) {
   const dec = new TextDecoder();
   let text = '';
-  while (!text.includes('event: ready')) { const { value, done } = await reader.read(); if (done) break; text += dec.decode(value); }
-  return text;
+  let timer;
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => { reader.cancel().catch(() => {}); reject(new Error('Timed out waiting for SSE ready')); }, 3000); });
+  try {
+    while (!/event: ready\ndata: [^\n]+\n\n/.test(text)) {
+      const { value, done } = await Promise.race([reader.read(), deadline]);
+      if (done) throw new Error('Stream ended before SSE ready');
+      text += dec.decode(value, { stream: true });
+    }
+    return text;
+  } finally { clearTimeout(timer); }
 }
 
 test('the live stream: one write, resumable, and gone when the device is signed out', async () => {

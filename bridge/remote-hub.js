@@ -24,7 +24,7 @@ export function keyOf(event, data) {
 export const frame = (event, data, id) => `${id ? `id: ${id}\n` : ''}${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
 
 export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024, beatMs = 25_000 } = {}) {
-  const epoch = randomBytes(3).toString('hex');
+  let epoch = randomBytes(3).toString('hex');
   let seq = 0;
   let floor = 0; // changes at or before this are no longer remembered
   const ring = new Map(); // key → { seq, event, data }; Map order is change order, oldest first
@@ -68,7 +68,7 @@ export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024
    * Attach a response as a live stream. `snapshot(emit)` writes everything now (config, entries,
    * sessions…); `since` is the last id the device saw. Returns { close }.
    */
-  function join(req, res, { snapshot, since, deviceId = null, compress = false, headers = {} }) {
+  function join(req, res, { snapshot, since, deviceId = null, compress = false, headers = {}, include = () => true }) {
     const gzip = compress ? createGzip({ level: 6 }) : null;
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store, no-transform',
@@ -84,12 +84,17 @@ export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024
       deviceId,
       raw(text) {
         if (closed || !text) return;
-        if (res.writableLength + (gzip?.writableLength ?? 0) > maxBuffered) return close(); // too slow: it reconnects and resumes
+        if (res.writableLength + (gzip?.writableLength ?? 0) > maxBuffered) {
+          close(false);
+          gzip?.destroy();
+          res.destroy();
+          return;
+        }
         out.write(text);
         if (gzip) gzip.flush(constants.Z_SYNC_FLUSH);
       },
       queue(event, data, key, n, isReset) {
-        if (closed) return;
+        if (closed || !include(event, data)) return;
         if (isReset) pending.clear();
         pending.delete(key);
         pending.set(key, { event, data, n });
@@ -105,13 +110,13 @@ export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024
       pending.clear();
       c.raw(text);
     }
-    function close() {
+    function close(graceful = true) {
       if (closed) return;
       closed = true;
       clearTimeout(timer);
       clients.delete(c);
       stopBeat();
-      try { gzip ? gzip.end() : res.end(); } catch {}
+      if (graceful) { try { gzip ? gzip.end() : res.end(); } catch {} }
     }
 
     // Everything in one write: what changed since the device left, else the whole picture.
@@ -119,7 +124,7 @@ export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024
     const last = parse(since);
     const resumed = last !== null && last >= floor && last <= seq;
     if (resumed) {
-      for (const v of ring.values()) if (v.seq > last) text += frame(v.event, v.data, idOf(v.seq));
+      for (const v of ring.values()) if (v.seq > last && include(v.event, v.data)) text += frame(v.event, v.data, idOf(v.seq));
     } else {
       if (since) text += frame('reset', {}); // it had something older: start clean
       snapshot((event, data) => { text += frame(event, data); });
@@ -127,10 +132,11 @@ export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024
     text += frame('ready', { resumed }, idOf(seq));
     c.raw(text);
 
-    clients.add(c);
+    if (!closed) clients.add(c);
     startBeat();
-    req.on('close', close);
-    res.on('error', close);
+    req.on('close', () => close());
+    res.on('error', () => close());
+    res.on('close', () => close());
     return { close };
   }
 
@@ -143,6 +149,11 @@ export function createHub({ keep = 4000, flushMs = 60, maxBuffered = 1024 * 1024
     drop(deviceId) { for (const c of [...clients]) if (c.deviceId === deviceId) c.end(); },
     size: () => clients.size,
     remembered: () => ring.size,
-    close() { for (const c of [...clients]) c.end(); },
+    close() {
+      for (const c of [...clients]) c.end();
+      ring.clear();
+      floor = seq = 0;
+      epoch = randomBytes(3).toString('hex');
+    },
   };
 }

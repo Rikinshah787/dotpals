@@ -13,7 +13,8 @@ function fake() {
     head: null, ended: false, writableLength: 0,
     writeHead(status, headers) { res.head = { status, headers }; },
     write(c) { chunks.push(Buffer.from(c)); return true; },
-    end(c) { if (c) chunks.push(Buffer.from(c)); res.ended = true; },
+    end(c) { if (c) chunks.push(Buffer.from(c)); res.ended = true; res.emit('finish'); },
+    destroy() { res.destroyed = true; res.emit('close'); },
   });
   const text = () => Buffer.concat(chunks).toString('utf8');
   const events = () => [...text().matchAll(/(?:id: (\S+)\n)?(?:event: (\w+)\n)?data: (.*)\n\n/g)].map((m) => ({ id: m[1], event: m[2] ?? 'message', data: JSON.parse(m[3]) }));
@@ -114,7 +115,7 @@ test('a device that cannot keep up is dropped; signing out drops its streams', a
   slow.res.writableLength = 500;
   hub.publish('activity', { id: 'x' });
   await wait(20);
-  assert.equal(slow.res.ended, true);
+  assert.equal(slow.res.destroyed, true);
   assert.equal(hub.size(), 0);
   const f = fake();
   hub.join(f.req, f.res, { snapshot: snap, deviceId: 'd2' });
@@ -130,8 +131,9 @@ test('compressed streams are valid gzip and flush each batch', async () => {
   assert.equal(f.res.head.headers['content-encoding'], 'gzip');
   hub.publish('activity', { id: 'z', big: 'x'.repeat(2000) });
   await wait(40);
+  const finished = new Promise((resolve) => f.res.once('finish', resolve));
   f.req.emit('close');
-  await wait(20);
+  await finished;
   const raw = Buffer.concat(f.chunks);
   const text = gunzipSync(raw).toString();
   assert.match(text, /event: ready/);
@@ -148,4 +150,23 @@ test('no timers run with nobody connected', async () => {
   hub.publish('activity', { id: 'x' });
   await wait(15);
   assert.equal(f.text().includes(': ping'), false);
+});
+
+test('replay filters old activity and a stopped listener invalidates its cursor', () => {
+  const hub = createHub();
+  const first = fake();
+  hub.join(first.req, first.res, { snapshot: snap });
+  const cursor = first.events().at(-1).id;
+  first.req.emit('close');
+  hub.publish('activity', { id: 'too-old', at: 1 });
+  hub.publish('activity', { id: 'recent', at: 10 });
+  const again = fake();
+  hub.join(again.req, again.res, { snapshot: snap, since: cursor, include: (event, data) => event !== 'activity' || data.at >= 5 });
+  assert.deepEqual(again.events().map((e) => e.data), [{ id: 'recent', at: 10 }, { resumed: true }]);
+  hub.close();
+  const reopened = fake();
+  hub.join(reopened.req, reopened.res, { snapshot: snap, since: cursor });
+  assert.equal(reopened.events()[0].event, 'reset');
+  assert.deepEqual(reopened.events().at(-1).data, { resumed: false });
+  hub.close();
 });
