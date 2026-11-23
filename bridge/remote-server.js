@@ -401,8 +401,9 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: 'bad json' });
     if (path === '/api/remote/pair') {
       if (!server) return json(res, 409, { error: 'The remote client is off. Turn it on first.' });
-      const covered = cfg.tlsAuto ? addressesSeen.split(',').filter(Boolean) : lanAddresses();
+      const covered = cfg.tlsAuto ? addressesNow().filter((address) => addressesSeen.split(',').includes(address)) : lanAddresses();
       if (!(servesTls(cfg) || (cfg.bind === 'local' && /^https:\/\//.test(cfg.publicUrl ?? '')))) return json(res, 409, { error: 'Configure HTTPS before making a pairing code.' });
+      if (cfg.tlsAuto && cfg.bind === 'lan' && !cfg.publicUrl && !covered.length) return json(res, 409, { error: 'Waiting for a certificate for this computer’s current network address. Try again shortly.' });
       const { token, expiresAt, id } = remote.startPairing();
       const url = pairingUrl(cfg, token, covered);
       // The same code by name, for phones whose IP changes or that can resolve .local: shown beside the QR code.

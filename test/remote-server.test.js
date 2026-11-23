@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { get, request } from 'node:http';
 import { createServer as createNet } from 'node:net';
 import { Readable } from 'node:stream';
+import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -193,20 +194,25 @@ test('settings: safe ones change, powerful ones need the control switch', async 
 });
 
 test('a settings write rechecks the device after its body is read', async () => {
-  await M(`/api/remote/devices/${deviceId}`, { control: true });
+  const paired = await pair('Delayed write');
+  assert.equal(paired.res.status, 200);
+  const id = paired.cookie.split('=')[1].split('.')[0];
+  await M(`/api/remote/devices/${id}`, { control: true });
   const body = JSON.stringify({ fixLoop: false });
   let req;
   const result = new Promise((resolve, reject) => {
-    req = request({ host: '127.0.0.1', port: ctx.remote, method: 'POST', path: '/api/config', headers: { ...proxy, cookie, 'x-dotpals': '1', 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); resolve(res.statusCode); });
+    req = request({ host: '127.0.0.1', port: ctx.remote, method: 'POST', path: '/api/config', headers: { ...proxy, cookie: paired.cookie, 'x-dotpals': '1', expect: '100-continue', 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); resolve(res.statusCode); });
     req.on('error', reject);
     req.setTimeout(3000, () => req.destroy(new Error('settings write timed out')));
-    req.write(body.slice(0, 1));
   });
+  const admitted = once(req, 'continue', { signal: AbortSignal.timeout(3000) });
+  req.flushHeaders();
   try {
-    await M(`/api/remote/devices/${deviceId}`, { control: false });
-    req.end(body.slice(1));
+    await admitted;
+    await M(`/api/remote/devices/${id}`, { control: false });
+    req.end(body);
     assert.equal(await result, 403);
-  } finally { req.destroy(); }
+  } finally { req.destroy(); await M(`/api/remote/devices/${id}/revoke`, {}); }
 });
 
 test('unlisted APIs stay local even with control, and local test traffic needs the exact origin', async () => {
