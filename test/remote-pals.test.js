@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { agentChips, apply, characterFor, keepEntries, needs, ordered, shownState, stateLine, storyOf, summary, talkGate } from '../bridge/remote/pals-core.js';
 
 const NOW = 1_000_000_000;
@@ -104,6 +106,31 @@ test('a phone keeps only the newest steps of a session', () => {
   keepEntries(m, null);
   keepEntries(m, {});
   assert.equal(m.size, 5);
+});
+
+test('tapping a pal reselects its session when a filter changed the selection but not the URL', () => {
+  const pals = readFileSync(new URL('../bridge/remote/pals.js', import.meta.url), 'utf8');
+  const click = pals.match(/button\.onclick = \(\) => \{([\s\S]*?)\n      \};/)?.[1];
+  assert.ok(click, 'the tray button has a click handler');
+  const dashboard = readFileSync(new URL('../bridge/dashboard.html', import.meta.url), 'utf8');
+  const route = dashboard.match(/    function route\(\) \{[\s\S]*?\n    \}/)?.[0];
+  assert.ok(route, 'the dashboard has a route handler');
+
+  const fields = {
+    'f-agent': { value: 'codex' }, 'f-when': { value: 'today' },
+    q: { value: 'search', dispatchEvent() {} }, 'view-sessions': {},
+  };
+  const context = {
+    VIEWS: ['sessions'], picked: 'codex:B', s: { id: 'cline:A' },
+    location: { hash: '#sessions/cline%3AA' },
+    document: { getElementById: (id) => fields[id], querySelectorAll: () => [] },
+    $: (id) => fields[id], rpPause() {}, render() {}, Event, HashChangeEvent: Event,
+    dispatchEvent: (event) => { if (event.type === 'hashchange') runInNewContext('route()', context); },
+  };
+  runInNewContext(`${route}\n${click}`, context);
+  assert.equal(context.picked, 'cline:A');
+  assert.equal(context.location.hash, '#sessions/cline%3AA');
+  assert.deepEqual([fields['f-agent'].value, fields['f-when'].value, fields.q.value], ['', 'all', '']);
 });
 
 test('the dashboard tells a look-only phone what to do instead of "Couldn’t ask. Is the bridge running?"', async () => {
