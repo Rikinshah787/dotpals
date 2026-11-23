@@ -201,7 +201,7 @@ To uninstall (the hooks, the MCP server, the `dotpals` command, the app and `~/.
 
 ## On your phone or foldable
 
-Settings → Remote enables an optional browser dashboard for a phone or tablet. Pair with a QR code; desktop controls decide what each device can do. Set-up, what a device may do, and how it's secured: **[docs/REMOTE.md](docs/REMOTE.md)**.
+Settings → Remote turns on an installable app version of the dashboard for your phone, tablet or foldable: pair with a QR code and install it. It keeps a connection open only while it's in front of you, and lays out for a fold. Set-up, what a device may do, and how it's secured: **[docs/REMOTE.md](docs/REMOTE.md)**.
 
 ## Ask dotpals from any agent (MCP)
 

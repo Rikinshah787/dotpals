@@ -35,7 +35,7 @@
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { msg(body.error || `Couldn’t pair (${res.status}).`, 'bad'); $('go').disabled = false; return; }
       msg(`Paired as “${body.name}”. Opening…`, 'ok');
-      location.replace('/#settings/remote');
+      location.replace('/?paired=1');
     } catch {
       msg('Couldn’t reach your computer. Is it on, and is this the right address?', 'bad');
       $('go').disabled = false;

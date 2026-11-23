@@ -112,9 +112,22 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     if (visibleEvents.has(event)) hub.publish(event, data);
   };
 
-  const transform = (target, text) => target === '/bridge/dashboard.html'
-    ? text.replace('</head>', '<meta name="dotpals-face" content="device"></head>')
-    : text;
+  const HEAD = [
+    '<link rel="manifest" href="/manifest.webmanifest">', '<meta name="theme-color" content="#0b0b0e">',
+    '<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">',
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
+    '<link rel="apple-touch-icon" href="/bridge/remote/icons/icon-180.png">',
+    '<meta name="dotpals-face" content="device">', // the page shows a device's settings, not the computer's (bridge/remote/settings.js)
+    '<link rel="stylesheet" href="/bridge/remote/remote.css">', '<script src="/bridge/remote/boot.js"></script>', '<script src="/bridge/remote/stream.js"></script>',
+  ].join('\n');
+  // settings.js is part of the dashboard itself (the computer needs it too); client.js is only for devices.
+  const TAIL = '<script type="module" src="/bridge/remote/client.js"></script>\n';
+  const transform = (target, text) => {
+    if (target.endsWith('/sw.js')) return text.replace('__VERSION__', version);
+    if (!target.endsWith('.html') || target.endsWith('/pair.html')) return text;
+    return text.replace(/<meta name="viewport"[^>]*>/, '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">')
+      .replace('</head>', () => `${HEAD}\n</head>`).replace('</body>', () => `${TAIL}</body>`);
+  };
   const assets = createAssets({ root, transform });
 
   /** Encrypted, or this computer talking to itself. Behind your own tunnel or proxy (on this computer), its X-Forwarded-Proto counts. */

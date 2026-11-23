@@ -19,10 +19,10 @@ export const typeOf = (path) => TYPES[path.slice(path.lastIndexOf('.'))] ?? 'app
 // Static files need no sign-in: they're dotpals's own open-source pages and scripts, with none of
 // your data in them (a browser can't send a cookie-less module import with a header anyway, and the
 // app shell has to load to show the sign-in). Everything with data (/events, /api) needs a device.
-export const ALIASES = { '/': '/bridge/dashboard.html', '/pair': '/bridge/remote/pair.html' };
+export const ALIASES = { '/': '/bridge/dashboard.html', '/pair': '/bridge/remote/pair.html', '/sw.js': '/bridge/remote/sw.js', '/manifest.webmanifest': '/bridge/remote/manifest.webmanifest' };
 const STATIC = [
-  /^\/(?:pair)?$/, /^\/desktop\/icon\.png$/, /^\/src\/[\w.-]+\.js$/, /^\/bridge\/ui\/[\w.-]+\.js$/,
-  /^\/bridge\/activity\.js$/, /^\/bridge\/remote\/[\w-]+\.(?:js|css)$/,
+  /^\/(?:pair|sw\.js|manifest\.webmanifest)?$/, /^\/desktop\/icon\.png$/, /^\/src\/[\w.-]+\.js$/, /^\/bridge\/ui\/[\w.-]+\.js$/,
+  /^\/bridge\/activity\.js$/, /^\/bridge\/remote\/[\w-]+\.(?:js|css)$/, /^\/bridge\/remote\/icons\/icon-[\w-]+\.png$/,
 ];
 export const allowed = (path) => STATIC.some((r) => r.test(path));
 

@@ -140,12 +140,36 @@ function init() {
       nodes.push(row('Name', 'Shown on your computer.', (() => { const i = el('input'); i.value = me.name; i.maxLength = 40; i.onchange = guard(() => set({ name: i.value })); return i; })()));
       nodes.push(row(me.control ? 'This device can control dotpals' : 'This device can look, not control', me.control ? 'Hand-offs, rewinds, coding tasks and settings are allowed. Permission cards and desktop actions still need the desktop.' : 'Turn it on from the computer: Settings → Remote → Let this device control.'));
 
+      nodes.push(el('h3', '', 'App'));
+      const inst = window.dotpalsInstall;
+      if (inst?.done) nodes.push(row('Installed', 'dotpals is on your home screen.'));
+      else if (inst?.prompt) nodes.push(row('Install dotpals', 'Opens like an app, with its own icon.', btn('Install', async () => { inst.prompt.prompt(); await inst.prompt.userChoice; inst.prompt = null; draw(); }, 'primary')));
+      else nodes.push(row('Install dotpals', /iPhone|iPad|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document ? 'Tap Share, then “Add to Home Screen”.' : 'Use your browser’s menu: “Install app” or “Add to Home screen”.'));
+
+      // Check for an update by hand, and apply it: the same explicit check the pdsvc dashboard has.
+      const U = window.dotpalsUpdate;
+      if (U) {
+        const s = U.state();
+        const w = U.words(s);
+        const act = w.action === 'update' ? btn('Update', () => { U.apply(); }, 'primary')
+          : w.action === 'check' ? btn('Check for updates', async () => { await U.check(); draw(); })
+            : null;
+        nodes.push(row(w.title, w.note, act));
+      }
+
+      nodes.push(el('h3', '', 'Foldable'));
+      const fold = window.dotpalsFold?.fold?.();
+      nodes.push(row('Layout', fold === 'book' ? 'Two screens side by side: one pane on each, nothing across the hinge.' : fold === 'table' ? 'Half-open: content above, controls below the hinge.' : 'Flat. Fold or span the device and the layout follows.'));
       nodes.push(el('h3', '', 'Sign out'));
       nodes.push(row('Sign this device out', 'You’ll pair again to use it.', btn('Sign out', async () => { if (!confirm('Sign this device out?')) return; await call('/api/remote/me/signout', {}); location.replace('/pair'); }, 'danger')));
       card.replaceChildren(...nodes);
     }
     async function load() { try { me = await call('/api/remote/me'); draw(); } catch (e) { card.replaceChildren(el('h2', '', 'This device'), el('p', 'bad', e.message)); } }
     load();
+    addEventListener('dotpals:install', () => me && draw());
+    // The update row follows the updater (checking, ready, applying), without redrawing when it isn't on screen.
+    const watchUpdate = () => window.dotpalsUpdate?.onChange(() => { if (me && location.hash.startsWith('#settings/remote')) draw(); });
+    if (window.dotpalsUpdate) watchUpdate(); else addEventListener('load', watchUpdate, { once: true });
     addEventListener('hashchange', () => { if (location.hash.startsWith('#settings/remote')) load(); });
   }
   (onDevice ? deviceFace : computerFace)();
