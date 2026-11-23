@@ -58,7 +58,8 @@ function paint(now = Date.now()) {
         }
         const hash = `#sessions/${encodeURIComponent(s.id)}`;
         if (location.hash !== hash) location.hash = hash;
-        else document.getElementById('q')?.dispatchEvent(new Event('input'));
+        // A filter may have changed the selected session without changing the URL.
+        else dispatchEvent(new HashChangeEvent('hashchange'));
       };
       nodes.set(s.id, n);
     }
