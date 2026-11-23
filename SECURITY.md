@@ -2,7 +2,7 @@
 
 ## How dotpals handles your data
 
-- **Local only.** The bridge (`bridge/server.js`) listens only on `127.0.0.1`, so other machines on your network can't connect to it.
+- **Local by default.** The bridge (`bridge/server.js`) listens only on `127.0.0.1`. An optional, separate remote listener is off until you enable it; see the remote-client boundary below.
 - **Reads local files.** To build the activity feed, it reads Claude Code session transcripts (the `transcript_path` that Claude Code passes to hooks) and Codex session logs (`~/.codex/sessions`). Set `DOTPALS_CODEX=0` if you don't want it to read Codex logs.
 - **Keeps a local history.** The last week of activity is saved to `~/.dotpals/history.json` so the feed survives restarts. Set `DOTPALS_HISTORY=0` to turn this off, or `DOTPALS_HOME` to move the folder.
 - **Tells Claude Code about its own tests.** With *Make agents fix failing tests* (`fixLoop`, on by default), the plugin's hook (`bridge/loop-hook.js`) asks the local bridge after Claude's test runs, before a commit or push, and when Claude stops. The answer is a short note in Claude's context (how its tests went and why they failed, read from the output) or a request to keep going. Like anything in Claude Code's context, the note goes to the model Claude Code uses. Turn it off under the notch's gear or in Settings.
@@ -11,6 +11,16 @@
 - **Nothing is sent anywhere by default.** dotpals has no telemetry and no analytics. The data stays on your machine and only goes to the pal windows and browser tabs you open. Two things send data, and only when you use them: talking to Blu (below), and, opt-in, *Settings → Double-check unclear test results → Cloud (Jev)*, which sends the end of an unclear test run's output to TypeSafe, after removing anything that looks like a password, key, email or IP address. Your TypeSafe API key is stored in `~/.dotpals/config.json` (readable by you only on macOS and Linux) and is never sent to the pal, the notch or the dashboard.
 
 Keep in mind that any program running on your own machine can connect to the bridge's local port and read the activity feed.
+
+## Optional remote client
+
+- **Explicit opt-in.** Settings → Remote starts a separate listener (default port 5176), bound to loopback unless you choose LAN access. The hooks, recap consumed by hooks, pairing administration, OAuth callback and app quit route are never forwarded from it. Do not forward the bridge's local port to a network.
+- **Pairing and authentication.** A 60-bit random pairing code is single-use and expires after five minutes; failed claims are rate-limited without delaying a valid code behind a shared proxy. Browser pairing and cookie authentication require HTTPS, even on loopback. The code travels in the URL fragment, which the page removes. Each device gets a random 256-bit secret in an HttpOnly, Secure, SameSite=Strict cookie; only its hash is stored in `remote.json`. POSIX files are mode 0600; Windows uses the user folder's ACLs.
+- **Look is not control.** A new device can read dashboard data, which may include private project names, commands and session text. Its control switch is off by default and can only be changed on the computer. Control permits listed operations such as hand-offs, rewinds and task starts; treat it as access to act as you. Apps, desktop actions and approval endpoints are not remotely available. A remote stream alone never suppresses an agent's terminal permission prompt.
+- **Request boundaries.** Host checks reject arbitrary DNS names. Only explicitly listed routes are forwarded. Remote requests require HTTPS except direct loopback testing, exact Origin matching when present, and device authorization; mutations also require POST and `x-dotpals: 1`. There is no CORS grant. Static assets are allowlisted; pages use a hash-based script CSP. Device sign-out closes its live streams and invalidates its credential. A trusted HTTPS proxy on this computer requires loopback binding and the configured public HTTPS origin. The proxy must reject external HTTP and overwrite forwarded headers; do not expose its plain-HTTP upstream.
+- **Private CA option.** LAN HTTPS can use a locally generated CA constrained to private IPv4 addresses, loopback and `.local`/localhost names. Keep its private key on the computer; transfer only the public CA certificate and compare its fingerprint. Trust-store enforcement varies; remove that CA from a device when no longer needed.
+
+Setup and known browser/device limitations: [docs/REMOTE.md](docs/REMOTE.md).
 
 ## Blu: your voice, your screen and your apps
 
