@@ -60,13 +60,18 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
   const minute = new Map();  // device → times in the last minute
   const sent_ = new Map();   // device → its last HISTORY pushes, oldest first: { at, kind, tag, ok, status, ack? }
   let lastAt = 0;
+  let generation = 0;
 
   async function deliver(item, only) {
     // Millisecond timestamps also correlate receipts; concurrent sends must never share one.
     const t = lastAt = Math.max(now(), lastAt + 1);
     const tag = item.test ? `test-${t.toString(36)}` : item.tag;
-    for (const target of remote.pushTargets()) {
-      if (only && target.id !== only) continue;
+    const started = generation;
+    for (const { id } of remote.pushTargets()) {
+      if (started !== generation) return;
+      if (only && id !== only) continue;
+      const target = remote.pushTargets().find((d) => d.id === id);
+      if (!target) continue;
       if (!only) {
         const { prefs } = target;
         if (!prefs[item.kind]) continue;
@@ -83,7 +88,7 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
       }
       // High urgency requests prompt delivery; the push service and OS still decide when to deliver.
       const urgent = item.kind === 'approval' || item.kind === 'waiting' || !!item.test;
-      const body = JSON.stringify({ kind: item.kind, title: clip(item.title, 80), body: clip(item.body, 200), tag, at: t, test: !!item.test, avatar: avatarName(item.kind, item.test ? CAST[0] : characterFor(item.harness, CAST)), quietWhenOpen: target.prefs.quietWhenOpen, url: item.test ? '/#settings/remote' : '/#sessions' });
+      const body = JSON.stringify({ kind: item.kind, title: clip(item.title, 80), body: clip(item.body, 200), tag, at: t, test: !!item.test, avatar: avatarName(item.kind, item.test ? CAST[0] : characterFor(item.harness, CAST)), url: item.test ? '/#settings/remote' : '/#sessions' });
       const entry = { at: t, kind: item.kind, tag: String(tag ?? '').slice(0, 40), test: !!item.test, ok: null, status: 0, gone: false };
       const past = sent_.get(target.id) ?? [];
       past.push(entry); // before awaiting: a fast receipt may beat the push service's response
@@ -147,6 +152,6 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
       minute.delete(deviceId);
       for (const key of recent.keys()) if (key.startsWith(`${deviceId}|`)) recent.delete(key);
     },
-    stop() { for (const t of waiting.values()) clearTimeout(t); waiting.clear(); },
+    stop() { generation++; for (const t of waiting.values()) clearTimeout(t); waiting.clear(); },
   };
 }

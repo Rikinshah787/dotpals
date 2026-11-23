@@ -52,6 +52,8 @@ test('only real https push services are accepted as endpoints', () => {
   assert.ok(pushEndpoint('https://fcm.googleapis.com/fcm/send/abc'));
   assert.ok(pushEndpoint('https://updates.push.services.mozilla.com/wpush/v2/x'));
   assert.ok(pushEndpoint('https://web.push.apple.com/x'));
+  assert.ok(pushEndpoint('https://region.web.push.apple.com/x'));
+  assert.equal(pushEndpoint('https://web.push.apple.com.example.invalid/x'), null);
   for (const real of ['https://jmt17.google.com/fcm/send/abc', 'https://fcm.googleapis.com/wp/abc', 'https://updates.push.services.mozilla.com/wpush/v2/x']) assert.ok(pushEndpoint(real), real);
   for (const bad of ['https://www.google.com/search?q=x', 'https://jmt17.google.com/other', 'https://google.com.evil.example/fcm/send/x', 'https://evil.example/fcm/send/google.com', 'https://a.b.google.com/fcm/send/x']) assert.equal(pushEndpoint(bad), null, bad);
   assert.ok(pushEndpoint('https://wns2-pn2p.notify.windows.com/w/?token=x'));

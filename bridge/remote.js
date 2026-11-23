@@ -181,6 +181,10 @@ export function createRemote({ file, now = Date.now } = {}) {
     devices: () => load().devices.map(view),
     device: (id) => { const d = find(id); return d ? view(d) : null; },
     pushTargets: () => load().devices.filter((d) => d.push).map((d) => ({ id: d.id, sub: d.push, control: !!d.control, prefs: cleanPrefs(d.prefs) })),
+    hasSubscription(id, sub) {
+      const current = find(id)?.push;
+      return !!current?.keys && current.endpoint === sub?.endpoint && current.keys.p256dh === sub?.keys?.p256dh && current.keys.auth === sub?.keys?.auth;
+    },
     forgetSubscription(id, subscription) {
       const d = find(id);
       if (!d || d.push !== subscription) return false;

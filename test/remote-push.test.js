@@ -49,7 +49,7 @@ test('each device gets what its own preferences allow, and not while it has the 
   await wait(10);
   assert.deepEqual(r.sent.map((s) => s.sub.endpoint), ['https://p/a']);
   assert.equal(r.sent[0].o.urgency, 'normal');
-  assert.equal(r.sent[0].body.test, false, 'a real notification is not a test: the service worker may hold it back while the app is open');
+  assert.equal(r.sent[0].body.test, false, 'a real notification is not a test');
 });
 
 test('an approval only reaches a device that is allowed to answer it, and is urgent and short-lived', async () => {
@@ -112,13 +112,26 @@ test('a test requests high urgency without changing ordinary notifications', asy
   assert.equal(r.sent.at(-1).o.urgency, 'normal', 'an ordinary "done" stays normal');
 });
 
-test('context labels are redacted at the send boundary and quietWhenOpen reaches the worker', async () => {
+test('context labels are redacted at the send boundary even with quiet mode off', async () => {
   const r = rig([dev('a', { context: true, quietWhenOpen: false })], { open: ['a'] });
   r.pusher.handle('context', { session: 'x', known: true, used: 95, size: 100, label: 'token sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789' });
   await wait(10);
   assert.equal(r.sent.length, 1);
-  assert.equal(r.sent[0].body.quietWhenOpen, false);
   assert.ok(!r.sent[0].body.body.includes('abcdefghijklmnopqrstuvwxyz0123456789'));
+});
+
+test('an in-flight send cannot authorize a later send to a device that signed out', async () => {
+  const devices = [dev('a'), dev('b')];
+  const calls = [];
+  let release;
+  const first = new Promise((resolve) => { release = resolve; });
+  const pusher = createPusher({ remote: { pushTargets: () => [...devices] }, hub: { open: () => false }, vapid: () => ({}), turn: () => ({ ms: 60_000 }), send: async (sub) => { calls.push(sub.endpoint); return first; } });
+  pusher.handle('message', { state: 'done', session: 'a' });
+  assert.deepEqual(calls, ['https://p/a']);
+  devices.pop();
+  release({ ok: true });
+  await wait(10);
+  assert.deepEqual(calls, ['https://p/a']);
 });
 
 test('revoking a device forgets its diagnostics', async () => {

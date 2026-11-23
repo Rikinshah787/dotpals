@@ -7,7 +7,7 @@
 const VERSION = '__VERSION__';
 // Bumped when what this worker DOES changes (VERSION only changes with a release): the page tells a stale copy apart by it
 // (push-words.js WORKER_BUILD must match).
-const BUILD = 8;
+const BUILD = 9;
 // From this build on a new worker WAITS until the page says "update now" (message SKIP_WAITING), as the pdsvc dashboard does:
 // the user picks the moment, nothing reloads under them. A page older than this has no Update button, so one that finds it
 // installing over such a worker takes over at once, this one time (see install).
@@ -101,22 +101,18 @@ self.addEventListener('push', (event) => {
   const record = { at: got, sentAt: Number(note.at) || 0, phase: 'received', shown: false, held: false, error: parsed ? '' : 'unreadable', permission: self.Notification?.permission ?? '', ackStatus: 0, tag: String(note.tag ?? '').slice(0, 40) };
   event.waitUntil((async () => {
     await remember(record, sequence);
-    // If the app is open and visible, it already shows this live: don't buzz as well. Except a test (it's pressed
-    // from the open app, so hiding it would make "Send a test" look broken) and a permission prompt.
-    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const held = note.quietWhenOpen !== false && !note.test && note.kind !== 'approval' && open.some((c) => c.visibilityState === 'visible');
-    let shown = !held;
+    // Quiet mode is decided before sending. A delivered userVisibleOnly push must request a notification.
+    const held = false;
+    let shown = true;
     let error = '';
-    if (!held) {
-      try {
-        await self.registration.showNotification(String(note.title).slice(0, 80), {
+    try {
+      await self.registration.showNotification(String(note.title).slice(0, 80), {
           body: String(note.body ?? '').slice(0, 200), tag: String(note.tag ?? 'dotpals'), renotify: note.kind === 'approval' || !!note.test,
           icon: avatarOf(note.avatar), badge: '/bridge/remote/icons/icon-96.png', timestamp: Number(note.at) || Date.now(),
           // A hint to keep important notifications available; the OS decides presentation.
           requireInteraction: note.kind === 'approval' || note.kind === 'waiting' || !!note.test, data: { url: typeof note.url === 'string' && note.url.startsWith('/') ? localUrl(note.url) : '/' },
-        });
-      } catch (err) { shown = false; error = String(err?.message ?? err).slice(0, 80); }
-    }
+      });
+    } catch (err) { shown = false; error = String(err?.message ?? err).slice(0, 80); }
     // Report worker receipt and browser display outcome, separately from provider acceptance and OS presentation.
     Object.assign(record, { phase: 'done', shown, held, error: error || record.error });
     await remember(record, sequence);

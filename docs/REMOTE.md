@@ -111,7 +111,7 @@ A test requests *high* urgency, a distinct tag/Topic, `renotify` and `requireInt
 
 Recent pushes lists up to ten per-device server records held in memory (five shown in Settings); restart clears them. Late receipts attach to their original send. The receipt's `at` is **when the computer heard back**, not phone arrival time. Phone-local arrival timestamps use a separate clock; subtracting the two clocks does not establish delivery latency. Preserve a test's history rather than repeatedly sending new tests.
 
-**Physical-device test:** the fork author tested the remote client on a Samsung Galaxy Z Fold8 Ultra with dotpals 0.15.0 and reported that it worked, including notifications. Earlier intermittent delivery was observed during development; its cause was not established. This is one device and setup, not a guarantee for other Android browsers, launchers, networks or iOS.
+**Physical-device test:** the fork author tested the remote client on a Samsung Galaxy Z Fold8 Ultra with dotpals 0.15.0 and reported that it worked, including notifications. Earlier intermittent delivery was observed during development; its cause was not established. This is one device and setup, not a guarantee for other Android browsers, launchers, networks or iOS. If the service rotates a subscription while the app is closed, reopening the app will attempt to repair it if notifications are still enabled. Quiet mode suppresses sends on the computer; a notification already in flight can still appear.
 
 ## Real time, cheaply
 
@@ -119,7 +119,7 @@ Recent pushes lists up to ten per-device server records held in memory (five sho
 - Changes to the same thing are sent once (a tool call that updates ten times in a moment is one message), in one write, gzip-compressed.
 - Scripts and styles are cached by build. Update checks fetch the worker explicitly; uncached static requests can revalidate with ETags.
 - A device that can't keep up is dropped and resumes, not buffered without limit. An idle live-stream hub has no timer; enabled TLS certificate maintenance still checks for address changes.
-- An initial snapshot and activity fetch include the last 3 days by default (`remote.historyDays`, 1 to 7). This is a size setting, not a privacy boundary for live or recently buffered events.
+- An initial snapshot and activity fetch include the last 3 days by default (`remote.historyDays`, 1 to 7). This is a snapshot size setting, not a privacy boundary for live or recently buffered events.
 
 ## Foldables
 

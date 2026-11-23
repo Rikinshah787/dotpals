@@ -4,7 +4,7 @@
 //   `last` the PHONE's own record of the last push its service worker received (kept on the phone, read by the page)
 
 /** The service worker's behaviour version: bumped in sw.js (BUILD) when what it does changes, so a stale copy can be told apart. */
-export const WORKER_BUILD = 8;
+export const WORKER_BUILD = 9;
 /** The first build that keeps a record of the pushes it receives. An older copy keeps none, so an empty record means nothing there. */
 export const RECORDS_FROM = 2;
 

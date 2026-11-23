@@ -55,16 +55,16 @@ test('turning quietWhenOpen off permits real notifications while visible', async
   assert.equal(w.shown.length, 1);
 });
 
-test('with the app open in front, a real notification is held back (it shows live), but a test and a permission prompt are not', async () => {
+test('a delivered push requests a notification even if the app became visible in flight', async () => {
   const front = worker(['visible']);
   await front.push({ kind: 'done', title: 'Claude is done', tag: 'done-1' });
-  assert.equal(front.shown.length, 0, 'already on screen');
+  assert.equal(front.shown.length, 1, 'quiet-while-open is decided before a push is sent');
   await front.push({ kind: 'done', title: 'dotpals', body: 'Notifications are working on this device.', tag: 'test', test: true });
-  assert.equal(front.shown.length, 1, 'a test pressed in the open app must still show');
-  assert.equal(front.shown[0].tag, 'test');
+  assert.equal(front.shown.length, 2, 'a test pressed in the open app must still show');
+  assert.equal(front.shown[1].tag, 'test');
   await front.push({ kind: 'approval', title: 'Claude wants to run a command', tag: 'ask-1' });
-  assert.equal(front.shown.length, 2, 'a permission prompt always shows');
-  assert.equal(front.shown[1].requireInteraction, true);
+  assert.equal(front.shown.length, 3, 'a delivered permission prompt always requests display');
+  assert.equal(front.shown[2].requireInteraction, true);
 });
 
 test('the phone tells the computer a push ARRIVED, and whether it was shown (the push service only says it accepted it)', async () => {
@@ -77,12 +77,7 @@ test('the phone tells the computer a push ARRIVED, and whether it was shown (the
   assert.deepEqual(w.acks[0].body, { sentAt: 1234, shown: true, held: false, error: '', tag: 'test' });
 });
 
-test('an ack says "held" when the app was open in front, and says why when the notification could not be shown', async () => {
-  const front = worker(['visible']);
-  await front.push({ kind: 'done', title: 'x', tag: 'done-1', at: 5 });
-  assert.equal(front.shown.length, 0);
-  assert.deepEqual({ shown: front.acks[0].body.shown, held: front.acks[0].body.held }, { shown: false, held: true });
-
+test('a receipt says why a display request failed', async () => {
   // The browser refuses (notifications blocked for the site, the app's channel switched off): that is not a silent success.
   const blocked = worker([], { failShow: 'No notification permission has been granted for this origin.' });
   await blocked.push({ kind: 'done', title: 'x', tag: 't', at: 9 });

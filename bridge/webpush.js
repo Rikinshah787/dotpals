@@ -61,7 +61,7 @@ export function pushEndpoint(value) {
     if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) return null;
     const h = u.hostname.toLowerCase();
     // Google's own hosts (Chrome on Android also uses names like jmt17.google.com/fcm/send/...), Mozilla's, Apple's and Windows'.
-    const known = ['fcm.googleapis.com', 'web.push.apple.com'].includes(h) || /^(?:[a-z0-9-]+\.)*push\.services\.mozilla\.com$/.test(h) || /^[a-z0-9-]+\.notify\.windows\.com$/.test(h)
+    const known = h === 'fcm.googleapis.com' || /^(?:[a-z0-9-]+\.)+push\.apple\.com$/.test(h) || /^(?:[a-z0-9-]+\.)*push\.services\.mozilla\.com$/.test(h) || /^[a-z0-9-]+\.notify\.windows\.com$/.test(h)
       || (/^[a-z0-9-]+\.google\.com$/.test(h) && u.pathname.startsWith('/fcm/'));
     if (!known) return null;
     return u.href;

@@ -108,7 +108,7 @@ test('the worker is registered, checked and updated in ONE place (updater.js), n
   // takeover; it is replaced by an explicit check + an Update the person chooses (updater.js). Two registrations would fight.
   assert.ok(client.includes("import './update-ui.js'"));
   assert.doesNotMatch(client, /serviceWorker\.register\(/, 'registered by updater.js only');
-  assert.doesNotMatch(client, /controllerchange/, 'and it never reloads on its own');
+  assert.doesNotMatch(client, /controllerchange[^\n]*location\.reload/, 'subscription repair does not reload the page');
   assert.doesNotMatch(client, /location\.reload\(\)\s*;?\s*\}\);?\s*\n\s*navigator/);
 });
 

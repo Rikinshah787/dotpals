@@ -166,6 +166,11 @@ test('unlisted APIs stay local even with control, and local test traffic needs t
   } finally { await M(`/api/remote/devices/${deviceId}`, { control: false }); }
 });
 
+test('subscription recovery does not re-enable notifications after opt-out', async () => {
+  assert.equal((await post('/api/remote/me/push', { subscription: null, recover: true }, cookie)).status, 409);
+  assert.equal((await post('/api/remote/me/test', {}, cookie)).status, 409);
+});
+
 test('the paired activity snapshot respects the configured remote history window', async () => {
   const event = (id, at) => ({ session: 'history-window', harness: 'test', activity: { id, kind: 'prompt', title: id, status: 'info', at } });
   await M('/api/config', { remote: { historyDays: 1 } });

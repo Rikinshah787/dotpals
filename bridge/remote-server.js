@@ -205,6 +205,9 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     let body;
     try { body = await readJson(req, 8192); } catch (err) { return out(res, err.status ?? 400, { error: err.message }); }
     if (path === '/api/remote/me/push') {
+      if (!remote.device(id)) return out(res, 401, { error: 'not paired' });
+      if (body.recover === true && !remote.device(id).push) return out(res, 409, { error: 'Notifications are disabled.' });
+      if (body.test !== true && remote.hasSubscription(id, body.subscription)) return out(res, 200, remote.device(id));
       if (body.subscription && !pushTests.hit(id)) return out(res, 429, { error: 'Wait a minute before enabling notifications again.' });
       const updated = remote.update(id, { push: body.subscription ?? null });
       if (!updated) {
@@ -213,7 +216,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
         log(`remote: refused a notification subscription from ${host}`);
         return out(res, 400, { error: `That notification subscription isn’t valid (provider: ${host}).` });
       }
-      if (body.subscription) pusher.test(id).catch(() => {});
+      if (body.subscription && body.test === true) pusher.test(id).catch(() => {});
       return out(res, 200, updated);
     }
     if (path === '/api/remote/me/ack') return out(res, 200, { ok: pusher.ack(id, body) });
@@ -372,7 +375,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       enabled: !!cfg.enabled, running: !!server, error: lastError, port: cfg.port, bind: cfg.bind,
       secure: servesTls(cfg) || /^https:/.test(cfg.publicUrl ?? ''), publicUrl: cfg.publicUrl || '',
       // Where a phone on your network would look: the addresses, the name, and (with our own certificate) the CA to trust.
-      lan: cfg.bind === 'lan' ? { addresses: lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
+      lan: cfg.bind === 'lan' ? { addresses: cfg.tlsAuto ? privateAddresses() : lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
       addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id), lastPush: pusher.last(d.id), pushes: pusher.history(d.id) })), waiting: remote.waiting(), streams: hub.size(),
     });
     if (req.method === 'GET' && path === '/api/remote') return json(res, 200, view());
