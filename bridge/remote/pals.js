@@ -6,6 +6,7 @@
 import { DotPal } from '/src/index.js';
 import { harnessName } from '/bridge/ui/recap.js';
 import { agentChips, apply, characterFor, ordered, shownState, stateLine, summary } from './pals-core.js';
+import { CAST } from './avatar-names.js';
 
 const MAX = 6; // pals on the tray; the rest are one tap away in Sessions
 const sessions = new Map();
@@ -13,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 const make = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
 const pal = (agent, size) => {
   const p = document.createElement('dot-pal');
-  p.setAttribute('character', characterFor(agent, DotPal.characters.filter((name) => name !== 'draft' && name !== 'custom')));
+  p.setAttribute('character', characterFor(agent, CAST));
   p.setAttribute('size', String(size));
   p.setAttribute('aria-hidden', 'true');
   return p;

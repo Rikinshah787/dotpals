@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLimiter, createRemote, newCode, normalizeCode, permission, remotePatch } from '../bridge/remote.js';
+import { createLimiter, createRemote, cleanPrefs, cleanSubscription, newCode, normalizeCode, permission, remotePatch } from '../bridge/remote.js';
 
 const dir = await mkdtemp(join(tmpdir(), 'dotpals-remote-'));
 after(() => rm(dir, { recursive: true, force: true }));
@@ -63,9 +63,12 @@ test('a device signs in with its secret; the file holds only a hash', async () =
 test('the store is private to you (POSIX) and survives a restart', async () => {
   const r = make('c.json');
   const c = r.finishPairing(r.startPairing().token, 'Phone');
+  const vapid = r.vapid();
+  assert.equal(r.vapid().publicKey, vapid.publicKey);
   if (process.platform !== 'win32') assert.equal((await stat(join(dir, 'c.json'))).mode & 0o777, 0o600);
   const again = make('c.json');
   assert.equal(again.authenticate(header(c)).id, c.id);
+  assert.equal(again.vapid().privateKey, vapid.privateKey);
 });
 
 test('at most 20 devices', () => {
@@ -101,12 +104,37 @@ test('settings: a device changes the safe ones; the rest needs the control switc
 });
 
 test('a device manages itself under /api/remote/me, but never the computer-side /api/remote', () => {
-  for (const p of ['/api/remote/me/signout', '/api/remote/me/prefs']) assert.equal(permission({ control: false }, 'POST', p), 'ok', p);
+  for (const p of ['/api/remote/me/signout', '/api/remote/me/push', '/api/remote/me/prefs']) assert.equal(permission({ control: false }, 'POST', p), 'ok', p);
   assert.equal(permission({ control: false }, 'GET', '/api/remote/me'), 'ok');
   for (const p of ['/api/remote', '/api/remote/', '/api/remote/pair', '/api/remote/devices', '/api/remote/members', '/api/remote/meta']) {
     assert.equal(permission({ control: true }, 'POST', p), 'blocked', p);
   }
   assert.equal(permission({ control: false }, 'GET', '/api/remote/devices'), 'blocked');
+});
+
+test('push preferences and subscriptions are validated', () => {
+  const r = make('e.json');
+  const c = r.finishPairing(r.startPairing().token, 'P');
+  assert.equal(r.device(c.id).prefs.done, true);
+  assert.equal(r.device(c.id).prefs.context, false);
+  assert.equal(r.update(c.id, { prefs: { done: false, evil: true, context: 'yes' } }).prefs.done, false);
+  assert.equal(r.device(c.id).prefs.context, false);
+  assert.equal('evil' in r.device(c.id).prefs, false);
+  const keys = { p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg' };
+  assert.equal(r.update(c.id, { push: { endpoint: 'http://10.0.0.1/x', keys } }), null);
+  assert.equal(r.update(c.id, { push: { endpoint: 'https://fcm.googleapis.com/x', keys: { ...keys, auth: 'AA' } } }), null);
+  assert.equal(r.update(c.id, { push: { endpoint: 'https://fcm.googleapis.com/x', keys } }).push, true);
+  assert.equal(r.pushTargets().length, 1);
+  const original = r.pushTargets()[0].sub;
+  assert.equal(r.update(c.id, { push: { endpoint: 'https://fcm.googleapis.com/replacement', keys } }).push, true);
+  assert.equal(r.forgetSubscription(c.id, original), false, 'late 410 must not remove a replacement');
+  assert.equal(r.forgetSubscription(c.id, r.pushTargets()[0].sub), true);
+  assert.equal(r.update(c.id, { push: null }).push, false);
+  assert.equal(r.pushTargets().length, 0);
+  assert.equal(r.update(c.id, { control: true }).control, true);
+  assert.equal(r.update('missing', { control: true }), null);
+  assert.deepEqual(cleanPrefs(null), cleanPrefs(undefined));
+  assert.equal(cleanSubscription('x'), null);
 });
 
 test('the limiter allows a few tries, then waits', () => {

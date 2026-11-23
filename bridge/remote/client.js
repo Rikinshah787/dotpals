@@ -6,6 +6,7 @@ import './talk.js'; // the notch-style Talk and Story panel
 //  - registers the service worker (installable, instant start)
 //  - shows the connection when it matters (offline, reconnecting, signed out), never when fine
 //  - keeps the "install" prompt for Settings → Remote
+//  - keeps this device's push subscription in step with the server
 (() => {
   const api = (path, body) => fetch(path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
 
@@ -64,6 +65,41 @@ import './talk.js'; // the notch-style Talk and Story panel
   addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); window.dotpalsInstall.prompt = e; dispatchEvent(new CustomEvent('dotpals:install')); });
   addEventListener('appinstalled', () => { window.dotpalsInstall.prompt = null; window.dotpalsInstall.done = true; dispatchEvent(new CustomEvent('dotpals:install')); });
 
+  // -- service worker and push --------------------------------------------------------------------------
+  const key = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+  const sameKey = (sub, k) => { const a = sub?.options?.applicationServerKey; return !!a && a.byteLength === k.length && new Uint8Array(a).every((v, i) => v === k[i]); };
+  window.dotpalsPush = {
+    supported: () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
+    permission: () => ('Notification' in window ? Notification.permission : 'unsupported'),
+    /** Ask permission (must be called from a tap), subscribe, and give the subscription to the computer. */
+    async enable() {
+      if (!this.supported()) throw new Error('This browser can’t receive notifications here. On iPhone or iPad, add dotpals to the Home Screen first.');
+      if (Notification.permission === 'denied') throw new Error('Notifications are blocked for this site in the browser’s settings.');
+      if ((await Notification.requestPermission()) !== 'granted') throw new Error('Notifications weren’t allowed.');
+      const reg = await navigator.serviceWorker.ready;
+      const me = await (await api('/api/remote/me')).json();
+      const k = key(me.vapid);
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !sameKey(sub, k)) { await sub.unsubscribe(); sub = null; } // made with another key: unusable
+      sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: k });
+      const res = await api('/api/remote/me/push', { subscription: sub.toJSON() });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'The computer didn’t accept it.');
+      return res.json();
+    },
+    async disable() {
+      const reg = await navigator.serviceWorker.ready;
+      await (await reg.pushManager.getSubscription())?.unsubscribe();
+      await api('/api/remote/me/push', { subscription: null });
+    },
+  };
+
+  if ('serviceWorker' in navigator) {
+    // The worker is registered, checked and updated by update-ui.js (updater.js): an update waits for the person to choose it.
+    navigator.serviceWorker.addEventListener('message', async (e) => {
+      // The push service rotated the subscription: register the new one, quietly.
+      if (e.data?.type === 'resubscribe' && Notification.permission === 'granted') { try { await window.dotpalsPush.enable(); } catch {} }
+    });
+  }
   // Fresh pairing: land on Settings → Remote so the next step (notifications) is right there.
   if (new URLSearchParams(location.search).has('paired')) { history.replaceState(null, '', '/#settings/remote'); dispatchEvent(new HashChangeEvent('hashchange')); }
 })();

@@ -95,6 +95,7 @@ test('a paired device can read, but not run things', async () => {
   deviceId = me.id;
   assert.equal(me.name, 'Pixel Fold');
   assert.equal(me.control, false);
+  assert.ok(me.vapid.length > 80);
   assert.equal((await R('/api/status', { headers: { cookie } })).status, 200);
   const hand = await post('/api/handoff', { session: 'x', agent: 'copy' }, cookie);
   assert.equal(hand.status, 403);
@@ -110,11 +111,21 @@ test('remote management never mutates state through GET or HEAD', async () => {
     for (const path of ['/api/remote/pair', '/api/remote/pair/cancel', '/api/remote/revoke-all', `/api/remote/devices/${deviceId}/revoke`]) {
       assert.equal((await fetch(`http://127.0.0.1:${ctx.main}${path}`, { method })).status, 405, path);
     }
-    for (const path of ['/api/remote/me/signout', '/api/remote/me/prefs']) {
+    for (const path of ['/api/remote/me/signout', '/api/remote/me/push', '/api/remote/me/test', '/api/remote/me/prefs']) {
       assert.equal((await R(path, { method, headers: { cookie } })).status, 403, path);
     }
   }
   assert.equal((await R('/api/remote/me', { headers: { cookie } })).status, 200);
+});
+
+test('device diagnostics reject scalar/array JSON and acknowledgements need authentication and CSRF headers', async () => {
+  for (const body of ['null', '[]', '42', '"text"', '{']) {
+    assert.equal((await R('/api/remote/me/ack', { method: 'POST', headers: { cookie, 'x-dotpals': '1' }, body })).status, 400);
+  }
+  assert.equal((await post('/api/remote/me/ack', { sentAt: 1 })).status, 401);
+  assert.equal((await R('/api/remote/me/ack', { method: 'POST', headers: { cookie }, body: '{}' })).status, 403);
+  assert.equal((await R('/api/remote/me/ack', { method: 'POST', headers: { cookie, 'x-dotpals': '1', origin: 'https://evil.example' }, body: '{}' })).status, 403);
+  assert.deepEqual(await (await post('/api/remote/me/ack', { sentAt: 1, shown: true }, cookie)).json(), { ok: false }, 'unmatched receipt is not invented history');
 });
 
 test('a browser-origin Talk request passes only for a controlling device from the admitted origin', async () => {

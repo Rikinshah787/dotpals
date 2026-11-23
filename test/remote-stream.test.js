@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as core from '../bridge/remote/pals-core.js';
+import { CAST } from '../bridge/remote/avatar-names.js';
 
 const source = (name) => readFileSync(new URL(`../bridge/remote/${name}.js`, import.meta.url), 'utf8');
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -193,7 +194,7 @@ function ui(b, replies = []) {
     getElementById: (id) => walk(body).find((n) => n.id === id), querySelector: (s) => s === 'main' ? main : null,
   });
   const calls = [];
-  Object.assign(b.context, core, {
+  Object.assign(b.context, core, { CAST,
     DotPal: { characters: ['blu'] }, harnessName: (s) => s, location: { hash: '' },
     matchMedia: () => ({ matches: false }),
     buildTurns: (list) => [{ text: list.at(-1).text }], simple: (turn) => ({ text: turn.text, warnings: [] }),

@@ -255,7 +255,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   });
   const CHAT_OFF = 'Chat is off. Turn it on in Dashboard → Settings → Chat with your agents.';
 
-  const listeners = new Set(); // in-process followers of every event: the remote client's stream (bridge/remote-server.js)
+  const listeners = new Set(); // in-process followers of every event: the remote client's stream and pushes (bridge/remote-server.js)
   function send(event, data) {
     const line = `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(line);
@@ -1956,6 +1956,12 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     root, version, log: print,
     api: (req, res, path) => { remoteRequests.add(req); return api(req, res, path); },
     snapshot: remoteSnapshot,
+    // The request that just ended in this session, for "Claude is done" pushes.
+    turn: (session) => {
+      const done = activity.findLast(session, (e) => e.kind === 'done');
+      const prompt = activity.findLast(session, (e) => e.kind === 'prompt');
+      return done ? { ms: done.ms ?? (prompt ? done.at - prompt.at : 0), prompt: prompt?.title } : null;
+    },
   });
   listeners.add((event, data) => { if (config.remote?.enabled) remoteServer.onEvent(event, data); });
 

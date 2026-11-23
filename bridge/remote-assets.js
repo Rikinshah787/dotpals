@@ -23,6 +23,7 @@ export const ALIASES = { '/': '/bridge/dashboard.html', '/pair': '/bridge/remote
 const STATIC = [
   /^\/(?:pair|sw\.js|manifest\.webmanifest)?$/, /^\/desktop\/icon\.png$/, /^\/src\/[\w.-]+\.js$/, /^\/bridge\/ui\/[\w.-]+\.js$/,
   /^\/bridge\/activity\.js$/, /^\/bridge\/remote\/[\w-]+\.(?:js|css)$/, /^\/bridge\/remote\/icons\/icon-[\w-]+\.png$/,
+  /^\/bridge\/remote\/avatars\/[a-z]+-(?:done|waiting|thinking|working|error)\.png$/,
 ];
 export const allowed = (path) => STATIC.some((r) => r.test(path));
 

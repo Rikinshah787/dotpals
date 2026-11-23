@@ -6,16 +6,38 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { platform } from 'node:os';
-const b64u = (bytes) => bytes.toString('base64url');
+import { b64u, generateVapid, pushEndpoint, unb64u } from './webpush.js';
 
 const sha = (s) => createHash('sha256').update(s).digest();
 const clipText = (s, n) => String(s ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n);
+
+/** What a device can be told about (Settings on the device). `quietWhenOpen`: no push while the app is open there. */
+export const PUSH_KINDS = ['done', 'waiting', 'approval', 'stuck', 'conflict', 'loop', 'context'];
+export const DEFAULT_PREFS = { done: true, waiting: true, approval: true, stuck: true, conflict: true, loop: true, context: false, quietWhenOpen: true };
+
+export function cleanPrefs(input, before = DEFAULT_PREFS) {
+  const out = { ...DEFAULT_PREFS, ...before };
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    for (const k of [...PUSH_KINDS, 'quietWhenOpen']) if (typeof input[k] === 'boolean') out[k] = input[k];
+  }
+  return out;
+}
+
+/** A browser's push subscription, checked: an https push service and keys of the right size. */
+export function cleanSubscription(sub) {
+  const endpoint = pushEndpoint(sub?.endpoint);
+  if (!endpoint || endpoint.length > 1000) return null;
+  try {
+    if (unb64u(sub.keys?.p256dh).length !== 65 || unb64u(sub.keys?.auth).length !== 16) return null;
+  } catch { return null; }
+  return { endpoint, keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) } };
+}
 
 // -- what a paired device may ask the bridge ---------------------------------------------------
 // The device can manage its own name, push and credential. Desktop admin and unrelated APIs stay local.
 // Explicit lists: adding a local bridge route must not silently expose it to the network.
 const READS = new Set(['/events', '/api/activity', '/api/agents', '/api/brain', '/api/config', '/api/git', '/api/loop', '/api/remote/me', '/api/sessions', '/api/status', '/api/usage']);
-const SELF = new Set(['/api/remote/me/prefs', '/api/remote/me/signout']);
+const SELF = new Set(['/api/remote/me/prefs', '/api/remote/me/signout', '/api/remote/me/push', '/api/remote/me/ack', '/api/remote/me/test']);
 const CONTROL = new Set(['/api/brain/test', '/api/handoff', '/api/rewind/preview', '/api/rewind', '/api/rewind/undo', '/api/talk/buddy', '/api/talk/plan', '/api/talk/start']);
 
 /** 'ok', 'control' (needs the device's control switch) or 'blocked'. */
@@ -106,10 +128,16 @@ export function createRemote({ file, now = Date.now } = {}) {
 
   const view = (d) => ({
     id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, control: !!d.control,
+    push: !!d.push, prefs: cleanPrefs(d.prefs),
   });
   const find = (id) => load().devices.find((d) => d.id === id);
 
   return {
+    vapid() {
+      const d = load();
+      if (!d.vapid?.publicKey || !d.vapid?.privateKey) { d.vapid = generateVapid(); save(); }
+      return d.vapid;
+    },
     /** A one-time pairing token, good for 5 minutes. Only its hash is kept. */
     startPairing() {
       for (const [h, at] of pending) if (at <= now()) pending.delete(h);
@@ -131,7 +159,7 @@ export function createRemote({ file, now = Date.now } = {}) {
       if (d.devices.length >= MAX_DEVICES) return null;
       const id = b64u(randomBytes(9));
       const secret = b64u(randomBytes(32));
-      d.devices.push({ id, name: clipText(name, 40) || 'Device', hash: sha(secret).toString('hex'), createdAt: now(), lastSeen: now(), control: false });
+      d.devices.push({ id, name: clipText(name, 40) || 'Device', hash: sha(secret).toString('hex'), createdAt: now(), lastSeen: now(), control: false, push: null, prefs: { ...DEFAULT_PREFS } });
       save();
       return { id, secret };
     },
@@ -152,12 +180,23 @@ export function createRemote({ file, now = Date.now } = {}) {
     cancelPairing: () => pending.clear(),
     devices: () => load().devices.map(view),
     device: (id) => { const d = find(id); return d ? view(d) : null; },
-    /** Rename a device or change its control permission. */
+    pushTargets: () => load().devices.filter((d) => d.push).map((d) => ({ id: d.id, sub: d.push, control: !!d.control, prefs: cleanPrefs(d.prefs) })),
+    forgetSubscription(id, subscription) {
+      const d = find(id);
+      if (!d || d.push !== subscription) return false;
+      d.push = null;
+      save();
+      return true;
+    },
+    /** { name?, control?, prefs?, push? (a subscription, or null to remove it) } */
     update(id, patch = {}) {
       const d = find(id);
       if (!d) return null;
       if (typeof patch.name === 'string' && clipText(patch.name, 40)) d.name = clipText(patch.name, 40);
       if (typeof patch.control === 'boolean') d.control = patch.control;
+      if (patch.prefs) d.prefs = cleanPrefs(patch.prefs, d.prefs);
+      if (patch.push === null) d.push = null;
+      else if (patch.push) { const s = cleanSubscription(patch.push); if (s) d.push = s; else return null; }
       save();
       return view(d);
     },

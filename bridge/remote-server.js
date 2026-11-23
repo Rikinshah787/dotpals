@@ -17,6 +17,8 @@ import { gzip as gzipCb } from 'node:zlib';
 import { promisify } from 'node:util';
 import { allowed, createAssets, csp, inlineHashes, negotiate } from './remote-assets.js';
 import { createHub } from './remote-hub.js';
+import { createPusher } from './remote-push.js';
+import { sendPush } from './webpush.js';
 import { createLimiter, createRemote, permission, remotePatch } from './remote.js';
 import qrcode from './vendor/qrcode.js';
 import { caFingerprint, certDir, ensureCerts, localName, privateAddresses } from './remote-cert.js';
@@ -96,20 +98,24 @@ const readBuffer = (req, max = 1024 * 1024) => new Promise((ok, fail) => {
 });
 const out = (res, status, data, extra = {}) => res.writeHead(status, { ...SECURITY, 'content-type': 'application/json', 'cache-control': 'no-store', ...extra }).end(JSON.stringify(data));
 const loopback = (a = '') => /^(127\.|::1$|::ffff:127\.)/.test(a);
+const REPO = 'https://github.com/rikinshah787/dotpals'; // VAPID requires a contact URL, not a credential
 
 /** A body shaped like the original request, for handing the bridge a changed one. */
 const shim = (req, text) => Object.assign(Readable.from([Buffer.from(text)]), { method: req.method, url: req.url, headers: { ...req.headers, 'content-length': String(Buffer.byteLength(text)) } });
-export function createRemoteServer({ config, file, certHome, root, version, api, snapshot, log = () => {}, renewMs = 60_000, addressesNow = privateAddresses, certs = ensureCerts }) {
+export function createRemoteServer({ config, file, certHome, root, version, api, snapshot, turn, log = () => {}, pushSend, renewMs = 60_000, addressesNow = privateAddresses, certs = ensureCerts }) {
   const remote = createRemote({ file });
   const hub = createHub();
   const claims = createLimiter({ max: 8, windowMs: 60_000 });
+  const pushTests = createLimiter({ max: 5, windowMs: 60_000 });
   let server = null;
   let runKey = '';
   let lastError = null;
+  const pusher = createPusher({ remote, hub, send: pushSend ?? sendPush, vapid: () => remote.vapid(), subject: REPO, turn, log });
   const visibleEvents = new Set([null, undefined, 'message', 'activity', 'config', 'context', 'helpers', 'agents', 'laya', 'loop', 'stuck', 'conflict', 'reset']);
   const onEvent = (event, data) => {
     if (!server) return;
     if (visibleEvents.has(event)) hub.publish(event, data);
+    pusher.handle(event, data);
   };
 
   const HEAD = [
@@ -194,14 +200,34 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
   /** The device's own page of API: who am I, my push subscription and preferences, sign out. */
   async function meApi(req, res, path, device) {
     const id = device.id;
-    if (req.method === 'GET' && path === '/api/remote/me') return out(res, 200, { ...remote.device(id), version });
+    if (req.method === 'GET' && path === '/api/remote/me') return out(res, 200, { ...remote.device(id), vapid: remote.vapid().publicKey, pushReady: true, lastPush: pusher.last(id), pushes: pusher.history(id), version });
     if (req.method !== 'POST') return out(res, 405, { error: 'method not allowed' }, { allow: 'POST' });
     let body;
     try { body = await readJson(req, 8192); } catch (err) { return out(res, err.status ?? 400, { error: err.message }); }
-    if (path === '/api/remote/me/prefs') return out(res, 200, remote.update(id, { name: body.name }));
+    if (path === '/api/remote/me/push') {
+      if (body.subscription && !pushTests.hit(id)) return out(res, 429, { error: 'Wait a minute before enabling notifications again.' });
+      const updated = remote.update(id, { push: body.subscription ?? null });
+      if (!updated) {
+        // Say which push service was refused (its name only: the rest of the address is a secret that identifies the phone).
+        let host = '?'; try { host = new URL(String(body.subscription?.endpoint)).hostname.slice(0, 80); } catch {}
+        log(`remote: refused a notification subscription from ${host}`);
+        return out(res, 400, { error: `That notification subscription isn’t valid (provider: ${host}).` });
+      }
+      if (body.subscription) pusher.test(id).catch(() => {});
+      return out(res, 200, updated);
+    }
+    if (path === '/api/remote/me/ack') return out(res, 200, { ok: pusher.ack(id, body) });
+    if (path === '/api/remote/me/prefs') return out(res, 200, remote.update(id, { prefs: body.prefs, name: body.name }));
+    if (path === '/api/remote/me/test') {
+      if (!remote.device(id)?.push) return out(res, 409, { error: 'Notifications are not enabled on this device.' });
+      if (!pushTests.hit(id)) return out(res, 429, { error: 'Wait a minute before sending another test.' });
+      pusher.test(id).catch(() => {});
+      return out(res, 200, { ok: true });
+    }
     if (path === '/api/remote/me/signout') {
       remote.revoke(id);
       hub.drop(id);
+      pusher.forget(id);
       return out(res, 200, { ok: true }, { 'set-cookie': cookieHeader('', 0, true), 'clear-site-data': '"cache", "storage"' });
     }
     return out(res, 404, { error: 'not found' });
@@ -318,7 +344,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     if (key === runKey && (server || !cfg.enabled)) return;
     await stop();
     lastError = null;
-    if (!cfg.enabled) { remote.cancelPairing(); runKey = key; return; }
+    if (!cfg.enabled) { remote.cancelPairing(); pusher.stop(); runKey = key; return; }
     let make = createHttp;
     let options = {};
     try {
@@ -346,8 +372,8 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       enabled: !!cfg.enabled, running: !!server, error: lastError, port: cfg.port, bind: cfg.bind,
       secure: servesTls(cfg) || /^https:/.test(cfg.publicUrl ?? ''), publicUrl: cfg.publicUrl || '',
       // Where a phone on your network would look: the addresses, the name, and (with our own certificate) the CA to trust.
-      lan: cfg.bind === 'lan' ? { addresses: cfg.tlsAuto ? privateAddresses() : lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
-      addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id) })), waiting: remote.waiting(), streams: hub.size(),
+      lan: cfg.bind === 'lan' ? { addresses: lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
+      addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id), lastPush: pusher.last(d.id), pushes: pusher.history(d.id) })), waiting: remote.waiting(), streams: hub.size(),
     });
     if (req.method === 'GET' && path === '/api/remote') return json(res, 200, view());
     if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
@@ -364,15 +390,16 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       return json(res, 200, { code: token, expiresAt, url, byName, secure: /^https:/.test(url), qr: qrRows(url) });
     }
     if (path === '/api/remote/pair/cancel') { remote.cancelPairing(); return json(res, 200, { ok: true }); }
-    if (path === '/api/remote/revoke-all') { for (const d of remote.devices()) { hub.drop(d.id); } remote.revokeAll(); return json(res, 200, view()); }
-    const one = /^\/api\/remote\/devices\/([\w-]{8,32})(?:\/(revoke))?$/.exec(path);
+    if (path === '/api/remote/revoke-all') { for (const d of remote.devices()) { hub.drop(d.id); pusher.forget(d.id); } remote.revokeAll(); return json(res, 200, view()); }
+    const one = /^\/api\/remote\/devices\/([\w-]{8,32})(?:\/(revoke|test))?$/.exec(path);
     if (!one) return json(res, 404, { error: 'not found' });
-    if (one[2] === 'revoke') { hub.drop(one[1]); return json(res, remote.revoke(one[1]) ? 200 : 404, view()); }
-    const updated = remote.update(one[1], { name: body.name, control: body.control });
+    if (one[2] === 'revoke') { hub.drop(one[1]); pusher.forget(one[1]); return json(res, remote.revoke(one[1]) ? 200 : 404, view()); }
+    if (one[2] === 'test') { pusher.test(one[1]).catch(() => {}); return json(res, 200, { ok: true }); }
+    const updated = remote.update(one[1], { name: body.name, control: body.control, prefs: body.prefs });
     return updated ? json(res, 200, view()) : json(res, 404, { error: 'no such device' });
   }
 
   return {
-    remote, hub, apply, controlApi, onEvent, state: () => ({ running: !!server, error: lastError, note: certNote, addresses: addressesSeen }), stop: async () => { await applying; await stop(); },
+    remote, hub, apply, controlApi, onEvent, state: () => ({ running: !!server, error: lastError, note: certNote, addresses: addressesSeen }), stop: async () => { await applying; pusher.stop(); await stop(); },
   };
 }

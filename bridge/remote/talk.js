@@ -7,6 +7,7 @@ import { buildTurns, harnessName } from '/bridge/ui/recap.js';
 import { simple } from '/bridge/ui/story.js';
 import { route } from '/bridge/ui/buddy.js';
 import { DotPal } from '/src/index.js';
+import { CAST } from './avatar-names.js';
 import { characterFor, keepEntries, needs, ordered, shownState, stateLine, storyOf, talkGate } from './pals-core.js';
 
 const entries = new Map();
@@ -92,7 +93,7 @@ function paintStory() {
     const b = make('button', 'rc-chip');
     b.type = 'button';
     b.setAttribute('aria-pressed', String(s.id === picked));
-    b.append(smallPal(characterFor(s.harness, DotPal.characters.filter((name) => name !== 'draft' && name !== 'custom')), 24, shownState(s)), make('span', 'n', `${harnessName(s.harness)}${s.label ? ` · ${s.label}` : ''}`));
+    b.append(smallPal(characterFor(s.harness, CAST), 24, shownState(s)), make('span', 'n', `${harnessName(s.harness)}${s.label ? ` · ${s.label}` : ''}`));
     b.onclick = () => { picked = s.id; paintStory(); };
     return b;
   }));

@@ -4,6 +4,7 @@
 //  - on a PAIRED DEVICE: this device's own settings: install the app, notifications and which kinds,
 //    send a test, sign this device out.
 // Built with DOM calls only (no innerHTML), so nothing from the network is ever parsed as markup.
+import { phoneRecord, pushList, pushVerdict, workerNote } from './push-words.js';
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const card = $('remote-card');
@@ -29,6 +30,11 @@ function init() {
   };
   const sw = (checked, onchange, label) => { const i = el('input', 'switch'); i.type = 'checkbox'; i.checked = !!checked; i.setAttribute('aria-label', label); i.onchange = () => onchange(i); return i; };
   const btn = (text, onclick, cls = '') => { const b = el('button', cls, text); b.type = 'button'; b.onclick = onclick; return b; };
+  const KINDS = [
+    ['done', 'A request finishes', 'Only ones that took a while.'], ['waiting', 'An agent is waiting for you', 'Still waiting after 20 seconds.'],
+    ['approval', 'An agent asks permission', 'Needs “Let this device control”.'], ['stuck', 'An agent seems stuck', 'Going in circles.'],
+    ['conflict', 'Two agents, one file', ''], ['loop', 'An agent gave up on failing tests', ''], ['context', 'A context window is nearly full', 'Off by default.'],
+  ];
   // -- on the computer ---------------------------------------------------------------------------------
   function drawQr(rows) {
     const scale = 6, quiet = 3, n = rows.length, size = (n + quiet * 2) * scale;
@@ -44,6 +50,28 @@ function init() {
     c.style.cssText = 'width:min(240px,100%);height:auto;image-rendering:pixelated;border-radius:10px;background:#fff';
     return c;
   }
+  // What a push is said to have done, in words (push-words.js, tested). The phone can also be asked what IT saw last: that is
+  // the one thing the push service can't say, and it tells "never reached the phone" from "reached it and wasn't shown".
+  let phone = { version: null, build: 0, last: null, since: 0 };
+  const readPhone = async () => {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return;
+      const w = await new Promise((ok) => {
+        const ch = new MessageChannel();
+        const done = (value) => { clearTimeout(timer); ch.port1.close(); ch.port2.close(); ok(value); };
+        const timer = setTimeout(() => done(null), 2000);
+        ch.port1.onmessage = (e) => done(e.data ?? null);
+        (reg.active ?? reg.waiting)?.postMessage({ type: 'version' }, [ch.port2]);
+      });
+      const log = await caches.open('dotpals-push-log').catch(() => null);
+      const read = (key) => (log ? log.match(key).then((r) => (r ? r.json() : null)).catch(() => null) : Promise.resolve(null));
+      const [last, started] = await Promise.all([read('/__last-push'), read('/__worker')]);
+      phone = { version: w?.version ?? null, build: w?.build ?? 0, last, since: started?.at ?? 0 };
+    } catch { /* no worker yet: the page says so */ }
+  };
+  readPhone();
   const when = (at) => { if (!at) return 'never'; const s = Math.round((Date.now() - at) / 1000); return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
 
   async function computerFace() {
@@ -53,7 +81,7 @@ function init() {
     const draw = () => {
       if (!state) return;
       const nodes = [el('h2', '', 'Remote')];
-      nodes.push(el('p', 'muted', 'Use dotpals from your phone or tablet: the same dashboard, live. Off until you turn it on.'));
+      nodes.push(el('p', 'muted', 'Use dotpals from your phone or tablet: the same dashboard, live, with notifications. Off until you turn it on.'));
       nodes.push(row('Remote client', state.error || (state.running ? `Listening on port ${state.port}${state.bind === 'lan' ? ' (your network)' : ' (this computer only: put a tunnel or Tailscale in front)'}.` : 'Off.'),
         sw(state.enabled, async (i) => { await save({ enabled: i.checked }); })));
       if (state.enabled) {
@@ -118,10 +146,13 @@ function init() {
       const name = el('input'); name.value = d.name; name.maxLength = 40; name.setAttribute('aria-label', `Name of ${d.name}`);
       name.onchange = async () => { state = await call(`/api/remote/devices/${d.id}`, { name: name.value }); draw(); };
       const status = d.open ? 'Open now' : `Last seen ${when(d.lastSeen)}`;
-      box.append(row(status, "Shown on your computer.", name));
+      const lp = d.lastPush;
+      const pushNote = !d.push ? 'Notifications off.' : lp ? `Notifications on. Last: ${pushVerdict(lp, when(lp.at))}` : 'Notifications on.';
+      box.append(row(status, pushNote, name));
       box.append(row('Let this device control', 'Off: it can look and change appearance. On: it can also hand off sessions, rewind and start coding tasks. Permission prompts and Apps stay on the desktop.',
         sw(d.control, async (i) => { if (i.checked && !confirm(`Let “${d.name}” control dotpals, including starting coding tasks?`)) { i.checked = false; return; } state = await call(`/api/remote/devices/${d.id}`, { control: i.checked }); draw(); }, `Let ${d.name} control`)));
       const acts = el('div', 'acts'); acts.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;padding-bottom:8px';
+      if (d.push) acts.append(btn('Send a test', async () => { await call(`/api/remote/devices/${d.id}/test`, {}); toast('Sent'); }));
       acts.append(btn('Sign out', async () => { state = await call(`/api/remote/devices/${d.id}/revoke`, {}); draw(); }, 'danger'));
       box.append(acts);
       return box;
@@ -140,6 +171,8 @@ function init() {
       nodes.push(row('Name', 'Shown on your computer.', (() => { const i = el('input'); i.value = me.name; i.maxLength = 40; i.onchange = guard(() => set({ name: i.value })); return i; })()));
       nodes.push(row(me.control ? 'This device can control dotpals' : 'This device can look, not control', me.control ? 'Hand-offs, rewinds, coding tasks and settings are allowed. Permission cards and desktop actions still need the desktop.' : 'Turn it on from the computer: Settings → Remote → Let this device control.'));
 
+      const P = window.dotpalsPush;
+      const asked = P?.permission?.();
       nodes.push(el('h3', '', 'App'));
       const inst = window.dotpalsInstall;
       if (inst?.done) nodes.push(row('Installed', 'dotpals is on your home screen.'));
@@ -154,9 +187,27 @@ function init() {
         const act = w.action === 'update' ? btn('Update', () => { U.apply(); }, 'primary')
           : w.action === 'check' ? btn('Check for updates', async () => { await U.check(); draw(); })
             : null;
-        nodes.push(row(w.title, w.note, act));
+        nodes.push(row(w.title, `${w.note}${phone.version ? ` Running ${phone.version}.` : ''}`.trim(), act));
       }
 
+      nodes.push(el('h3', '', 'Notifications'));
+      if (!P?.supported?.()) nodes.push(row('Not available', 'This browser can’t receive notifications here. On iPhone or iPad, add dotpals to the Home Screen first.'));
+      else if (asked === 'denied') nodes.push(row('Blocked', 'Notifications are blocked for this site. Allow them in the browser’s site settings, then come back.'));
+      else {
+        nodes.push(row('Notify this device', 'Receive background notifications. Use “Only when I’m away” to skip them while the app is in front.',
+          sw(me.push && asked === 'granted', guard(async (i) => { if (i.checked) await P.enable(); else await P.disable(); }), 'Notify this device')));
+        if (me.push) {
+          nodes.push(row('Only when I’m away', 'Skip notifications while the app is open on this device.', sw(me.prefs.quietWhenOpen, guard((i) => set({ prefs: { quietWhenOpen: i.checked } })), 'Skip while open')));
+          for (const [k, title, note] of KINDS) nodes.push(row(title, note, sw(me.prefs[k], guard((i) => set({ prefs: { [k]: i.checked } })), title)));
+          const lp = me.lastPush;
+          nodes.push(row('Check it works', `Sends a notification now, even with the app open. ${pushVerdict(lp, new Date(lp?.at).toLocaleTimeString())}`, btn('Send a test', guard(async () => { await call('/api/remote/me/test', {}); await new Promise((r) => setTimeout(r, 5000)); await readPhone(); }))));
+          const recent = row('Recent pushes', me.pushes?.length ? '' : 'None since dotpals started.');
+          for (const line of pushList(me.pushes)) recent.querySelector('.text')?.append(el('small', '', line));
+          nodes.push(recent);
+          nodes.push(row('What this phone saw', phoneRecord(phone.last, lp, phone.since, phone.build)));
+          nodes.push(row('This phone is running', workerNote(me.version, phone)));
+        }
+      }
       nodes.push(el('h3', '', 'Foldable'));
       const fold = window.dotpalsFold?.fold?.();
       nodes.push(row('Layout', fold === 'book' ? 'Two screens side by side: one pane on each, nothing across the hinge.' : fold === 'table' ? 'Half-open: content above, controls below the hinge.' : 'Flat. Fold or span the device and the layout follows.'));
@@ -164,7 +215,8 @@ function init() {
       nodes.push(row('Sign this device out', 'You’ll pair again to use it.', btn('Sign out', async () => { if (!confirm('Sign this device out?')) return; await call('/api/remote/me/signout', {}); location.replace('/pair'); }, 'danger')));
       card.replaceChildren(...nodes);
     }
-    async function load() { try { me = await call('/api/remote/me'); draw(); } catch (e) { card.replaceChildren(el('h2', '', 'This device'), el('p', 'bad', e.message)); } }
+    // Read what the phone itself saw BEFORE drawing: drawn first, "What this phone saw" would say "nothing" for a push it did get.
+    async function load() { try { me = await call('/api/remote/me'); await readPhone(); draw(); } catch (e) { card.replaceChildren(el('h2', '', 'This device'), el('p', 'bad', e.message)); } }
     load();
     addEventListener('dotpals:install', () => me && draw());
     // The update row follows the updater (checking, ready, applying), without redrawing when it isn't on screen.

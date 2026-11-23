@@ -1,13 +1,13 @@
 # Remote client
 
-Use the dotpals dashboard from your phone, tablet or foldable: live, installable as an app. **Off until you turn it on.** Desktop-only actions and remote administration stay on the computer.
+Use the dotpals dashboard from your phone, tablet or foldable: live, installable as an app, with notifications you choose. **Off until you turn it on.** Desktop-only actions and remote administration stay on the computer.
 
 Settings → Remote on the computer. Nothing here runs, listens or sends anything until then.
 
 ## Set it up
 
 1. **Turn it on.** Settings → Remote → *Remote client*. It listens on port 5176 (change it there).
-2. **Give it https.** Use an HTTPS address for the remote client. Pick one:
+2. **Give it https.** Phones only install apps, keep a sign-in cookie and receive notifications over https. Pick one:
    - **A tunnel (easiest).** Keep *Reachable from* on "This computer only" and point a tunnel at `http://127.0.0.1:5176`:
      `cloudflared tunnel --url http://127.0.0.1:5176` (or Tailscale: `tailscale serve --bg --https=443 http://127.0.0.1:5176`). Paste the https address it prints into *Address your devices open*.
    - **https on your own network, no tunnel.** Run `dotpals remote cert` (or Settings → Remote → *https on my network*). It makes a small private certificate authority and a certificate for this computer's LAN addresses **and its `.local` name**, points the remote client at it and prints the steps for your phone. Do the phone step once: copy `~/.dotpals/remote-cert/ca.pem` to it and install it as a CA certificate (Android: Settings → Security → Encryption & credentials → Install a certificate; iPhone/iPad: open the file, install the profile, then turn it on under Settings → General → About → Certificate Trust Settings). Compare the fingerprint it shows. After that, `https://<this computer's address>:5176/pair` works, and the QR code opens it.
@@ -18,6 +18,7 @@ Settings → Remote on the computer. Nothing here runs, listens or sends anythin
    - **Your own certificate.** Set `remote.tlsCert` and `remote.tlsKey` (file paths) in `~/.dotpals/config.json`, choose "Anything on my network", and use `https://<this computer>:5176`.
 3. **Pair.** *Pair a device* shows a QR code and a code like `7K2M-9QXD-4TBH`. Scan it with the phone's camera, or open `<your address>/pair` and type it. The code works once and expires in 5 minutes.
 4. **Install.** The app offers *Install* in its own Settings → Remote (Chrome, Edge, Samsung Internet), or use the browser's menu. On iPhone/iPad: Share → Add to Home Screen.
+5. **Notifications.** On the device: Settings → Remote → *Notify this device*, then pick what you want to hear about.
 
 ## What a paired device can do
 
@@ -62,6 +63,26 @@ It stays out of the way of what you do by hand, so it ignores:
 
 The page slides in from the side you swiped (not if you've asked your device to reduce motion). `main` is set to `touch-action: pan-y pinch-zoom`, so Chrome doesn't also treat the swipe as "back".
 
+## Notifications
+
+Chosen per device, on the device: a request finishes (only ones that took a while), an agent is waiting for you (still waiting after 20 s), an agent asks permission (needs *control*), an agent seems stuck, two agents on one file, an agent gave up on failing tests, a context window nearly full (off by default). *Only when I'm away* skips them while the app is open on that device.
+
+They're [Web Push](https://www.rfc-editor.org/rfc/rfc8030): the computer encrypts each one for that device ([RFC 8291](https://www.rfc-editor.org/rfc/rfc8291)) and signs it ([VAPID, RFC 8292](https://www.rfc-editor.org/rfc/rfc8292)). Only Google (including the `*.google.com/fcm/` hosts Chrome on Android uses), Mozilla, Apple and Microsoft push-provider hosts are accepted; custom providers are not supported. A refused address is reported with the service name and never deletes a working subscription. Providers see ciphertext and network/timing metadata, not notification plaintext. Text is shortened and pattern-redacted before encryption; this is best effort, not a guarantee that arbitrary sensitive prose is removed. Lock-screen previews can expose it. Ordinary notifications are limited to one per tag per 10 s and 20 per minute per device; explicit tests bypass notification preferences, but device-requested tests have their own five-per-minute limit.
+
+### Whose face is on a notification
+
+The large icon next to a notification (Android; the small status-bar badge stays dotpals) is the pal of the agent that caused it, the same pal that agent has in the tray, wearing the expression of the matching pal state. These are the pal's own agent states, so the faces cannot drift from the app:
+
+| Notification | Pal state | Face |
+|---|---|---|
+| A request finished | done | happy |
+| An agent is waiting for you, or asks permission | waiting | wide-eyed |
+| An agent seems stuck | thinking | pondering |
+| Two agents, one file; tests given up on | error | x-eyed, sad |
+| A context window is nearly full | working | hard at work |
+
+A custom pal has no picture, so it, an unknown agent in a test, and the Send a test button use Blu. The 45 pictures (9 pals x 5 states) live in `bridge/remote/avatars/` and are drawn by the real pal: run `node scripts/make-avatars.mjs` (needs Edge or Chrome) after changing a pal or the states, and commit the result. A notification can only name one of these pictures; anything else shows the app icon. Whether the phone actually draws the large icon is up to Android and the notification's settings: it is not shown on every launcher or in every notification style.
+
 ### Updating the app on your phone
 
 The installed app checks for a newer worker itself and does not automatically reload your current page:
@@ -72,6 +93,25 @@ The installed app checks for a newer worker itself and does not automatically re
 - A failed check or activation is reported and can be retried. If registration failed, the Check button retries it too.
 
 Migration exception: a worker predating the Update UI may be replaced automatically once, because its page cannot request activation. This does not force a page reload. Browsers can also activate a waiting worker naturally after all controlled pages close.
+
+### When "Send a test" says it was sent and nothing shows
+
+"Accepted by the push service" means only that the provider accepted the message. The worker separately records receipt and reports the result of `showNotification()`. A successful call is **not proof of a visible OS popup**.
+
+| Settings says | What it means | What to do |
+|---|---|---|
+| "…browser accepted the notification display request" | The worker received it and `showNotification()` resolved. OS visibility, sound and attention are not confirmed. | Check the notification tray, browser/OS settings and Do Not Disturb. |
+| "…received it but held it back because the app was open" | A real notification is held while the app is in front (it shows live). A test is never held. | Nothing: this is by design. |
+| "…received it but couldn't show it (…)" | The phone has the message and the browser refused to show it. | Android Settings → Apps → the browser (or dotpals) → Notifications: allow it, and check the *dotpals* channel isn't off. |
+| "…no receipt has reached the computer" | Delivery or the return connection may be delayed or unavailable; an old worker may not send receipts. | Inspect the phone-local record and worker build; check both phone internet and access back to this computer. |
+| "No push is recorded on this phone" | Inconclusive: storage may be unavailable/cleared, a different worker may have handled it, or it may not have arrived. | Check the active worker/build and connectivity. Battery restrictions are one possible factor, not a diagnosis. |
+| An older worker/version | The worker differs, or its version could not be read. | Use Check for updates, then Update if offered. Reload after fixing registration/connectivity failures. |
+
+A test requests *high* urgency, a distinct tag/Topic, `renotify` and `requireInteraction`. These are hints, not guarantees of immediate delivery or presentation. Ordinary completion notifications use normal urgency. Browser, push-provider, OS, network and power policy can all affect timing.
+
+Recent pushes lists up to ten per-device server records held in memory (five shown in Settings); restart clears them. Late receipts attach to their original send. The receipt's `at` is **when the computer heard back**, not phone arrival time. Phone-local arrival timestamps use a separate clock; subtracting the two clocks does not establish delivery latency. Preserve a test's history rather than repeatedly sending new tests.
+
+**Physical-device test:** the fork author tested the remote client on a Samsung Galaxy Z Fold8 Ultra with dotpals 0.15.0 and reported that it worked, including notifications. Earlier intermittent delivery was observed during development; its cause was not established. This is one device and setup, not a guarantee for other Android browsers, launchers, networks or iOS.
 
 ## Real time, cheaply
 
@@ -105,4 +145,8 @@ The remote client was tested on a physical Samsung Galaxy Z Fold8 Ultra. Edge te
 - Every request is checked: host name, origin, a custom header on changes, the device, then what that device may do. Pages carry a Content Security Policy that allows only this origin's scripts.
 - Sign a device out from the computer or the device; it's cut off at once, mid-stream.
 - Don't expose port 5176 to the internet without https. A tunnel is fine; port-forwarding plain http is not.
-- Paired devices can read sensitive session data. Revocation cannot erase data already viewed or copied by a device. See [SECURITY.md](../SECURITY.md) for trust boundaries and private-CA cautions.
+- Paired devices can read sensitive session data. Revocation cannot erase data already viewed or copied by a device. See [SECURITY.md](../SECURITY.md) for trust boundaries, private-CA cautions and push-provider metadata.
+
+## Files
+
+`bridge/remote-server.js` (listener, pairing, routing) · `remote.js` (devices, permissions) · `remote-hub.js` (live stream) · `remote-push.js` (what notifies) · `webpush.js` (encryption, VAPID) · `remote-assets.js` (static files) · `bridge/remote/` (the app: `boot.js`, `stream.js`, `client.js`, `swipe.js`, `settings.js`, `sw.js`, `pair.*`, `remote.css`, manifest, icons) · `bridge/vendor/qrcode.js` (MIT).

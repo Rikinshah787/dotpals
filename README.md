@@ -201,7 +201,7 @@ To uninstall (the hooks, the MCP server, the `dotpals` command, the app and `~/.
 
 ## On your phone or foldable
 
-Settings → Remote turns on an installable app version of the dashboard for your phone, tablet or foldable: pair with a QR code and install it. It keeps a connection open only while it's in front of you, and lays out for a fold. Set-up, what a device may do, and how it's secured: **[docs/REMOTE.md](docs/REMOTE.md)**.
+Settings → Remote turns on an installable app version of the dashboard for your phone, tablet or foldable: pair with a QR code, install it, and choose which notifications reach you. It keeps a connection open only while it's in front of you, and lays out for a fold. Set-up, what a device may do, and how it's secured: **[docs/REMOTE.md](docs/REMOTE.md)**.
 
 ## Ask dotpals from any agent (MCP)
 
@@ -226,7 +226,7 @@ Codex and Cursor: command `npx`, arguments `dotpals mcp` (for Codex, under `[mcp
 
 Your agents' work stays on your computer. The bridge listens only on `127.0.0.1`, reads Claude Code's and Codex's logs locally, and sends nothing anywhere. The exceptions are your choice:
 
-- **Remote client** (off by default, [docs/REMOTE.md](docs/REMOTE.md)): opens a separate authenticated listener for paired devices over HTTPS. They can read private dashboard/session data; powerful changes require a per-device control switch set on the computer. See [SECURITY.md](SECURITY.md) for boundaries and limitations.
+- **Remote client** (off by default, [docs/REMOTE.md](docs/REMOTE.md)): opens a separate authenticated listener for paired devices over HTTPS. They can read private dashboard/session data; powerful changes require a per-device control switch set on the computer. Notifications are a separate opt-in: the browser's push provider (Google, Mozilla, Apple or Microsoft) receives ciphertext and network/timing metadata, not plaintext. See [SECURITY.md](SECURITY.md) for boundaries and limitations.
 
 - **Blu**: what you say goes to the AI you picked for Blu's brain (nowhere, with Ollama), with a screenshot only when you ask about the screen.
 - **Cloud (Jev)** test double-check, off by default: an unclear test run's output, with passwords, keys and emails removed.
