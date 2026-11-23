@@ -72,6 +72,13 @@ export const DEFAULTS = {
   // `hearing`: which Whisper listens (bridge/ui/voice.js HEARING: 'quick', 'better' or 'best');
   // `conversation`: after Blu answers, it listens for your next words.
   blu: { see: true, hands: true, click: false, music: 'youtube', mode: 'both', hearing: 'quick', conversation: true },
+  // Remote client (bridge/remote-server.js): the dashboard as an installable app on your phone or tablet.
+  // Off unless you turn it on. `bind`: 'local' (only this computer: for a tunnel or reverse proxy that
+  // adds https) or 'lan' (your network). `publicUrl`: the https address your devices open (it goes in the
+  // pairing QR). `tlsCert`/`tlsKey`: files, to serve https yourself. `historyDays`: how much history a device loads.
+  // `tlsAuto`: dotpals keeps its own private CA and server certificate in ~/.dotpals/remote-cert (`dotpals remote cert`),
+  // renews it when this computer's addresses change, and reloads it without a restart. tlsCert/tlsKey: your own files.
+  remote: { enabled: false, bind: 'local', port: 5176, publicUrl: '', tlsCert: '', tlsKey: '', tlsAuto: false, historyDays: 3 },
 };
 
 /** Blu's brains (bridge/brain.js), and the ones that take an API key. */
@@ -132,6 +139,33 @@ function clean(input = {}) {
     if (Array.isArray(b.dictionary)) brain.dictionary = [...new Set(b.dictionary.map((w) => String(w).trim().slice(0, 40)).filter(Boolean))].slice(0, 100);
     out.brain = brain;
   }
+  if (input.remote && typeof input.remote === 'object' && !Array.isArray(input.remote)) out.remote = cleanRemote(input.remote);
+  return out;
+}
+
+/** Where devices reach the remote client: https (http only for this computer, to test), no path, no credentials. */
+export function publicUrl(value) {
+  try {
+    const u = new URL(String(value));
+    const here = /^(127\.0\.0\.1|localhost|\[::1\])$/i.test(u.hostname);
+    if (u.username || u.password || (u.protocol !== 'https:' && !(u.protocol === 'http:' && here))) return null;
+    return u.origin;
+  } catch { return null; }
+}
+
+/** The remote settings as stored: only the parts given, each checked. */
+function cleanRemote(r) {
+  const out = {};
+  if (typeof r.enabled === 'boolean') out.enabled = r.enabled;
+  if (typeof r.tlsAuto === 'boolean') out.tlsAuto = r.tlsAuto;
+  if (r.bind === 'local' || r.bind === 'lan') out.bind = r.bind;
+  const port = Number(r.port);
+  if (Number.isInteger(port) && port >= 1024 && port <= 65535) out.port = port;
+  if (r.publicUrl === '') out.publicUrl = '';
+  else if (typeof r.publicUrl === 'string' && publicUrl(r.publicUrl)) out.publicUrl = publicUrl(r.publicUrl);
+  for (const key of ['tlsCert', 'tlsKey']) if (typeof r[key] === 'string' && r[key].length <= 500 && !/[\u0000-\u001f]/.test(r[key])) out[key] = r[key].trim();
+  const days = Number(r.historyDays);
+  if (Number.isInteger(days) && days >= 1 && days <= 7) out.historyDays = days;
   return out;
 }
 
@@ -206,6 +240,7 @@ export function loadConfig() {
   // Blu's brain, with each part filled in; its keys only as their last 4 characters.
   config.brain = { ...DEFAULTS.brain, ...config.brain, models: { ...config.brain?.models } };
   config.blu = { ...DEFAULTS.blu, ...config.blu };
+  config.remote = { ...DEFAULTS.remote, ...config.remote };
   config.brainKeys = Object.fromEntries(Object.entries(cleanBrainKeys({}, saved.brainKeys)).map(([id, k]) => [id, k.slice(-4)]));
   return config;
 }
@@ -224,6 +259,7 @@ export function saveConfig(patch) {
   if (change.agents) next.agents = { ...before.agents, ...change.agents };
   if (change.brain) next.brain = { ...before.brain, ...change.brain, models: { ...before.brain?.models, ...change.brain.models } };
   if (change.blu) next.blu = { ...before.blu, ...change.blu };
+  if (change.remote) next.remote = { ...before.remote, ...change.remote };
   const checker = cleanChecker(patch?.checker, cleanChecker(saved.checker));
   if (Object.keys(checker).length) next.checker = checker;
   const keys = cleanBrainKeys(patch?.brainKeys, saved.brainKeys);

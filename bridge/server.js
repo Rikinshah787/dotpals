@@ -123,6 +123,7 @@ import { handoffNote } from './ui/handoff.js';
 import { claudeContextSize, readUsage } from './usage.js';
 import { checkpoint, createGround, restoreFiles, rewindPlan, runGit, snapshot, testDiff, treeChanges } from './ground.js';
 import { createChat } from './chat.js';
+import { createRemoteServer } from './remote-server.js';
 import { agentEnv, askPlanner, claudeTaskArgs, createTaskList, doneItem, evaluate, fixRequest, knownProjects, makePlan, newSessionId, openPr, prPlan, receiptMarkdown, run, saveTask, taskMarkdown, taskPrompt, verdictWords } from './tasks.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -193,7 +194,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null, createChat: makeChat = createChat } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null, createChat: makeChat = createChat, onSnapshot = () => {} } = {}) {
   const clients = new Set();
   const windows = new Map(); // the desktop app's windows following the events: response → 'pal' | 'notch'
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
@@ -254,9 +255,11 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   });
   const CHAT_OFF = 'Chat is off. Turn it on in Dashboard → Settings → Chat with your agents.';
 
+  const listeners = new Set(); // in-process followers of every event: the remote client's stream and pushes (bridge/remote-server.js)
   function send(event, data) {
     const line = `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(line);
+    for (const listen of listeners) listen(event, data);
   }
 
   // -- session lifecycle ------------------------------------------------------------
@@ -490,7 +493,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       testDiffing.delete(entry.id);
       const now = activity.get(entry.id);
       if (diff && now && now.body?.testDiff === undefined) publish([activity.upsert({ id: entry.id, body: { ...now.body, testDiff: diff } })]);
-    }, () => testDiffing.delete(entry.id));
+    }, () => testDiffing.delete(entry.id)).finally(() => onSnapshot('test', entry));
   }
 
   function maybeCheck(entry) {
@@ -739,7 +742,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (!cwd) return;
     if (entry.kind === 'prompt' && groundPrompt.get(entry.session) !== entry.id) {
       groundPrompt.set(entry.session, entry.id);
-      ground.start(entry.session, cwd, entry.at);
+      ground.start(entry.session, cwd, entry.at).then(() => onSnapshot('request', entry));
       // The rules the request starts under: it's held to these, even if it changes the file.
       rulesAtStart.set(entry.session, findRules(cwd).catch(() => null));
       if (rulesAtStart.size > 500) rulesAtStart.delete(rulesAtStart.keys().next().value);
@@ -856,9 +859,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     }, delay));
   }
   /** Read a JSON body; only this bridge's own pages (or no page at all) may ask, as for the hand-off. */
+  const remoteRequests = new WeakSet(); // only the authenticated, Origin-checked remote listener can add a request
   async function talkBody(req, res) {
     const origin = req.headers.origin;
-    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) { json(res, 403, { error: 'forbidden' }); return null; }
+    if (origin && !remoteRequests.has(req) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) { json(res, 403, { error: 'forbidden' }); return null; }
     try { return JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { error: 'bad json' }); return null; }
   }
   /** A project folder the agents worked in, by its path; never a folder only a request names. */
@@ -926,10 +930,10 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   }
   const palOf = (p) => (typeof p === 'string' && /^[\w .'-]{1,30}$/.test(p) ? p : 'Blu');
   /** Blu's instructions for a look at your screen (bridge/buddy.js), from your settings now: the same for warming up and for the look. */
-  function buddyNow(name) {
+  function buddyNow(name, remote = false) {
     const blu = config.blu ?? {};
-    const can = { hands: blu.hands !== false, click: blu.click === true };
-    const apps = appsNow();
+    const can = { hands: !remote && blu.hands !== false, click: !remote && blu.click === true };
+    const apps = remote ? { connected: [], signIn: [] } : appsNow();
     return { blu, can, apps, system: buddySystem({ name, mode: blu.mode, can, music: blu.music, apps }) };
   }
   async function brainApi(req, res, path) {
@@ -983,8 +987,9 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const text = String(body.text ?? '').trim().slice(0, 2000);
       if (!text) return json(res, 400, { error: 'Say what you want' });
       const name = palOf(body.pal);
-      const { blu, can, apps, system } = buddyNow(name);
-      const shot = blu.see === false ? null : shotOf(body.shot);
+      const remote = remoteRequests.has(req);
+      const { blu, can, apps, system } = buddyNow(name, remote);
+      const shot = remote || blu.see === false ? null : shotOf(body.shot);
       const box = body.circled;
       const circled = shot && box && [box.x, box.y, box.w, box.h].every(Number.isFinite) ? { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.w), h: Math.round(box.h) } : null;
       const { brain, here, keys } = await brainFor('screen');
@@ -998,6 +1003,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
         const input = buddyInput(text, { shot, circled, history, agents: blu.mode === 'everyday' ? [] : agentsNow(), name, words: yourWords(config.brain?.dictionary ?? []).words });
         const r = await askBrain(brain, keys, system, input, isQuick(brain) ? 40_000 : 90_000, images);
         const reply = parseBuddyReply(r.text, { size: shot?.w ? { w: shot.w, h: shot.h } : null, can, apps });
+        if (remote) return json(res, 200, { say: reply.say, by: r.by, ms: r.ms });
         // "Yes" to the change Blu just asked about: done now, not asked again. Only on your own plain
         // yes, right after Blu's question about that same change (bridge/buddy.js saidYesTo): the
         // brain can't confirm a change on its own, nor swap in another.
@@ -1068,7 +1074,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (body.project && !chosen) return json(res, 404, { error: 'dotpals doesn’t know that project folder' });
       try {
         const name = typeof body.pal === 'string' && /^[\w .'-]{1,30}$/.test(body.pal) ? body.pal : 'Blu';
-        const shot = shotOf(body.shot);
+        const shot = remoteRequests.has(req) ? null : shotOf(body.shot);
         // Planned by Blu's brain: your Claude Code as before, or whichever AI you chose.
         const { brain, here, keys } = await brainFor('plan');
         const mine = here.find((b) => b.id === config.brain?.choice);
@@ -1254,7 +1260,8 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   const approvalView = ({ resolve, timer, ...item }) => item;
   async function askApproval(event, req) {
     // Only when something that can answer is open (the pal or the notch, which connect with
-    // ?answers=1): an open dashboard alone would leave Claude waiting with nothing to click.
+    // ?answers=1): an open dashboard or paired device alone would leave
+    // Claude waiting with nothing to click.
     if (!config.approvals || !answerers.size || typeof event.tool_name !== 'string') return null;
     const id = randomUUID();
     const session = String(event.session_id);
@@ -1604,7 +1611,13 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   }
 
   async function api(req, res, path) {
-    if (req.method === 'GET' && path === '/api/activity') return json(res, 200, { entries: activity.all() });
+    // Pairing and the paired devices: only from this computer (the remote client can't reach these).
+    if (path === '/api/remote' || path.startsWith('/api/remote/')) {
+      if (req.method !== 'POST' && !(req.method === 'GET' && path === '/api/remote')) return json(res, 405, { error: 'method not allowed' });
+      if (req.method !== 'GET' && (req.method !== 'POST' || req.headers['x-dotpals'] !== '1')) return json(res, 403, { error: 'forbidden' });
+      return remoteServer.controlApi(req, res, path, { json, readBody });
+    }
+    if (req.method === 'GET' && path === '/api/activity') return json(res, 200, { entries: remoteRequests.has(req) ? recentRemoteActivity() : activity.all() });
     if (req.method === 'GET' && path === '/api/loop') {
       const session = new URL(req.url, 'http://localhost').searchParams.get('session');
       return json(res, 200, { events: loopEvents.filter((e) => !session || e.session === session) });
@@ -1697,7 +1710,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       const { brain, here } = await brainFor('quick');
       const plan = pickBrain(here, { choice: config.brain?.choice, job: 'plan' });
       const screen = pickBrain(here, { choice: config.brain?.choice, job: 'screen' });
-      return json(res, 200, { brains: here, quick: brain?.id ?? null, plan: plan?.id ?? null, screen: screen?.id ?? null, brain: config.brain, keys: config.brainKeys ?? {}, apps: appsNow() });
+      return json(res, 200, { brains: here, quick: brain?.id ?? null, plan: plan?.id ?? null, screen: screen?.id ?? null, brain: config.brain, keys: config.brainKeys ?? {}, ...(remoteRequests.has(req) ? {} : { apps: appsNow() }) });
     }
 
     // Changes need a custom header: browsers won't send it cross-site without
@@ -1718,6 +1731,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (config.history && !before.history) history.save();
       applyLaya(before);
       if (before.chat && !config.chat) chat.stop(); // turned off: no OpenCode server left running
+      remoteServer.apply().catch(() => {}); // the remote client started, stopped or moved
       // A different checker (or a new key): check it's answering, right away.
       if (before.checker?.mode !== config.checker?.mode || before.checker?.keyLast4 !== config.checker?.keyLast4 || before.checker?.localUrl !== config.checker?.localUrl) heartbeat();
       send('config', withLaya());
@@ -1798,7 +1812,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     // were, so `rewind/undo` { id } puts them back. `id`: the request's done entry.
     if (path === '/api/rewind/preview' || path === '/api/rewind' || path === '/api/rewind/undo') {
       const origin = req.headers.origin;
-      if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+      if (origin && !remoteRequests.has(req) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
       let body;
       try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
       return rewind(res, path, body ?? {});
@@ -1899,7 +1913,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   async function handoff(req, res) {
     // Starts a program: only this bridge's own pages (or no page at all) may ask.
     const origin = req.headers.origin;
-    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
+    if (origin && !remoteRequests.has(req) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)) return json(res, 403, { error: 'forbidden' });
     let body;
     try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
     const agent = body?.agent;
@@ -1920,6 +1934,37 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     try { await (handoffOptions.launch ?? launch)(command); } catch (err) { return json(res, 500, { error: `Couldn’t open a terminal: ${err.message}. Use Copy instead.`, note, file }); }
     return json(res, 200, { ok: true, agent, name, dir: cwd, file, note });
   }
+
+  // -- Remote client (bridge/remote-server.js) ---------------------------------------------------
+  // A second listener for paired phones and tablets; off unless Settings → Remote turns it on.
+  const recentRemoteActivity = (days = config.remote.historyDays) => {
+    const since = Date.now() - days * DAY;
+    return activity.all().filter((entry) => (entry.at ?? 0) >= since);
+  };
+  // The remote stream starts with recent activity and the current agent state.
+  function remoteSnapshot(emit, { days }) {
+    emit('config', withLaya());
+    for (const entry of recentRemoteActivity(days)) emit('activity', entry);
+    for (const update of sessions.values()) emit(null, update);
+    for (const ctx of contexts.values()) emit('context', ctx);
+    for (const session of helpers.keys()) { const list = helperList(session); if (list.length) emit('helpers', { session, harness: sessions.get(session)?.harness, helpers: list }); }
+  }
+  const remoteServer = createRemoteServer({
+    config: () => config.remote,
+    file: () => join(home(), 'remote.json'),
+    certHome: home(),
+    root, version, log: print,
+    api: (req, res, path) => { remoteRequests.add(req); return api(req, res, path); },
+    snapshot: remoteSnapshot,
+    secrets: () => [checkerKey(), ...Object.values(brainKeys())].filter(Boolean),
+    // The request that just ended in this session, for "Claude is done" pushes.
+    turn: (session) => {
+      const done = activity.findLast(session, (e) => e.kind === 'done');
+      const prompt = activity.findLast(session, (e) => e.kind === 'prompt');
+      return done ? { ms: done.ms ?? (prompt ? done.at - prompt.at : 0), prompt: prompt?.title } : null;
+    },
+  });
+  listeners.add((event, data) => { if (config.remote?.enabled) remoteServer.onEvent(event, data); });
 
   // Only answer to our own name: stops "DNS rebinding" pages from reading your activity.
   const allowedHost = (host = '') => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
@@ -2001,7 +2046,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
   // 4 s), so a client never reuses one this end is just closing ("fetch failed").
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
-  server.on('close', () => { connectors.close(); chat.stop(); stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
+  server.on('close', () => { remoteServer.stop().catch(() => {}); connectors.close(); chat.stop(); stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); clearTimeout(firstBeat); clearInterval(beat); laya.stop().catch(() => {}); });
 
   return new Promise((ok, fail) => {
     server.once('error', (err) => { stopWatchers(); clearInterval(reaper); clearInterval(stuckTimer); fail(err); });
@@ -2011,6 +2056,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       print(`hook endpoint  → http://localhost:${port}/hook`);
       // Only now: a bridge that couldn't listen (one is already running) mustn't start a second Laya.
       applyLaya(null);
+      remoteServer.apply().catch(() => {});
       ok(server);
     });
   });

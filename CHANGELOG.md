@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in HTTPS remote dashboard with QR pairing, device revocation and scoped permissions.
+- Installable dashboard with explicit updates, background stream suspension, fold layouts, live pals and Story.
+- Encrypted, opt-in notifications with receipt diagnostics and expression-matched agent avatars. Fork 0.15.0 was tested by its author on a Samsung Galaxy Z Fold8 Ultra, including notifications.
+
 ## [0.13.0] - 2026-11-15
 
 ### Added
