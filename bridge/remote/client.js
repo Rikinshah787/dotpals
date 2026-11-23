@@ -24,12 +24,25 @@ import './talk.js'; // the notch-style Talk and Story panel
   pill.append(text, retry);
   document.body.append(pill);
   let hideTimer;
+  let toldOut = false;
+  const realFetch = window.fetch.bind(window);
+  const signedOut = () => {
+    if (toldOut) return;
+    toldOut = true;
+    clearTimeout(hideTimer);
+    dispatchEvent(new Event('dotpals:signed-out'));
+    location.replace('/pair');
+  };
   function status(detail) {
+    if (toldOut) return;
     clearTimeout(hideTimer);
     const s = detail?.state;
     if (s === 'live' || s === 'paused' || !s) { pill.hidden = true; return; }
     pill.classList.toggle('bad', s === 'closed');
     retry.hidden = s !== 'closed';
+    if (s === 'closed' || detail?.status === 'refused') {
+      realFetch('/api/remote/me', { cache: 'no-store' }).then((res) => { if (res.status === 401) signedOut(); }).catch(() => {});
+    }
     text.textContent = s === 'closed' ? 'Can’t reach your computer.' : navigator.onLine ? 'Reconnecting…' : 'Offline';
     // Don't flash for a blip: only show if it lasts.
     hideTimer = setTimeout(() => { pill.hidden = false; }, s === 'closed' ? 0 : 1200);
@@ -37,22 +50,14 @@ import './talk.js'; // the notch-style Talk and Story panel
   addEventListener('dotpals:stream', (e) => status(e.detail));
   addEventListener('offline', () => status({ state: 'offline' }));
 
-  // A 401 from any API call means this device was signed out on the computer: say so, once.
-  const realFetch = window.fetch.bind(window);
-  let toldOut = false;
+  // A 401 from the device's own bridge is terminal. Leave the previously displayed dashboard.
   window.fetch = async (...args) => {
     const res = await realFetch(...args);
-    if (res.status === 401 && !toldOut && !String(args[0]).includes('/pair')) {
-      toldOut = true;
-      text.textContent = 'This device was signed out.';
-      retry.hidden = false;
-      retry.textContent = 'Pair again';
-      retry.onclick = () => location.replace('/pair');
-      pill.classList.add('bad');
-      pill.hidden = false;
-    }
+    const url = new URL(res.url || '/', location.href);
+    if (res.status === 401 && url.origin === location.origin && url.pathname.startsWith('/api/')) signedOut();
     return res;
   };
+  realFetch('/api/remote/me', { cache: 'no-store' }).then((res) => { if (res.status === 401) signedOut(); }).catch(() => {});
 
   // -- install prompt (Chromium) --------------------------------------------------------------------
   window.dotpalsInstall = { prompt: null, done: matchMedia('(display-mode: standalone)').matches };

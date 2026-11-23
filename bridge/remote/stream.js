@@ -27,6 +27,7 @@
       document.addEventListener('visibilitychange', this.#visibility);
       addEventListener('online', this.#wake);
       addEventListener('pageshow', this.#wake);
+      addEventListener('dotpals:signed-out', this.#signOut);
       if (document.visibilityState === 'visible') this.#connect(); else { this.readyState = 0; announce('paused'); }
     }
     addEventListener(name, fn) {
@@ -45,6 +46,7 @@
       document.removeEventListener('visibilitychange', this.#visibility);
       removeEventListener('online', this.#wake);
       removeEventListener('pageshow', this.#wake);
+      removeEventListener('dotpals:signed-out', this.#signOut);
       this.#drop();
     }
     #drop() { if (this.#native) { this.#native.close(); this.#native = null; this.#bound.clear(); } }
@@ -122,6 +124,7 @@
       }
     };
     #wake = () => { if (!this.#closed && document.visibilityState === 'visible' && !this.#native) { clearTimeout(this.#retry); this.#connect(); } };
+    #signOut = () => this.close();
   }
   window.EventSource = Foreground;
 })();

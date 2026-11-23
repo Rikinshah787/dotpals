@@ -79,7 +79,7 @@ Migration exception: a worker predating the Update UI may be replaced automatica
 - Changes to the same thing are sent once (a tool call that updates ten times in a moment is one message), in one write, gzip-compressed.
 - Scripts and styles are cached by build. Update checks fetch the worker explicitly; uncached static requests can revalidate with ETags.
 - A device that can't keep up is dropped and resumes, not buffered without limit. An idle live-stream hub has no timer; enabled TLS certificate maintenance still checks for address changes.
-- A new device loads the last 3 days (`remote.historyDays`, 1 to 7).
+- An initial snapshot and activity fetch include the last 3 days by default (`remote.historyDays`, 1 to 7). This is a size setting, not a privacy boundary for live or recently buffered events.
 
 ## Foldables
 
