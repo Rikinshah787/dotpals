@@ -192,11 +192,20 @@ function init() {
   // -- on a paired device --------------------------------------------------------------------------------
   async function deviceFace() {
     let me = null;
+    const name = el('input'); name.maxLength = 40; name.setAttribute('aria-label', 'Name of this device');
+    const nameBusy = () => document.activeElement === name || name.disabled;
     const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } finally { await load(); } };
     const set = (patch) => call('/api/remote/me/prefs', patch);
     function draw() {
+      if (nameBusy()) return;
       const nodes = [el('h2', '', 'This device')];
-      nodes.push(row('Name', 'Shown on your computer.', (() => { const i = el('input'); i.value = me.name; i.maxLength = 40; i.setAttribute('aria-label', 'Name of this device'); i.onchange = guard(() => set({ name: i.value })); return i; })()));
+      name.value = me.name;
+      name.onchange = async () => {
+        name.disabled = true;
+        try { await set({ name: name.value }); } catch (e) { toast(e.message); }
+        finally { name.disabled = false; await load(); }
+      };
+      nodes.push(row('Name', 'Shown on your computer.', name));
       nodes.push(row(me.control ? 'This device can control dotpals' : 'This device can look, not control', me.control ? 'Hand-offs, rewinds, coding tasks and settings are allowed. Permission cards and desktop actions still need the desktop.' : 'Turn it on from the computer: Settings → Remote → Let this device control.'));
 
       nodes.push(el('h3', '', 'App'));
@@ -229,9 +238,11 @@ function init() {
     }
     async function load() { try { me = await call('/api/remote/me'); draw(); } catch (e) { card.replaceChildren(el('h2', '', 'This device'), el('p', 'bad', e.message)); } }
     load();
-    addEventListener('dotpals:install', () => me && draw());
+    const redraw = () => { if (me && document.activeElement !== name) draw(); };
+    name.addEventListener('blur', () => setTimeout(redraw, 0));
+    addEventListener('dotpals:install', redraw);
     // The update row follows the updater (checking, ready, applying), without redrawing when it isn't on screen.
-    const watchUpdate = () => window.dotpalsUpdate?.onChange(() => { if (me && location.hash.startsWith('#settings/remote')) draw(); });
+    const watchUpdate = () => window.dotpalsUpdate?.onChange(() => { if (card.getClientRects().length) redraw(); });
     if (window.dotpalsUpdate) watchUpdate(); else addEventListener('load', watchUpdate, { once: true });
     addEventListener('hashchange', () => { if (location.hash.startsWith('#settings/remote')) load(); });
   }

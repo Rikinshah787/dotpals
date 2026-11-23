@@ -106,6 +106,7 @@ function paintStory() {
 async function ask(text) {
   if (!text || busy) return;
   busy = true;
+  const submitted = island.input.value;
   island.send.disabled = true;
   island.answer.replaceChildren();
   const job = route(text);
@@ -127,7 +128,7 @@ async function ask(text) {
         : data.say || data.reply || 'Okay.'));
     }
     island.blu.setAttribute('state', 'speaking');
-    island.input.value = '';
+    if (island.input.value === submitted) island.input.value = '';
   } catch (err) {
     island.note.textContent = err.message;
     island.blu.setAttribute('state', 'error');
@@ -164,6 +165,11 @@ function card(plan) {
 
 export function show() {
   island ??= build();
+  if (island.el.hidden) {
+    const routeSession = /^#sessions\/([^/?]+)/.exec(location.hash)?.[1];
+    try { picked = routeSession ? decodeURIComponent(routeSession) : null; }
+    catch { picked = null; }
+  }
   island.el.hidden = false;
   document.documentElement.dataset.talk = 'open';
   paintStory();
