@@ -51,19 +51,19 @@ export function permission(device, method, path) {
 
 /** Settings any paired device may change: how things look and sound, not what runs on this computer. */
 export const SAFE_SETTINGS = ['sounds', 'notifications', 'character', 'custom', 'palSize', 'storyView'];
+const CONTROL_SETTINGS = ['stuckAlerts', 'conflictMinutes', 'fixLoop'];
 
 /**
- * A settings patch from a paired device: { patch, denied }. A device with the control switch
- * may change anything; the others only SAFE_SETTINGS. `denied` lists what was refused (the
+ * A settings patch from a paired device: { patch, denied }. Desktop-only settings always stay local.
+ * `denied` lists what was refused (the
  * whole request is then refused, never half applied).
  */
 export function remotePatch(patch, device) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { patch: {}, denied: [] };
-  if (device?.control) return { patch, denied: [] };
   const out = {};
   const denied = [];
   for (const [key, value] of Object.entries(patch)) {
-    if (SAFE_SETTINGS.includes(key)) out[key] = value; else denied.push(key);
+    if (SAFE_SETTINGS.includes(key) || (device?.control && CONTROL_SETTINGS.includes(key))) out[key] = value; else denied.push(key);
   }
   return { patch: out, denied };
 }
@@ -123,7 +123,7 @@ export function createRemote({ file, now = Date.now } = {}) {
     renameSync(tmp, path);
     if (platform() !== 'win32') { try { chmodSync(path, 0o600); } catch {} }
   };
-  const pending = new Map(); // sha(token) hex → expiresAt
+  const pending = new Map(); // sha(token) hex → { expiresAt, claimed }
   let wrote = 0;
 
   const view = (d) => ({
@@ -140,27 +140,28 @@ export function createRemote({ file, now = Date.now } = {}) {
     },
     /** A one-time pairing token, good for 5 minutes. Only its hash is kept. */
     startPairing() {
-      for (const [h, at] of pending) if (at <= now()) pending.delete(h);
+      for (const [h, item] of pending) if (item.expiresAt <= now()) pending.delete(h);
       if (pending.size >= 5) pending.delete(pending.keys().next().value);
       const token = newCode();
       const expiresAt = now() + PAIR_TTL;
-      pending.set(sha(normalizeCode(token)).toString('hex'), expiresAt);
-      return { token, expiresAt };
+      const id = sha(normalizeCode(token)).toString('hex');
+      pending.set(id, { expiresAt, claimed: false });
+      return { token, expiresAt, id };
     },
     /** Trade a pairing code for a device credential, once. Returns { id, secret } or null. */
     finishPairing(token, name) {
       const code = normalizeCode(token);
       if (!code) return null;
       const h = sha(code).toString('hex');
-      const at = pending.get(h);
-      pending.delete(h);
-      if (!at || at <= now()) return null;
+      const item = pending.get(h);
+      if (!item || item.claimed || item.expiresAt <= now()) return null;
       const d = load();
       if (d.devices.length >= MAX_DEVICES) return null;
       const id = b64u(randomBytes(9));
       const secret = b64u(randomBytes(32));
       d.devices.push({ id, name: clipText(name, 40) || 'Device', hash: sha(secret).toString('hex'), createdAt: now(), lastSeen: now(), control: false, push: null, prefs: { ...DEFAULT_PREFS } });
       save();
+      item.claimed = true;
       return { id, secret };
     },
     /** The device behind an `Authorization: Bearer <id>.<secret>` header, or null. */
@@ -176,7 +177,8 @@ export function createRemote({ file, now = Date.now } = {}) {
       return d;
     },
     /** How many codes are waiting to be used (for the pairing screen). */
-    waiting: () => { for (const [h, at] of pending) if (at <= now()) pending.delete(h); return pending.size; },
+    waiting: () => { for (const [h, item] of pending) if (item.expiresAt <= now()) pending.delete(h); return [...pending.values()].filter((item) => !item.claimed).length; },
+    claimed: () => [...pending].filter(([, item]) => item.claimed && item.expiresAt > now()).map(([id]) => id),
     cancelPairing: () => pending.clear(),
     devices: () => load().devices.map(view),
     device: (id) => { const d = find(id); return d ? view(d) : null; },

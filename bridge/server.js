@@ -194,7 +194,7 @@ function createHistory(activity, getConfig, meta = { get: () => ({}), set: () =>
 const SLEEP_AFTER = 15 * 60_000;
 const SLEEP_AFTER_WAITING = 60 * 60_000;
 
-export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null, createChat: makeChat = createChat } = {}) {
+export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.env.PORT) || 5175, log: print = console.log, sleepAfter = SLEEP_AFTER, sleepAfterWaiting = SLEEP_AFTER_WAITING, laya: layaOptions = {}, installSdk: installTheSdk = installSdk, handoff: handoffOptions = {}, onQuit = null, createChat: makeChat = createChat, onSnapshot = () => {} } = {}) {
   const clients = new Set();
   const windows = new Map(); // the desktop app's windows following the events: response → 'pal' | 'notch'
   const sessions = new Map(); // session id → last state update (replayed to new viewers)
@@ -493,7 +493,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       testDiffing.delete(entry.id);
       const now = activity.get(entry.id);
       if (diff && now && now.body?.testDiff === undefined) publish([activity.upsert({ id: entry.id, body: { ...now.body, testDiff: diff } })]);
-    }, () => testDiffing.delete(entry.id));
+    }, () => testDiffing.delete(entry.id)).finally(() => onSnapshot('test', entry));
   }
 
   function maybeCheck(entry) {
@@ -742,7 +742,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     if (!cwd) return;
     if (entry.kind === 'prompt' && groundPrompt.get(entry.session) !== entry.id) {
       groundPrompt.set(entry.session, entry.id);
-      ground.start(entry.session, cwd, entry.at);
+      ground.start(entry.session, cwd, entry.at).then(() => onSnapshot('request', entry));
       // The rules the request starts under: it's held to these, even if it changes the file.
       rulesAtStart.set(entry.session, findRules(cwd).catch(() => null));
       if (rulesAtStart.size > 500) rulesAtStart.delete(rulesAtStart.keys().next().value);

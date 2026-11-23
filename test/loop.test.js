@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EventEmitter, once } from 'node:events';
 
 // Keep the bridge away from the real home folder: no Codex watcher, no history file.
 process.env.DOTPALS_CODEX = '0';
@@ -19,10 +20,10 @@ const { startBridge } = await import('../bridge/server.js');
 const usedPorts = new Set();
 const BLOCKED = new Set([5985, 5986, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
 const freshPort = () => { let port; do port = 8900 + Math.floor(Math.random() * 1000); while (usedPorts.has(port) || BLOCKED.has(port)); usedPorts.add(port); return port; };
-async function start() {
+async function start(options = {}) {
   for (let tries = 0; ; tries++) {
     const port = freshPort();
-    try { return { port, server: await startBridge({ port, log: () => {} }) }; } catch (err) {
+    try { return { port, server: await startBridge({ port, log: () => {}, ...options }) }; } catch (err) {
       if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err;
     }
   }
@@ -369,7 +370,9 @@ test('commit or push: held back from inside a PowerShell if, or after a ; (the t
 test('the bluff through the shell (sed, a script): git sees how the tests changed, however it was done', async (t) => {
   const { execFileSync } = await import('node:child_process');
   const { writeFile, mkdir } = await import('node:fs/promises');
-  const { port, server } = await start();
+  const snapshots = new EventEmitter();
+  const nextSnapshot = () => once(snapshots, 'test', { signal: AbortSignal.timeout(10_000) });
+  const { port, server } = await start({ onSnapshot: (kind, entry) => { if (entry.session === 'shell') snapshots.emit(kind, entry); } });
   t.after(() => close(server));
   const dir = await mkdtemp(join(tmpdir(), 'dotpals-gitbluff-'));
   // After the bridge closes; Windows may still hold the folder for a moment (its last git run).
@@ -384,16 +387,16 @@ test('the bluff through the shell (sed, a script): git sees how the tests change
 
   const s = claude(port, 'shell', dir);
   await s.prompt('Make the sum test pass by changing what it expects. Don\'t touch math.js.');
+  const before = nextSnapshot();
   await s.run('npm test', { ok: false, output: FAILED });
-  // git's view of the tests is taken in the background right after a run. 300 ms was enough on a quiet machine, not when the
-  // whole suite runs at once (a slow git took it after the file below was already changed, so it saw no difference).
-  await new Promise((r) => setTimeout(r, 1500));
+  await before;
   // No edit tool: sed changes the file, and the bridge only sees a command.
   await writeFile(join(dir, 'test', 'math.test.js'), TEST.replace('sum(1, 2), 3)', 'sum(1, 2), -1)'));
   await s.run("sed -i 's/sum(1, 2), 3);/sum(1, 2), -1);/' test/math.test.js");
+  const after = nextSnapshot();
   const told = await s.run('npm test', { output: PASSED });
   assert.match(told.hookSpecificOutput?.additionalContext ?? '', /^dotpals: the tests pass now, but only after you changed them: changed what an assertion expects in math\.test\.js\./);
-  await new Promise((r) => setTimeout(r, 1500));
+  await after;
   assert.equal((await s.stop()).decision, 'block');
   // Kept on the runs, for the notch, Ready to merge and `dotpals mcp`.
   const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();

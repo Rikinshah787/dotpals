@@ -98,7 +98,7 @@ test('permissions: only listed routes are available; powerful actions require co
 test('settings: a device changes the safe ones; the rest needs the control switch', () => {
   assert.deepEqual(remotePatch({ sounds: false, palSize: 90 }, { control: false }), { patch: { sounds: false, palSize: 90 }, denied: [] });
   assert.deepEqual(remotePatch({ sounds: false, chat: true, brainKeys: { openai: 'x' } }, { control: false }), { patch: { sounds: false }, denied: ['chat', 'brainKeys'] });
-  assert.deepEqual(remotePatch({ chat: true }, { control: true }), { patch: { chat: true }, denied: [] });
+  assert.deepEqual(remotePatch({ fixLoop: false, chat: true, blu: { click: true }, brainKeys: {} }, { control: true }), { patch: { fixLoop: false }, denied: ['chat', 'blu', 'brainKeys'] });
   assert.deepEqual(remotePatch(null, { control: true }), { patch: {}, denied: [] });
   assert.deepEqual(remotePatch([1], null), { patch: {}, denied: [] });
 });

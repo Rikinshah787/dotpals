@@ -37,7 +37,7 @@ function init() {
   ];
   // -- on the computer ---------------------------------------------------------------------------------
   function drawQr(rows) {
-    const scale = 6, quiet = 3, n = rows.length, size = (n + quiet * 2) * scale;
+    const scale = 6, quiet = 4, n = rows.length, size = (n + quiet * 2) * scale;
     const c = el('canvas', 'rc-qr');
     c.width = c.height = size;
     c.setAttribute('role', 'img');
@@ -78,6 +78,7 @@ function init() {
     let state = null;
     let pairing = null; // { code, url, qr, secure, expiresAt }
     let tick = null;
+    let changing = false;
     const draw = () => {
       if (!state) return;
       const nodes = [el('h2', '', 'Remote')];
@@ -88,6 +89,10 @@ function init() {
         const where = el('select'); where.setAttribute('aria-label', 'Who can reach it');
         for (const [v, t] of [['local', 'This computer only (use a tunnel or Tailscale)'], ['lan', 'Anything on my network']]) where.add(new Option(t, v, false, v === state.bind));
         where.onchange = () => save({ bind: where.value });
+        const port = el('input'); port.type = 'number'; port.min = 1024; port.max = 65535; port.value = state.port;
+        port.setAttribute('aria-label', 'Remote port');
+        port.onchange = () => save({ port: Number(port.value) }).catch((e) => toast(e.message));
+        nodes.push(row('Port', 'Use this port in the HTTPS address or proxy configuration.', port));
         nodes.push(row('Reachable from', 'A phone needs https to install the app and get notifications: use a tunnel (Cloudflare, Tailscale) or your own certificate.', where));
         const url = el('input'); url.type = 'url'; url.placeholder = 'https://dotpals.example.com'; url.value = state.publicUrl; url.setAttribute('aria-label', 'Public address');
         url.onchange = () => save({ publicUrl: url.value.trim() }).catch((e) => toast(e.message));
@@ -136,10 +141,20 @@ function init() {
       left.textContent = s ? `Expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}. Works once.` : 'Expired.';
       if (!s) { pairing = null; draw(); }
     }
-    const refresh = async () => { try { state = await call('/api/remote'); if (pairing && !state.waiting) { pairing = null; toast('Device paired'); } draw(); } catch (e) { card.replaceChildren(el('h2', '', 'Remote'), el('p', 'bad', e.message)); } };
+    const editing = () => card.contains(document.activeElement) && document.activeElement.matches('input, select, textarea');
+    const refresh = async ({ preserveEdit = false } = {}) => {
+      if (preserveEdit && (editing() || changing)) return;
+      try {
+        const next = await call('/api/remote');
+        if (preserveEdit && (editing() || changing)) return;
+        state = next;
+        if (pairing && state.claimed?.includes(pairing.id)) { pairing = null; toast('Device paired'); }
+        draw();
+      } catch (e) { if (!preserveEdit || !editing()) card.replaceChildren(el('h2', '', 'Remote'), el('p', 'bad', e.message)); }
+    };
     async function save(patch) { await call('/api/config', { remote: patch }); await new Promise((r) => setTimeout(r, 250)); await refresh(); }
     async function start() { try { pairing = await call('/api/remote/pair', {}); draw(); } catch (e) { toast(e.message); } }
-    async function cancel() { pairing = null; await call('/api/remote/pair/cancel', {}); draw(); }
+    async function cancel() { try { await call('/api/remote/pair/cancel', {}); pairing = null; draw(); } catch (e) { toast(e.message); } }
     function deviceRow(d) {
       const box = el('div', 'rc-device');
       box.style.cssText = 'border-top:1px solid var(--line);padding:6px 0';
@@ -150,7 +165,18 @@ function init() {
       const pushNote = !d.push ? 'Notifications off.' : lp ? `Notifications on. Last: ${pushVerdict(lp, when(lp.at))}` : 'Notifications on.';
       box.append(row(status, pushNote, name));
       box.append(row('Let this device control', 'Off: it can look and change appearance. On: it can also hand off sessions, rewind and start coding tasks. Permission prompts and Apps stay on the desktop.',
-        sw(d.control, async (i) => { if (i.checked && !confirm(`Let “${d.name}” control dotpals, including starting coding tasks?`)) { i.checked = false; return; } state = await call(`/api/remote/devices/${d.id}`, { control: i.checked }); draw(); }, `Let ${d.name} control`)));
+        sw(d.control, async (i) => {
+          const control = i.checked;
+          i.checked = d.control;
+          if (control && !confirm(`Let “${d.name}” control dotpals, including starting coding tasks?`)) return;
+          changing = i.disabled = true;
+          try { state = await call(`/api/remote/devices/${d.id}`, { control }); draw(); }
+          catch (e) {
+            toast(e.message);
+            try { state = await call('/api/remote'); draw(); }
+            catch { i.indeterminate = true; i.setAttribute('aria-label', `Control permission for ${d.name} is unknown. Refresh to check.`); }
+          } finally { changing = false; }
+        }, `Let ${d.name} control`)));
       const acts = el('div', 'acts'); acts.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;padding-bottom:8px';
       if (d.push) acts.append(btn('Send a test', async () => { await call(`/api/remote/devices/${d.id}/test`, {}); toast('Sent'); }));
       acts.append(btn('Sign out', async () => { state = await call(`/api/remote/devices/${d.id}/revoke`, {}); draw(); }, 'danger'));
@@ -159,7 +185,7 @@ function init() {
     }
     refresh();
     addEventListener('hashchange', () => { if (location.hash.startsWith('#settings/remote')) refresh(); });
-    setInterval(() => { if (location.hash.startsWith('#settings/remote') && !document.hidden) refresh(); }, 4000);
+    setInterval(() => { if (location.hash.startsWith('#settings/remote') && !document.hidden) refresh({ preserveEdit: true }); }, 4000);
   }
   // -- on a paired device --------------------------------------------------------------------------------
   async function deviceFace() {
@@ -168,7 +194,7 @@ function init() {
     const set = (patch) => call('/api/remote/me/prefs', patch);
     function draw() {
       const nodes = [el('h2', '', 'This device')];
-      nodes.push(row('Name', 'Shown on your computer.', (() => { const i = el('input'); i.value = me.name; i.maxLength = 40; i.onchange = guard(() => set({ name: i.value })); return i; })()));
+      nodes.push(row('Name', 'Shown on your computer.', (() => { const i = el('input'); i.value = me.name; i.maxLength = 40; i.setAttribute('aria-label', 'Name of this device'); i.onchange = guard(() => set({ name: i.value })); return i; })()));
       nodes.push(row(me.control ? 'This device can control dotpals' : 'This device can look, not control', me.control ? 'Hand-offs, rewinds, coding tasks and settings are allowed. Permission cards and desktop actions still need the desktop.' : 'Turn it on from the computer: Settings → Remote → Let this device control.'));
 
       const P = window.dotpalsPush;

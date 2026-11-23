@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, get, request } from 'node:http';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,11 +24,11 @@ const usedPorts = new Set();
 const BLOCKED = new Set([5985, 5986, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697]);
 const freshPort = () => { let port; do port = 5190 + Math.floor(Math.random() * 2000); while (usedPorts.has(port) || BLOCKED.has(port)); usedPorts.add(port); return port; };
 
-async function start() {
+async function start(options = {}) {
   for (let tries = 0; ; tries++) {
     const port = freshPort();
     try {
-      return { port, server: await startBridge({ port, log: () => {} }) };
+      return { port, server: await startBridge({ port, log: () => {}, ...options }) };
     } catch (err) {
       if (!['EADDRINUSE', 'EACCES'].includes(err.code) || tries > 10) throw err;
     }
@@ -607,17 +607,17 @@ test('a live request gets what git saw changed, also by commands, on its done en
   git('add', '.');
   git('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start');
   git('checkout', '-q', '-b', 'feat/rename');
-  const { port, server } = await start();
+  const snapshots = new EventEmitter();
+  const { port, server } = await start({ onSnapshot: (kind, entry) => { if (entry.session === 'git-session') snapshots.emit(kind); } });
   t.after(async () => {
     server.closeAllConnections?.();
     await new Promise((r) => server.close(r));
     await rm(repo, { recursive: true, force: true });
   });
   const base = { session: 'git-session', harness: 'my-agent', cwd: repo };
+  const before = once(snapshots, 'request', { signal: AbortSignal.timeout(10_000) });
   await post(port, '/event', { ...base, activity: { id: 'p1', kind: 'prompt', title: 'Rename x to y', status: 'info', at: Date.now() } });
-  // The "before" snapshot (git status, in the background). Waiting only 400 ms let a slow git (Windows, a busy machine)
-  // take it AFTER the files below were written, so it saw no change at all; in real use a request is seconds long.
-  await new Promise((r) => setTimeout(r, 2000));
+  await before;
   writeFileSync(join(repo, 'a.js'), 'a, changed by sed\n');
   writeFileSync(join(repo, 'b.js'), 'b\n');
   await post(port, '/event', { ...base, activity: { id: 'd1', kind: 'done', title: 'Finished', status: 'ok', at: Date.now() } });

@@ -6,16 +6,15 @@ Settings → Remote on the computer. Nothing here runs, listens or sends anythin
 
 ## Set it up
 
-1. **Turn it on.** Settings → Remote → *Remote client*. It listens on port 5176 (change it there).
-2. **Give it https.** Phones only install apps, keep a sign-in cookie and receive notifications over https. Pick one:
-   - **A tunnel (easiest).** Keep *Reachable from* on "This computer only" and point a tunnel at `http://127.0.0.1:5176`:
-     `cloudflared tunnel --url http://127.0.0.1:5176` (or Tailscale: `tailscale serve --bg --https=443 http://127.0.0.1:5176`). Paste the https address it prints into *Address your devices open*.
+1. **Turn it on.** Settings → Remote → *Remote client*. The default port is 5176. If it is occupied, change **Port** there and use the new port in all addresses below.
+2. **Give it HTTPS.** Pairing, installing the app, and receiving notifications require HTTPS. Pick one:
+   - **An HTTPS proxy that supports Server-Sent Events.** Keep *Reachable from* on "This computer only". For example, use `tailscale serve --bg --https=443 http://127.0.0.1:5176` and paste the HTTPS origin into *Address your devices open*. The trusted proxy must preserve the original Host, reject plaintext external access, overwrite forwarding headers, and stream SSE without buffering. Cloudflare Quick Tunnels do not support SSE; do not use them for the live dashboard.
    - **https on your own network, no tunnel.** Run `dotpals remote cert` (or Settings → Remote → *https on my network*). It makes a small private certificate authority and a certificate for this computer's LAN addresses **and its `.local` name**, points the remote client at it and prints the steps for your phone. Do the phone step once: copy `~/.dotpals/remote-cert/ca.pem` to it and install it as a CA certificate (Android: Settings → Security → Encryption & credentials → Install a certificate; iPhone/iPad: open the file, install the profile, then turn it on under Settings → General → About → Certificate Trust Settings). Compare the fingerprint it shows. After that, `https://<this computer's address>:5176/pair` works, and the QR code opens it.
      - **It looks after itself.** When the computer's address changes (a new router lease, Wi-Fi to Ethernet), dotpals issues a new certificate within a minute and swaps it in without dropping anything. The CA stays the same, so phones need nothing. A moment with no network keeps the current certificate. If a renewal fails, Settings → Remote says so and the old certificate keeps serving.
      - **Address or name?** The certificate covers both. The QR code uses the address to avoid depending on multicast DNS; your phone still needs network access to the computer. The computer's `.local` name survives an address change where mDNS resolution works. Support varies by browser, OS and network isolation; test it before relying on it. A DHCP reservation is another option.
      - The CA carries X.509 name constraints for private addresses and `.local`/localhost names. Keep its key private regardless: trust-store enforcement varies, and a leaked key can impersonate local services within those constraints. Transfer only `ca.pem`, never `ca-key.pem`.
      - Needs `openssl`; Git for Windows includes one. Windows' firewall may need to allow the app in on your network (private networks are usually already open).
-   - **Your own certificate.** Set `remote.tlsCert` and `remote.tlsKey` (file paths) in `~/.dotpals/config.json`, choose "Anything on my network", and use `https://<this computer>:5176`.
+   - **Your own certificate.** Set `remote.tlsCert` and `remote.tlsKey` (file paths) in `~/.dotpals/config.json`, choose "Anything on my network", and enter the matching HTTPS origin (including the port) in *Address your devices open*. If switching from a proxy to automatic LAN HTTPS, clear the old public address first.
 3. **Pair.** *Pair a device* shows a QR code and a code like `7K2M-9QXD-4TBH`. Scan it with the phone's camera, or open `<your address>/pair` and type it. The code works once and expires in 5 minutes.
 4. **Install.** The app offers *Install* in its own Settings → Remote (Chrome, Edge, Samsung Internet), or use the browser's menu. On iPhone/iPad: Share → Add to Home Screen.
 5. **Notifications.** On the device: Settings → Remote → *Notify this device*, then pick what you want to hear about.
@@ -141,8 +140,8 @@ The remote client was tested on a physical Samsung Galaxy Z Fold8 Ultra. Edge te
 
 - The remote listener is a **second** server. The bridge's own `127.0.0.1:5175` is not rebound or exposed. Only permitted API routes are forwarded internally; hooks, hook recap, quit, OAuth callback and remote administration stay local.
 - A pairing code is 60 random bits, hashed in memory, single use, five minutes, and rides in the URL `#fragment` (not sent in the page request; the claim sends it in a POST body). The page removes it from the address bar. Pairing attempts are rate-limited.
-- Pairing only completes over https (or from this computer). The device cookie is `HttpOnly; Secure; SameSite=Strict`, 256 random bits; only its SHA-256 is stored, in `~/.dotpals/remote.json` (0600).
-- Every request is checked: host name, origin, a custom header on changes, the device, then what that device may do. Pages carry a Content Security Policy that allows only this origin's scripts.
+- Browser pairing requires HTTPS, including on loopback. The device cookie is `HttpOnly; Secure; SameSite=Strict`, 256 random bits; only its SHA-256 is stored, in `~/.dotpals/remote.json` (0600). Plaintext never accepts browser device cookies.
+- Protected API and live-stream requests require a device credential, host and origin checks, and a custom header on changes. The pairing page, HTTPS pairing claim, and public static assets are separate. Pages carry a hash-based Content Security Policy.
 - Sign a device out from the computer or the device; it's cut off at once, mid-stream.
 - Don't expose port 5176 to the internet without https. A tunnel is fine; port-forwarding plain http is not.
 - Paired devices can read sensitive session data. Revocation cannot erase data already viewed or copied by a device. See [SECURITY.md](../SECURITY.md) for trust boundaries, private-CA cautions and push-provider metadata.

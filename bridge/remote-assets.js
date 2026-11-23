@@ -69,22 +69,31 @@ export function createAssets({ root, transform = (path, text) => text } = {}) {
     try { info = await stat(file); } catch { return null; }
     if (!info.isFile()) return null;
     const hit = cache.get(path);
-    if (hit && hit.mtime === info.mtimeMs) return hit;
+    if (hit && hit.mtime === info.mtimeMs) return hit.pending ?? hit;
+    const pending = readAndPack(file, target, info.mtimeMs);
+    const slot = { mtime: info.mtimeMs, pending };
+    cache.set(path, slot);
+    try {
+      const entry = await pending;
+      if (cache.get(path) === slot) cache.set(path, entry);
+      return entry;
+    } catch (err) {
+      if (cache.get(path) === slot) cache.delete(path);
+      throw err;
+    }
+  }
+  async function readAndPack(file, target, mtime) {
     let body = await readFile(file);
     const type = typeOf(target);
     // Only the pages and the service worker are rewritten (once, here); other files go out as they are.
     // Line endings are made LF first: a browser normalises CRLF before it hashes an inline script, so a
     // CRLF file (a Windows checkout) would never match the hash we put in the CSP.
     if (target.endsWith('.html') || target.endsWith('/sw.js')) body = Buffer.from(transform(target, body.toString('utf8').replace(/\r\n/g, '\n')));
-    return pack(path, body, type, info.mtimeMs);
-  }
-  function pack(path, body, type, mtime) {
-    const entry = { body, type, mtime, etag: `"${sha(body, 'sha1').slice(0, 27)}"`, br: null, gz: null };
+    const entry = { body, type, mtime, etag: `W/"${sha(body, 'sha1').slice(0, 27)}"`, br: null, gz: null };
     if (type.startsWith('text/') || type.includes('json') || type.includes('javascript') || type.includes('svg')) {
       brotli(body, { params: { [constants.BROTLI_PARAM_QUALITY]: 9, [constants.BROTLI_PARAM_SIZE_HINT]: body.length } }).then((b) => { entry.br = b; }).catch(() => {});
       gz(body, { level: 9 }).then((b) => { entry.gz = b; }).catch(() => {});
     }
-    cache.set(path, entry);
     return entry;
   }
   return { load, size: () => cache.size };
@@ -92,7 +101,19 @@ export function createAssets({ root, transform = (path, text) => text } = {}) {
 
 /** The best encoding this client takes that we already have: [body, 'br' | 'gzip' | null]. */
 export function negotiate(entry, acceptEncoding = '') {
-  if (entry.br && /\bbr\b/.test(acceptEncoding)) return [entry.br, 'br'];
-  if (entry.gz && /\bgzip\b/.test(acceptEncoding)) return [entry.gz, 'gzip'];
-  return [entry.body, null];
+  const coding = chooseEncoding(acceptEncoding, [entry.br && 'br', entry.gz && 'gzip', 'identity'].filter(Boolean));
+  if (coding === 'br') return [entry.br, 'br'];
+  if (coding === 'gzip') return [entry.gz, 'gzip'];
+  return [coding === 'identity' ? entry.body : null, null];
+}
+
+export function chooseEncoding(header = '', available = ['gzip', 'identity']) {
+  const weights = new Map();
+  for (const item of header.toLowerCase().split(',')) {
+    const [coding, ...params] = item.trim().split(';').map((part) => part.trim());
+    const q = params.find((param) => param.startsWith('q='));
+    weights.set(coding, q ? (/^q=(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(q) ? Number(q.slice(2)) : 0) : 1);
+  }
+  const quality = (coding) => weights.get(coding) ?? (coding === 'identity' ? (weights.get('*') === 0 ? 0 : 1) : weights.get('*') ?? 0);
+  return available.filter((coding) => quality(coding) > 0).sort((a, b) => quality(b) - quality(a))[0];
 }
