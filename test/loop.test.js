@@ -385,13 +385,15 @@ test('the bluff through the shell (sed, a script): git sees how the tests change
   const s = claude(port, 'shell', dir);
   await s.prompt('Make the sum test pass by changing what it expects. Don\'t touch math.js.');
   await s.run('npm test', { ok: false, output: FAILED });
-  await new Promise((r) => setTimeout(r, 300)); // git's view of the tests is taken right after a run
+  // git's view of the tests is taken in the background right after a run. 300 ms was enough on a quiet machine, not when the
+  // whole suite runs at once (a slow git took it after the file below was already changed, so it saw no difference).
+  await new Promise((r) => setTimeout(r, 1500));
   // No edit tool: sed changes the file, and the bridge only sees a command.
   await writeFile(join(dir, 'test', 'math.test.js'), TEST.replace('sum(1, 2), 3)', 'sum(1, 2), -1)'));
   await s.run("sed -i 's/sum(1, 2), 3);/sum(1, 2), -1);/' test/math.test.js");
   const told = await s.run('npm test', { output: PASSED });
   assert.match(told.hookSpecificOutput?.additionalContext ?? '', /^dotpals: the tests pass now, but only after you changed them: changed what an assertion expects in math\.test\.js\./);
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 1500));
   assert.equal((await s.stop()).decision, 'block');
   // Kept on the runs, for the notch, Ready to merge and `dotpals mcp`.
   const { entries } = await (await fetch(`http://127.0.0.1:${port}/api/activity`)).json();

@@ -615,7 +615,9 @@ test('a live request gets what git saw changed, also by commands, on its done en
   });
   const base = { session: 'git-session', harness: 'my-agent', cwd: repo };
   await post(port, '/event', { ...base, activity: { id: 'p1', kind: 'prompt', title: 'Rename x to y', status: 'info', at: Date.now() } });
-  await new Promise((r) => setTimeout(r, 400)); // the "before" snapshot
+  // The "before" snapshot (git status, in the background). Waiting only 400 ms let a slow git (Windows, a busy machine)
+  // take it AFTER the files below were written, so it saw no change at all; in real use a request is seconds long.
+  await new Promise((r) => setTimeout(r, 2000));
   writeFileSync(join(repo, 'a.js'), 'a, changed by sed\n');
   writeFileSync(join(repo, 'b.js'), 'b\n');
   await post(port, '/event', { ...base, activity: { id: 'd1', kind: 'done', title: 'Finished', status: 'ok', at: Date.now() } });
