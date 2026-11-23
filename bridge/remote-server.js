@@ -9,6 +9,7 @@
 import { createServer as createHttp } from 'node:http';
 import { createServer as createHttps } from 'node:https';
 import { readFileSync } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -57,7 +58,7 @@ export function hostAllowed(host, cfg, own = localName()) {
  * A .local name survives a new DHCP address (the certificate names both), but not every phone can look one up, so the
  * IP is what the QR code carries unless `name` says otherwise.
  */
-export function pairingUrl(cfg, code, lan = lanAddresses(), { name = false, own = localName() } = {}) {
+export function pairingUrl(cfg, code, lan = cfg.tlsAuto ? privateAddresses() : lanAddresses(), { name = false, own = localName() } = {}) {
   const scheme = servesTls(cfg) ? 'https' : 'http'; // serving a certificate (its own, or yours): the link says so
   const host = name && own ? own : lan[0];
   const base = cfg.publicUrl || (cfg.bind === 'lan' && host ? `${scheme}://${host}:${cfg.port}` : `${scheme}://127.0.0.1:${cfg.port}`);
@@ -247,6 +248,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
   const dir = () => certDir(certHome);
   let renewTimer = null;
   let addressesSeen = '';
+  let renewAt = 0;
   let certNote = null; // what the last automatic issue did, for the settings page
 
   /** The certificate and key to serve: our own (kept current) or the files you named. Throws with a plain message. */
@@ -255,7 +257,9 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       const made = certs({ dir: dir(), ips: addressesNow() });
       addressesSeen = made.addresses.join(',');
       if (made.created.cert) certNote = `Issued a certificate for ${made.addresses.join(', ')}`;
-      return { cert: readFileSync(made.cert), key: readFileSync(made.key) };
+      const cert = readFileSync(made.cert);
+      renewAt = Date.parse(new X509Certificate(cert).validTo) - 30 * 86_400_000;
+      return { cert, key: readFileSync(made.key) };
     }
     if (cfg.tlsCert && cfg.tlsKey) return { cert: readFileSync(cfg.tlsCert), key: readFileSync(cfg.tlsKey) };
     return null;
@@ -268,7 +272,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
     renewTimer = setInterval(() => {
       try {
         const now = addressesNow().join(',');
-        if (!now || now === addressesSeen || !server?.setSecureContext) return; // no address at all (Wi-Fi blip): keep what we have
+        if (!now || (now === addressesSeen && Date.now() < renewAt) || !server?.setSecureContext) return;
         const tls = loadTls(config());
         server.setSecureContext(tls);
         lastError = null;
@@ -329,7 +333,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       enabled: !!cfg.enabled, running: !!server, error: lastError, port: cfg.port, bind: cfg.bind,
       secure: servesTls(cfg) || /^https:/.test(cfg.publicUrl ?? ''), publicUrl: cfg.publicUrl || '',
       // Where a phone on your network would look: the addresses, the name, and (with our own certificate) the CA to trust.
-      lan: cfg.bind === 'lan' ? { addresses: lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
+      lan: cfg.bind === 'lan' ? { addresses: cfg.tlsAuto ? privateAddresses() : lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
       addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id) })), waiting: remote.waiting(), streams: hub.size(),
     });
     if (req.method === 'GET' && path === '/api/remote') return json(res, 200, view());

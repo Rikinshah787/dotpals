@@ -155,6 +155,20 @@ test('unlisted APIs stay local even with control, and local test traffic needs t
   } finally { await M(`/api/remote/devices/${deviceId}`, { control: false }); }
 });
 
+test('the paired activity snapshot respects the configured remote history window', async () => {
+  const event = (id, at) => ({ session: 'history-window', harness: 'test', activity: { id, kind: 'prompt', title: id, status: 'info', at } });
+  await M('/api/config', { remote: { historyDays: 1 } });
+  try {
+    await M('/event', event('remote-history-old', Date.now() - 2 * 86_400_000));
+    await M('/event', event('remote-history-recent', Date.now()));
+    const local = await (await M('/api/activity')).json();
+    const paired = await (await R('/api/activity', { headers: { cookie } })).json();
+    assert.ok(local.entries.some((e) => e.title === 'remote-history-old'));
+    assert.ok(paired.entries.some((e) => e.title === 'remote-history-recent'));
+    assert.ok(!paired.entries.some((e) => e.title === 'remote-history-old'));
+  } finally { await M('/api/config', { remote: { historyDays: 3 } }); }
+});
+
 test('a controlling remote stream without approval cards does not intercept a terminal permission prompt', async () => {
   await M(`/api/remote/devices/${deviceId}`, { control: true });
   await M('/api/config', { approvals: true });

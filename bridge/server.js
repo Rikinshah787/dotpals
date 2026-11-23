@@ -1617,7 +1617,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
       if (req.method !== 'GET' && (req.method !== 'POST' || req.headers['x-dotpals'] !== '1')) return json(res, 403, { error: 'forbidden' });
       return remoteServer.controlApi(req, res, path, { json, readBody });
     }
-    if (req.method === 'GET' && path === '/api/activity') return json(res, 200, { entries: activity.all() });
+    if (req.method === 'GET' && path === '/api/activity') return json(res, 200, { entries: remoteRequests.has(req) ? recentRemoteActivity() : activity.all() });
     if (req.method === 'GET' && path === '/api/loop') {
       const session = new URL(req.url, 'http://localhost').searchParams.get('session');
       return json(res, 200, { events: loopEvents.filter((e) => !session || e.session === session) });
@@ -1937,11 +1937,14 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
 
   // -- Remote client (bridge/remote-server.js) ---------------------------------------------------
   // A second listener for paired phones and tablets; off unless Settings → Remote turns it on.
+  const recentRemoteActivity = (days = config.remote.historyDays) => {
+    const since = Date.now() - days * DAY;
+    return activity.all().filter((entry) => (entry.at ?? 0) >= since);
+  };
   // The remote stream starts with recent activity and the current agent state.
   function remoteSnapshot(emit, { days }) {
-    const since = Date.now() - days * DAY;
     emit('config', withLaya());
-    for (const entry of activity.all()) if ((entry.at ?? 0) >= since) emit('activity', entry);
+    for (const entry of recentRemoteActivity(days)) emit('activity', entry);
     for (const update of sessions.values()) emit(null, update);
     for (const ctx of contexts.values()) emit('context', ctx);
     for (const session of helpers.keys()) { const list = helperList(session); if (list.length) emit('helpers', { session, harness: sessions.get(session)?.harness, helpers: list }); }
