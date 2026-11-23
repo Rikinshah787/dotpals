@@ -164,8 +164,8 @@ export function createRemote({ file, now = Date.now } = {}) {
       if (d.devices.length >= MAX_DEVICES) return null;
       const id = b64u(randomBytes(9));
       const secret = b64u(randomBytes(32));
-      d.devices.push({ id, name: clipText(name, 40) || 'Device', hash: sha(secret).toString('hex'), createdAt: now(), lastSeen: now(), control: false, push: null, prefs: { ...DEFAULT_PREFS } });
-      save();
+      const device = { id, name: clipText(name, 40) || 'Device', hash: sha(secret).toString('hex'), createdAt: now(), lastSeen: now(), control: false, push: null, prefs: { ...DEFAULT_PREFS } };
+      keepDevices([...d.devices, device]);
       item.claimed = true;
       return { id, secret };
     },

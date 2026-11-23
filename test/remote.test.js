@@ -77,6 +77,25 @@ test('at most 20 devices', () => {
   assert.equal(r.finishPairing(r.startPairing().token, 'one too many'), null);
 });
 
+test('a failed pairing write does not take the last device slot or consume the code', async () => {
+  const name = 'pair-write-failure.json';
+  const r = make(name);
+  for (let i = 0; i < 19; i++) assert.ok(r.finishPairing(r.startPairing().token, `device ${i}`));
+  const { token, id } = r.startPairing();
+  const temp = join(dir, `${name}.${process.pid}.tmp`);
+  await mkdir(temp);
+  try {
+    assert.throws(() => r.finishPairing(token, 'Phone'));
+    assert.equal(r.devices().length, 19);
+    assert.deepEqual(r.pendingPairs(), [id]);
+  } finally { await rmdir(temp); }
+  const device = r.finishPairing(token, 'Phone');
+  assert.ok(device);
+  assert.equal(r.devices().length, 20);
+  assert.equal(r.finishPairing(token, 'Phone again'), null);
+  assert.equal(make(name).authenticate(header(device)).id, device.id);
+});
+
 for (const all of [false, true]) test(`a failed ${all ? 'bulk' : 'single'} revocation can be retried and survives restart`, async () => {
   const name = `revoke-${all}.json`;
   const r = make(name);
