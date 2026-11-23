@@ -44,7 +44,7 @@ Installing the CA on the phone is the same everywhere: send `~/.dotpals/remote-c
 
 ## Agent pals, the agent picker, and Talk
 
-- **Pals.** A tray at the top of every page shows one animated pal per live agent (the same pals as the notch), with the step it's on. Whoever needs you comes first and has a yellow outline; tap a pal to open its session. A quiet one dozes off after three minutes and leaves the tray after ten. They follow the live stream, so nothing is polled and nothing runs while the app is in the background.
+- **Pals.** A tray at the top of every page shows one animated pal per live agent (the same pals as the notch), with the step it's on. Whoever needs you comes first and has a yellow outline; tap a pal to open its session. A quiet one dozes off after three minutes and leaves the tray after ten. Pals use the shared live stream and do not poll separately.
 - **Agent picker.** In Sessions, the Agent drop-down is buttons with a pal each and a count of who's working. It drives the dashboard's own filter, so search and the list work as before.
 - **Talk and Story.** The **Talk** button drops a notch-style island from the top: the plain-language story of the agent you pick ("Changed 2 files, and the tests passed"), and Blu to ask. Blu answers itself, or, for coding work, writes a plan you read and **Start**: nothing is sent to an agent before that. Talk needs the device's **control** switch and an AI set up for Blu (Settings → Blu's brain); without either it says which is missing and sends nothing. It is Blu, not "Chat with your agents" (that one needs OpenCode).
 - **Folds.** Book: the pals and picker sit on the first screen and Talk drops onto the second, off the hinge. Table: Talk fits the upper half and the pals sit above the hinge.
@@ -74,7 +74,7 @@ Migration exception: a worker predating the Update UI may be replaced automatica
 
 ## Real time, cheaply
 
-- The live stream is open **only while the app is in front of you.** Hidden for 15 seconds, it closes: no connection, no radio, no work on the computer. Coming back it asks for just what it missed (`?since=`), not the whole history.
+- The live stream closes after the app has been hidden for 15 seconds. Other requests, such as status refreshes with Settings open, may still run if the browser schedules them. On return, the stream asks for what it missed (`?since=`), not the whole history.
 - Changes to the same thing are sent once (a tool call that updates ten times in a moment is one message), in one write, gzip-compressed.
 - Scripts and styles are cached by build. Update checks fetch the worker explicitly; uncached static requests can revalidate with ETags.
 - A device that can't keep up is dropped and resumes, not buffered without limit. An idle live-stream hub has no timer; enabled TLS certificate maintenance still checks for address changes.
