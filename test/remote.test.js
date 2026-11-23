@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, rmdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLimiter, createRemote, cleanPrefs, cleanSubscription, newCode, normalizeCode, permission, remotePatch } from '../bridge/remote.js';
@@ -75,6 +75,21 @@ test('at most 20 devices', () => {
   const r = make('d.json');
   for (let i = 0; i < 20; i++) assert.ok(r.finishPairing(r.startPairing().token, `d${i}`));
   assert.equal(r.finishPairing(r.startPairing().token, 'one too many'), null);
+});
+
+for (const all of [false, true]) test(`a failed ${all ? 'bulk' : 'single'} revocation can be retried and survives restart`, async () => {
+  const name = `revoke-${all}.json`;
+  const r = make(name);
+  const c = r.finishPairing(r.startPairing().token, 'Phone');
+  const revoke = () => all ? r.revokeAll() : r.revoke(c.id);
+  const temp = join(dir, `${name}.${process.pid}.tmp`);
+  await mkdir(temp);
+  try {
+    assert.throws(revoke);
+    assert.ok(r.device(c.id), 'a failed write must not report a revoked device');
+  } finally { await rmdir(temp); }
+  revoke();
+  assert.equal(make(name).authenticate(header(c)), null);
 });
 
 test('permissions: only listed routes are available; powerful actions require control', () => {

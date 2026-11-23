@@ -51,7 +51,16 @@ function paint(now = Date.now()) {
       button.type = 'button';
       n = { button, pal: pal(s.harness, 44), name: make('span', 'n'), line: make('small') };
       button.append(n.pal, n.name, n.line);
-      button.onclick = () => { location.hash = `#sessions/${encodeURIComponent(s.id)}`; };
+      button.onclick = () => {
+        // A direct session selection should not be hidden by the previous Sessions filters.
+        for (const [id, value] of [['f-agent', ''], ['f-when', 'all'], ['q', '']]) {
+          const field = document.getElementById(id);
+          if (field) field.value = value;
+        }
+        const hash = `#sessions/${encodeURIComponent(s.id)}`;
+        if (location.hash !== hash) location.hash = hash;
+        else document.getElementById('q')?.dispatchEvent(new Event('input'));
+      };
       nodes.set(s.id, n);
     }
     const state = shownState(s, now);

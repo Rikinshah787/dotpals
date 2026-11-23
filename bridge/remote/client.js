@@ -50,6 +50,7 @@ import './talk.js'; // the notch-style Talk and Story panel
   }
   addEventListener('dotpals:stream', (e) => status(e.detail));
   addEventListener('offline', () => status({ state: 'offline' }));
+  addEventListener('online', () => status({ state: window.dotpalsStream?.state?.() ?? 'connecting' }));
 
   // A 401 from the device's own bridge is terminal. Leave the previously displayed dashboard.
   window.fetch = async (...args) => {

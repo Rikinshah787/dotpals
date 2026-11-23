@@ -237,7 +237,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       return out(res, 200, { ok: true });
     }
     if (path === '/api/remote/me/signout') {
-      remote.revoke(id);
+      try { remote.revoke(id); } catch { return out(res, 503, { error: 'Could not save device revocation. Try again.' }); }
       hub.drop(id);
       pusher.forget(id);
       return out(res, 200, { ok: true }, { 'set-cookie': cookieHeader('', 0, true), 'clear-site-data': '"cache", "storage"' });
@@ -393,7 +393,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       secure: servesTls(cfg) || /^https:/.test(cfg.publicUrl ?? ''), publicUrl: cfg.publicUrl || '',
       // Where a phone on your network would look: the addresses, the name, and (with our own certificate) the CA to trust.
       lan: cfg.bind === 'lan' ? { addresses: cfg.tlsAuto ? addressesSeen.split(',').filter(Boolean) : lanAddresses(), name: localName(), auto: !!cfg.tlsAuto, caFile: cfg.tlsAuto ? join(dir(), 'ca.pem') : null, caFingerprint: cfg.tlsAuto ? caFingerprint(dir()) : null, note: certNote } : null,
-      addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id), lastPush: pusher.last(d.id), pushes: pusher.history(d.id) })), waiting: remote.waiting(), claimed: remote.claimed(), streams: hub.size(),
+      addresses: cfg.bind === 'lan' ? lanAddresses() : [], devices: remote.devices().map((d) => ({ ...d, open: hub.open(d.id), lastPush: pusher.last(d.id), pushes: pusher.history(d.id) })), waiting: remote.waiting(), pendingPairs: remote.pendingPairs(), claimed: remote.claimed(), streams: hub.size(),
     });
     if (req.method === 'GET' && path === '/api/remote') return json(res, 200, view());
     if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
@@ -412,10 +412,21 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       return json(res, 200, { id, code: token, expiresAt, url, byName, secure: /^https:/.test(url), qr: qrRows(url) });
     }
     if (path === '/api/remote/pair/cancel') { remote.cancelPairing(); return json(res, 200, { ok: true }); }
-    if (path === '/api/remote/revoke-all') { for (const d of remote.devices()) { hub.drop(d.id); pusher.forget(d.id); } remote.revokeAll(); return json(res, 200, view()); }
+    if (path === '/api/remote/revoke-all') {
+      const devices = remote.devices();
+      try { remote.revokeAll(); } catch { return json(res, 503, { error: 'Could not save device revocation. Try again.' }); }
+      for (const d of devices) { hub.drop(d.id); pusher.forget(d.id); }
+      return json(res, 200, view());
+    }
     const one = /^\/api\/remote\/devices\/([\w-]{8,32})(?:\/(revoke|test))?$/.exec(path);
     if (!one) return json(res, 404, { error: 'not found' });
-    if (one[2] === 'revoke') { hub.drop(one[1]); pusher.forget(one[1]); return json(res, remote.revoke(one[1]) ? 200 : 404, view()); }
+    if (one[2] === 'revoke') {
+      try { if (!remote.revoke(one[1])) return json(res, 404, view()); }
+      catch { return json(res, 503, { error: 'Could not save device revocation. Try again.' }); }
+      hub.drop(one[1]);
+      pusher.forget(one[1]);
+      return json(res, 200, view());
+    }
     if (one[2] === 'test') { pusher.test(one[1]).catch(() => {}); return json(res, 200, { ok: true }); }
     const updated = remote.update(one[1], { name: body.name, control: body.control, prefs: body.prefs });
     return updated ? json(res, 200, view()) : json(res, 404, { error: 'no such device' });

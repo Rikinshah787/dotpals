@@ -115,13 +115,18 @@ export function createRemote({ file, now = Date.now } = {}) {
     if (!Array.isArray(data.devices)) data.devices = [];
     return data;
   };
-  const save = () => {
+  const save = (next = data) => {
     const path = file();
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
     renameSync(tmp, path);
     if (platform() !== 'win32') { try { chmodSync(path, 0o600); } catch {} }
+  };
+  const keepDevices = (devices) => {
+    const next = { ...load(), devices };
+    save(next);
+    data = next;
   };
   const pending = new Map(); // sha(token) hex → { expiresAt, claimed }
   let wrote = 0;
@@ -178,6 +183,7 @@ export function createRemote({ file, now = Date.now } = {}) {
     },
     /** How many codes are waiting to be used (for the pairing screen). */
     waiting: () => { for (const [h, item] of pending) if (item.expiresAt <= now()) pending.delete(h); return [...pending.values()].filter((item) => !item.claimed).length; },
+    pendingPairs: () => [...pending].filter(([, item]) => !item.claimed && item.expiresAt > now()).map(([id]) => id),
     claimed: () => [...pending].filter(([, item]) => item.claimed && item.expiresAt > now()).map(([id]) => id),
     cancelPairing: () => pending.clear(),
     devices: () => load().devices.map(view),
@@ -207,12 +213,12 @@ export function createRemote({ file, now = Date.now } = {}) {
       return view(d);
     },
     revoke(id) {
-      const d = load();
-      const n = d.devices.length;
-      d.devices = d.devices.filter((x) => x.id !== id);
-      if (d.devices.length !== n) save();
-      return d.devices.length !== n;
+      const before = load().devices;
+      const devices = before.filter((x) => x.id !== id);
+      if (devices.length === before.length) return false;
+      keepDevices(devices);
+      return true;
     },
-    revokeAll() { load().devices = []; save(); },
+    revokeAll() { keepDevices([]); },
   };
 }
