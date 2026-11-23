@@ -10,7 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, networkInterfaces, platform, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createPrivateKey, X509Certificate, randomBytes } from 'node:crypto';
 
 export const certDir = (home) => join(home, 'remote-cert');
@@ -50,8 +50,8 @@ function searchOpenssl(run, exists) {
 }
 
 /** openssl reads a config file on start; point it at an empty one of ours so a missing system one can't stop it. */
-function opensslEnv(dir) {
-  const conf = join(dir, 'empty.cnf');
+export function opensslEnv(dir) {
+  const conf = resolve(dir, 'empty.cnf');
   if (!existsSync(conf)) writeFileSync(conf, '');
   return { ...process.env, OPENSSL_CONF: conf };
 }
