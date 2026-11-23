@@ -13,7 +13,7 @@ const BUILD = 9;
 // installing over such a worker takes over at once, this one time (see install).
 const EXPLICIT_FROM = 5;
 const NETWORK_WAIT = 3000; // how long to wait for the computer before showing the last copy instead
-const SHELL = `dotpals-shell-${VERSION}-b${BUILD}`; // a new build gets a fresh cache, so no old file can outlive it
+const SHELL = `dotpals-shell-${VERSION}-__SHELL_REVISION__-b${BUILD}`;
 const LOG = 'dotpals-push-log'; // not a "dotpals-shell-" cache, so activate doesn't clear it
 // Small facts this worker keeps ON the phone for the page to read (Cache Storage: a worker can write it, the page can read it).
 const keep = async (key, value) => {
@@ -21,7 +21,9 @@ const keep = async (key, value) => {
 };
 const SHELL_FILES = [
   '/', '/manifest.webmanifest', '/bridge/remote/remote.css', '/bridge/remote/boot.js', '/bridge/remote/stream.js', '/bridge/remote/client.js',
-  '/bridge/remote/push-words.js', '/bridge/remote/avatar-names.js', '/bridge/remote/updater.js', '/bridge/remote/update-ui.js', '/bridge/remote/swipe.js', '/bridge/remote/pals.js', '/bridge/remote/pals-core.js', '/bridge/remote/talk.js', '/bridge/remote/settings.js', '/bridge/remote/icons/icon-192.png', '/desktop/icon.png',
+  '/bridge/remote/push-words.js', '/bridge/remote/avatar-names.js',
+  '/bridge/remote/updater.js', '/bridge/remote/update-ui.js', '/bridge/remote/swipe.js', '/bridge/remote/pals.js', '/bridge/remote/pals-core.js', '/bridge/remote/talk.js', '/bridge/remote/settings.js', '/desktop/icon.png',
+  '/bridge/remote/icons/icon-96.png', '/bridge/remote/icons/icon-180.png', '/bridge/remote/icons/icon-192.png', '/bridge/remote/icons/icon-512.png', '/bridge/remote/icons/icon-maskable-512.png',
   '/src/index.js', '/src/actions.js', '/src/agent.js', '/src/characters.js', '/src/custom.js', '/src/element.js',
   '/bridge/ui/buddy.js', '/bridge/ui/handoff-menu.js', '/bridge/ui/recap.js', '/bridge/ui/replay.js', '/bridge/ui/report.js', '/bridge/ui/story.js', '/bridge/ui/testout.js',
 ];

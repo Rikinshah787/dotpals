@@ -99,6 +99,27 @@ export function createAssets({ root, transform = (path, text) => text } = {}) {
   return { load, size: () => cache.size };
 }
 
+/** Fingerprint exactly what the worker installs; changing any of it invalidates the worker and its shell cache. */
+export function createWorkerAsset(load) {
+  let current;
+  return async () => {
+    const entry = await load('/sw.js');
+    if (!entry) return null;
+    const source = entry.body.toString('utf8');
+    const manifest = /\bconst SHELL_FILES = \[([\s\S]*?)\];/.exec(source);
+    const paths = manifest && [...manifest[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+    if (!paths?.length || paths.some((path) => path === '/sw.js' || !allowed(path))) throw new Error('Invalid service worker shell list');
+    const files = await Promise.all(paths.map(load));
+    if (files.some((file) => !file)) throw new Error('Incomplete service worker shell');
+    const fingerprint = sha(JSON.stringify([entry.etag, ...files.map((file) => file.etag)])).replace(/[+/=]/g, '').slice(0, 24);
+    if (current?.fingerprint === fingerprint) return current;
+    const body = Buffer.from(source.replace('__SHELL_REVISION__', fingerprint));
+    current = { fingerprint, body, type: entry.type, etag: `W/"${fingerprint}"` };
+    gz(body).then((zipped) => { if (current.fingerprint === fingerprint) current.gz = zipped; }).catch(() => {});
+    return current;
+  };
+}
+
 /** The best encoding this client takes that we already have: [body, 'br' | 'gzip' | null]. */
 export function negotiate(entry, acceptEncoding = '') {
   const coding = chooseEncoding(acceptEncoding, [entry.br && 'br', entry.gz && 'gzip', 'identity'].filter(Boolean));

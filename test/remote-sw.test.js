@@ -181,6 +181,10 @@ test('the app files are fetched fresh from the computer when a worker installs, 
   assert.ok(w.added.length > 10);
   assert.ok(w.added.every((r) => r.cache === 'reload'), 'never from the browser’s own HTTP cache');
   assert.ok(w.added.some((r) => r.url === '/bridge/remote/updater.js') && w.added.some((r) => r.url === '/bridge/remote/update-ui.js'));
+  const manifest = JSON.parse(readFileSync(new URL('../bridge/remote/manifest.webmanifest', import.meta.url), 'utf8'));
+  for (const path of [...manifest.icons.map((icon) => icon.src), '/bridge/remote/icons/icon-180.png']) {
+    assert.ok(w.added.some((r) => r.url === path), `${path} must be available offline`);
+  }
   assert.match(w.opened.find((n) => n.startsWith('dotpals-shell-')), new RegExp(`-b${WORKER_BUILD}$`), 'a new build gets a fresh cache');
 });
 

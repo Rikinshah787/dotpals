@@ -193,12 +193,14 @@ test('settings: safe ones change, powerful ones need the control switch', async 
   await M(`/api/remote/devices/${deviceId}`, { control: false });
 });
 
-test('a settings write rechecks the device after its body is read', async () => {
+for (const revoked of [false, true]) test(`a settings write rechecks ${revoked ? 'enrollment' : 'control'} after reading its body`, async () => {
   const paired = await pair('Delayed write');
   assert.equal(paired.res.status, 200);
   const id = paired.cookie.split('=')[1].split('.')[0];
   await M(`/api/remote/devices/${id}`, { control: true });
-  const body = JSON.stringify({ fixLoop: false });
+  const key = revoked ? 'sounds' : 'fixLoop';
+  const before = (await (await M('/api/config')).json())[key];
+  const body = JSON.stringify({ [key]: !before });
   let req;
   const result = new Promise((resolve, reject) => {
     req = request({ host: '127.0.0.1', port: ctx.remote, method: 'POST', path: '/api/config', headers: { ...proxy, cookie: paired.cookie, 'x-dotpals': '1', expect: '100-continue', 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); resolve(res.statusCode); });
@@ -209,10 +211,12 @@ test('a settings write rechecks the device after its body is read', async () => 
   req.flushHeaders();
   try {
     await admitted;
-    await M(`/api/remote/devices/${id}`, { control: false });
+    const changed = await M(`/api/remote/devices/${id}${revoked ? '/revoke' : ''}`, revoked ? {} : { control: false });
+    assert.equal(changed.status, 200);
     req.end(body);
-    assert.equal(await result, 403);
-  } finally { req.destroy(); await M(`/api/remote/devices/${id}/revoke`, {}); }
+    assert.equal(await result, revoked ? 401 : 403);
+    assert.equal((await (await M('/api/config')).json())[key], before);
+  } finally { req.destroy(); if (!revoked) await M(`/api/remote/devices/${id}/revoke`, {}); }
 });
 
 test('unlisted APIs stay local even with control, and local test traffic needs the exact origin', async () => {

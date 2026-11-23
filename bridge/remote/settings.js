@@ -78,7 +78,10 @@ function init() {
     let state = null;
     let pairing = null; // { code, url, qr, secure, expiresAt }
     let tick = null;
-    let changing = false;
+    const pendingControl = new Set();
+    const unknownControl = new Set();
+    const editing = () => card.contains(document.activeElement) && document.activeElement.matches('input, select, textarea');
+    let revision = 0;
     const draw = () => {
       if (!state) return;
       const nodes = [el('h2', '', 'Remote')];
@@ -139,18 +142,24 @@ function init() {
       const left = $('rc-left'); if (!left || !pairing) return;
       const s = Math.max(0, Math.round((pairing.expiresAt - Date.now()) / 1000));
       left.textContent = s ? `Expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}. Works once.` : 'Expired.';
-      if (!s) { pairing = null; draw(); }
+      if (!s) {
+        pairing = null;
+        clearInterval(tick);
+        if (!editing() && !pendingControl.size) draw();
+      }
     }
-    const editing = () => card.contains(document.activeElement) && document.activeElement.matches('input, select, textarea');
     const refresh = async ({ preserveEdit = false } = {}) => {
-      if (preserveEdit && (editing() || changing)) return;
+      if (pendingControl.size || (preserveEdit && editing())) return;
+      const requestRevision = revision;
+      const stale = () => requestRevision !== revision || pendingControl.size || (preserveEdit && editing());
       try {
         const next = await call('/api/remote');
-        if (preserveEdit && (editing() || changing)) return;
+        if (stale()) return;
         state = next;
+        unknownControl.clear();
         if (pairing && state.claimed?.includes(pairing.id)) { pairing = null; toast('Device paired'); }
         draw();
-      } catch (e) { if (!preserveEdit || !editing()) card.replaceChildren(el('h2', '', 'Remote'), el('p', 'bad', e.message)); }
+      } catch (e) { if (!stale() && !state) card.replaceChildren(el('h2', '', 'Remote'), el('p', 'bad', e.message)); }
     };
     async function save(patch) { await call('/api/config', { remote: patch }); await new Promise((r) => setTimeout(r, 250)); await refresh(); }
     async function start() { try { pairing = await call('/api/remote/pair', {}); draw(); } catch (e) { toast(e.message); } }
@@ -164,19 +173,24 @@ function init() {
       const lp = d.lastPush;
       const pushNote = !d.push ? 'Notifications off.' : lp ? `Notifications on. Last: ${pushVerdict(lp, when(lp.at))}` : 'Notifications on.';
       box.append(row(status, pushNote, name));
-      box.append(row('Let this device control', 'Off: it can look and change appearance. On: it can also hand off sessions, rewind and start coding tasks. Permission prompts and Apps stay on the desktop.',
-        sw(d.control, async (i) => {
+      const unknown = unknownControl.has(d.id);
+      const controlSwitch = sw(d.control, async (i) => {
           const control = i.checked;
           i.checked = d.control;
           if (control && !confirm(`Let “${d.name}” control dotpals, including starting coding tasks?`)) return;
-          changing = i.disabled = true;
-          try { state = await call(`/api/remote/devices/${d.id}`, { control }); draw(); }
+          revision++;
+          pendingControl.add(d.id);
+          i.disabled = true;
+          try { state = await call(`/api/remote/devices/${d.id}`, { control }); }
           catch (e) {
             toast(e.message);
-            try { state = await call('/api/remote'); draw(); }
-            catch { i.indeterminate = true; i.setAttribute('aria-label', `Control permission for ${d.name} is unknown. Refresh to check.`); }
-          } finally { changing = false; }
-        }, `Let ${d.name} control`)));
+            try { state = await call('/api/remote'); }
+            catch { unknownControl.add(d.id); }
+          } finally { pendingControl.delete(d.id); draw(); }
+        }, unknown ? `Control permission for ${d.name} is unknown. Refresh to check.` : `Let ${d.name} control`);
+      controlSwitch.disabled = pendingControl.has(d.id) || unknown;
+      controlSwitch.indeterminate = unknown;
+      box.append(row('Let this device control', unknown ? 'Permission is unknown. Refresh to check.' : 'Off: it can look and change appearance. On: it can also hand off sessions, rewind and start coding tasks. Permission prompts and Apps stay on the desktop.', controlSwitch));
       const acts = el('div', 'acts'); acts.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;padding-bottom:8px';
       if (d.push) acts.append(btn('Send a test', async () => { await call(`/api/remote/devices/${d.id}/test`, {}); toast('Sent'); }));
       acts.append(btn('Sign out', async () => { state = await call(`/api/remote/devices/${d.id}/revoke`, {}); draw(); }, 'danger'));
@@ -220,8 +234,12 @@ function init() {
       if (!P?.supported?.()) nodes.push(row('Not available', 'This browser can’t receive notifications here. On iPhone or iPad, add dotpals to the Home Screen first.'));
       else if (asked === 'denied') nodes.push(row('Blocked', 'Notifications are blocked for this site. Allow them in the browser’s site settings, then come back.'));
       else {
-        nodes.push(row('Notify this device', 'Receive background notifications. Use “Only when I’m away” to skip them while the app is in front.',
-          sw(me.push && asked === 'granted', guard(async (i) => { if (i.checked) await P.enable(); else await P.disable(); }), 'Notify this device')));
+        const notify = sw(me.push && asked === 'granted', guard(async (i) => {
+          i.disabled = true;
+          if (i.checked) await P.enable(); else await P.disable();
+        }), 'Notify this device');
+        notify.disabled = P.changing();
+        nodes.push(row('Notify this device', 'Receive background notifications. Use “Only when I’m away” to skip them while the app is in front.', notify));
         if (me.push) {
           nodes.push(row('Only when I’m away', 'Skip notifications while the app is open on this device.', sw(me.prefs.quietWhenOpen, guard((i) => set({ prefs: { quietWhenOpen: i.checked } })), 'Skip while open')));
           for (const [k, title, note] of KINDS) nodes.push(row(title, note, sw(me.prefs[k], guard((i) => set({ prefs: { [k]: i.checked } })), title)));

@@ -2,22 +2,26 @@
 // decisions in the browser (index.html notifyState…); a phone with the app closed has no page
 // running, so the bridge decides here, the same way, per device and per its own preferences.
 import { redactText } from './redact.js';
+import { homedir } from 'node:os';
 import { harnessName } from './ui/recap.js';
 import { CAST, avatarName } from './remote/avatar-names.js';
 import { characterFor } from './remote/pals-core.js';
 
-const clip = (s, n) => { const t = redactText(String(s ?? '')).text.replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+const clipText = (s, n, options) => { const t = redactText(String(s ?? ''), options).text.replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const VERB = { run: 'run a command', edit: 'edit a file', write: 'write a file', delete: 'delete a file', web: 'go online', agent: 'start a helper agent', mcp: 'use a tool', read: 'read a file', search: 'search' };
 const MIN_DONE_MS = 15_000;   // a request that took less than this isn't worth a buzz
 const WAITING_AFTER = 20_000; // like the pal: only when it's still waiting for you after this long
 const HISTORY = 10;           // pushes remembered per device, with the phone's receipt for each
+const SEND_LANES = 4;        // no single provider can hold up every other device
 
 /**
  * What an event means for a notification, or null. `turn(session)` → { ms, prompt } for the
  * request that just ended. Returns { kind, title, body, tag, delay? }.
  */
-export function pushFor(event, data, { turn = () => null } = {}) {
+export function pushFor(event, data, { turn = () => null, redaction } = {}) {
   if (!data || typeof data !== 'object') return null;
+  let options;
+  const clip = (s, n) => clipText(s, n, options ??= (typeof redaction === 'function' ? redaction() : redaction) ?? { home: homedir() });
   const who = harnessName(data.harness);
   const where = data.label ? ` · ${clip(data.label, 40)}` : '';
   const session = data.session ?? data.id ?? '';
@@ -33,18 +37,18 @@ export function pushFor(event, data, { turn = () => null } = {}) {
     }
     case 'approval': {
       if (data.status !== 'pending') return null;
-      return { kind: 'approval', title: `${who} wants to ${VERB[data.kind] ?? `use ${clip(data.tool, 30)}`}${where}`, body: clip(data.command || data.title || data.tool, 140), tag: `ask-${data.id}` };
+      return { kind: 'approval', title: `${who} wants to ${VERB[data.kind] ?? `use ${clip(data.tool, 30)}`}${where}`, body: `${clip(data.command || data.title || data.tool, 118)} · Answer on desktop`.trim(), tag: `ask-${data.id}` };
     }
     case 'ocask': {
       if (data.status !== 'pending') return null;
-      return { kind: 'approval', title: `OpenCode needs you${where}`, body: clip(data.kind === 'question' ? data.questions?.[0]?.question : `Permission: ${data.permission}`, 140), tag: `ask-${data.id}` };
+      return { kind: 'approval', title: `OpenCode needs you${where}`, body: `${clip(data.kind === 'question' ? data.questions?.[0]?.question : `Permission: ${data.permission}`, 118)} · Answer on desktop`.trim(), tag: `ask-${data.id}` };
     }
     case 'stuck': return { kind: 'stuck', title: `${who}${where} may be stuck`, body: clip(data.text, 140), tag: `stuck-${data.session}` };
     case 'conflict': return { kind: 'conflict', title: 'Two agents, one file', body: clip(data.text, 140), tag: `conflict-${data.session ?? ''}` };
     case 'loop': return ['gave-up', 'ask-you', 'bluff'].includes(data.kind) ? { kind: 'loop', title: `Claude${where}`, body: clip(data.text, 140), tag: `loop-${data.session}` } : null;
     case 'context': {
       const pct = data.size ? (data.used / data.size) * 100 : 0;
-      return data.known && pct >= 90 ? { kind: 'context', title: `${who}'s context is ${Math.round(pct)}% full`, body: `${data.label ?? ''}: it will compact soon`.trim(), tag: `ctx-${data.session}` } : null;
+      return data.known && pct >= 90 ? { kind: 'context', title: `${who}'s context is ${Math.round(pct)}% full`, body: `${clip(data.label, 40)}: it will compact soon`.replace(/^: /, ''), tag: `ctx-${data.session}` } : null;
     }
     default: return null;
   }
@@ -54,11 +58,13 @@ export function pushFor(event, data, { turn = () => null } = {}) {
  * Sends them. Quiet while a device has the app open (its live stream is the foreground signal),
  * at most one per tag per 10 s and 20 a minute per device, dead subscriptions forgotten.
  */
-export function createPusher({ remote, hub, send, vapid, subject, turn, now = Date.now, log = () => {} }) {
+export function createPusher({ remote, hub, send, vapid, subject, turn, secrets = () => [], now = Date.now, log = () => {} }) {
   const waiting = new Map(); // session → timer, for "still waiting after 20 s"
   const recent = new Map();  // `${device}|${tag}` → time
   const minute = new Map();  // device → times in the last minute
   const sent_ = new Map();   // device → its last HISTORY pushes, oldest first: { at, kind, tag, ok, status, ack? }
+  const fullContext = new Set();
+  const redaction = () => ({ home: homedir(), secrets: secrets() });
   let lastAt = 0;
   let generation = 0;
 
@@ -67,20 +73,21 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
     const t = lastAt = Math.max(now(), lastAt + 1);
     const tag = item.test ? `test-${t.toString(36)}` : item.tag;
     const started = generation;
-    for (const { id } of remote.pushTargets()) {
+    const options = redaction();
+    const ids = remote.pushTargets().map(({ id }) => id).filter((id) => !only || id === only);
+    const sendOne = async (id) => {
       if (started !== generation) return;
-      if (only && id !== only) continue;
       const target = remote.pushTargets().find((d) => d.id === id);
-      if (!target) continue;
+      if (!target) return;
       if (!only) {
         const { prefs } = target;
-        if (!prefs[item.kind]) continue;
-        if (item.kind === 'approval' && !target.control) continue; // it couldn't answer anyway
-        if (prefs.quietWhenOpen && hub.open(target.id)) continue;
+        if (!prefs[item.kind]) return;
+        if (item.kind === 'approval' && !target.control) return; // desktop-only reminder for the control-enabled device
+        if (prefs.quietWhenOpen && hub.open(target.id)) return;
         const key = `${target.id}|${item.tag}`;
-        if (t - (recent.get(key) ?? 0) < 10_000) continue;
+        if (t - (recent.get(key) ?? 0) < 10_000) return;
         const times = (minute.get(target.id) ?? []).filter((x) => t - x < 60_000);
-        if (times.length >= 20) continue;
+        if (times.length >= 20) return;
         recent.set(key, t);
         times.push(t);
         minute.set(target.id, times);
@@ -88,7 +95,7 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
       }
       // High urgency requests prompt delivery; the push service and OS still decide when to deliver.
       const urgent = item.kind === 'approval' || item.kind === 'waiting' || !!item.test;
-      const body = JSON.stringify({ kind: item.kind, title: clip(item.title, 80), body: clip(item.body, 200), tag, at: t, test: !!item.test, avatar: avatarName(item.kind, item.test ? CAST[0] : characterFor(item.harness, CAST)), url: item.test ? '/#settings/remote' : '/#sessions' });
+      const body = JSON.stringify({ kind: item.kind, title: clipText(item.title, 80, options), body: clipText(item.body, 200, options), tag, at: t, test: !!item.test, avatar: avatarName(item.kind, item.test ? CAST[0] : characterFor(item.harness, CAST)), url: item.test ? '/#settings/remote' : '/#sessions' });
       const entry = { at: t, kind: item.kind, tag: String(tag ?? '').slice(0, 40), test: !!item.test, ok: null, status: 0, gone: false };
       const past = sent_.get(target.id) ?? [];
       past.push(entry); // before awaiting: a fast receipt may beat the push service's response
@@ -99,7 +106,11 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
       Object.assign(entry, { ok: !!res.ok, status: res.status ?? 0, gone: !!res.gone });
       if (!res.ok) log(`push: ${target.id} was not accepted (push service answered ${res.status || 'nothing'})`);
       if (res.gone && remote.forgetSubscription(target.id, target.sub)) log(`push: forgot a dead subscription for ${target.id}`);
-    }
+    };
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(SEND_LANES, ids.length) }, async () => {
+      while (next < ids.length && started === generation) await sendOne(ids[next++]);
+    }));
   }
 
   return {
@@ -110,7 +121,15 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
         if (timer) { clearTimeout(timer); waiting.delete(data.session); }
       }
       if (!remote.pushTargets().length) return;
-      const found = pushFor(event, data, { turn });
+      const found = pushFor(event, data, { turn, redaction });
+      if (event === 'context' && data?.known && data.session) {
+        if (!found) fullContext.delete(data.session);
+        else if (fullContext.has(data.session)) return;
+        else {
+          fullContext.add(data.session);
+          if (fullContext.size > 500) fullContext.delete(fullContext.values().next().value);
+        }
+      }
       if (!found) return;
       const item = { ...found, harness: data.harness }; // whose avatar the notification wears
       if (!item.delay) { deliver(item).catch(() => {}); return; }
@@ -152,6 +171,6 @@ export function createPusher({ remote, hub, send, vapid, subject, turn, now = Da
       minute.delete(deviceId);
       for (const key of recent.keys()) if (key.startsWith(`${deviceId}|`)) recent.delete(key);
     },
-    stop() { generation++; for (const t of waiting.values()) clearTimeout(t); waiting.clear(); },
+    stop() { generation++; for (const t of waiting.values()) clearTimeout(t); waiting.clear(); fullContext.clear(); },
   };
 }

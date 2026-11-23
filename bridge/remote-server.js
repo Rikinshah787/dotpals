@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { gzip as gzipCb } from 'node:zlib';
 import { promisify } from 'node:util';
-import { allowed, chooseEncoding, createAssets, csp, inlineHashes, negotiate } from './remote-assets.js';
+import { allowed, chooseEncoding, createAssets, createWorkerAsset, csp, inlineHashes, negotiate } from './remote-assets.js';
 import { createHub } from './remote-hub.js';
 import { createPusher } from './remote-push.js';
 import { sendPush } from './webpush.js';
@@ -101,7 +101,7 @@ const REPO = 'https://github.com/rikinshah787/dotpals'; // VAPID requires a cont
 
 /** A body shaped like the original request, for handing the bridge a changed one. */
 const shim = (req, text) => Object.assign(Readable.from([Buffer.from(text)]), { method: req.method, url: req.url, headers: { ...req.headers, 'content-length': String(Buffer.byteLength(text)) } });
-export function createRemoteServer({ config, file, certHome, root, version, api, snapshot, turn, log = () => {}, pushSend, renewMs = 60_000, addressesNow = privateAddresses, certs = ensureCerts }) {
+export function createRemoteServer({ config, file, certHome, root, version, api, snapshot, turn, secrets, log = () => {}, pushSend, renewMs = 60_000, addressesNow = privateAddresses, certs = ensureCerts }) {
   const remote = createRemote({ file });
   const hub = createHub();
   const claims = createLimiter({ max: 8, windowMs: 60_000 });
@@ -109,7 +109,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
   let server = null;
   let runKey = '';
   let lastError = null;
-  const pusher = createPusher({ remote, hub, send: pushSend ?? sendPush, vapid: () => remote.vapid(), subject: REPO, turn, log });
+  const pusher = createPusher({ remote, hub, send: pushSend ?? sendPush, vapid: () => remote.vapid(), subject: REPO, turn, secrets, log });
   const visibleEvents = new Set([null, undefined, 'message', 'activity', 'config', 'context', 'helpers', 'agents', 'laya', 'loop', 'stuck', 'conflict', 'reset']);
   const onEvent = (event, data) => {
     if (!server) return;
@@ -134,6 +134,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
       .replace('</head>', () => `${HEAD}\n</head>`).replace('</body>', () => `${TAIL}</body>`);
   };
   const assets = createAssets({ root, transform });
+  const workerAsset = createWorkerAsset(assets.load);
 
   /** Encrypted, or this computer talking to itself. Behind your own tunnel or proxy (on this computer), its X-Forwarded-Proto counts. */
   const proxied = (req) => {
@@ -266,7 +267,7 @@ export function createRemoteServer({ config, file, certHome, root, version, api,
 
     // The app's own files: open, cached, compressed. The page then asks for data with its cookie.
     if (req.method !== 'POST' && allowed(path)) {
-      const entry = await assets.load(path);
+      const entry = await (path === '/sw.js' ? workerAsset() : assets.load(path));
       return entry ? sendEntry(req, res, entry) : res.writeHead(404, SECURITY).end();
     }
 

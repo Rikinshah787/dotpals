@@ -68,8 +68,22 @@ import './talk.js'; // the notch-style Talk and Story panel
   // -- service worker and push --------------------------------------------------------------------------
   const key = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
   const sameKey = (sub, k) => { const a = sub?.options?.applicationServerKey; return !!a && a.byteLength === k.length && new Uint8Array(a).every((v, i) => v === k[i]); };
+  let notificationChange = null;
+  const changeNotifications = (change) => {
+    if (notificationChange) return Promise.reject(new Error('Another notification change is still in progress.'));
+    notificationChange = change().finally(() => { notificationChange = null; });
+    return notificationChange;
+  };
   async function subscribe(me, test = false) {
-    const reg = await navigator.serviceWorker.getRegistration();
+    let reg = await navigator.serviceWorker.getRegistration();
+    if (test && !reg?.active) {
+      let timer;
+      try {
+        reg = await Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('The app could not finish installing. Check your connection and try again.')), 15_000);
+        })]);
+      } finally { clearTimeout(timer); }
+    }
     if (!reg?.active) {
       if (test) throw new Error('Wait for the app to finish installing, then try again.');
       return;
@@ -85,20 +99,21 @@ import './talk.js'; // the notch-style Talk and Story panel
   window.dotpalsPush = {
     supported: () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
     permission: () => ('Notification' in window ? Notification.permission : 'unsupported'),
+    changing: () => notificationChange !== null,
     /** Ask permission (must be called from a tap), subscribe, and give the subscription to the computer. */
-    async enable() {
-      if (!this.supported()) throw new Error('This browser can’t receive notifications here. On iPhone or iPad, add dotpals to the Home Screen first.');
+    enable() { return changeNotifications(async () => {
+      if (!window.dotpalsPush.supported()) throw new Error('This browser can’t receive notifications here. On iPhone or iPad, add dotpals to the Home Screen first.');
       if (Notification.permission === 'denied') throw new Error('Notifications are blocked for this site in the browser’s settings.');
       if ((await Notification.requestPermission()) !== 'granted') throw new Error('Notifications weren’t allowed.');
       const me = await (await api('/api/remote/me')).json();
       return subscribe(me, true);
-    },
-    async disable() {
+    }); },
+    disable() { return changeNotifications(async () => {
       const res = await api('/api/remote/me/push', { subscription: null });
       if (!res.ok) throw new Error('The computer did not disable notifications. Try again.');
       const reg = await navigator.serviceWorker.getRegistration();
       await (await reg?.pushManager.getSubscription())?.unsubscribe();
-    },
+    }); },
   };
 
   if (window.dotpalsPush.supported()) {

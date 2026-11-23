@@ -1956,6 +1956,7 @@ export function startBridge({ port = Number(process.env.DOTPALS_PORT || process.
     root, version, log: print,
     api: (req, res, path) => { remoteRequests.add(req); return api(req, res, path); },
     snapshot: remoteSnapshot,
+    secrets: () => [checkerKey(), ...Object.values(brainKeys())].filter(Boolean),
     // The request that just ended in this session, for "Claude is done" pushes.
     turn: (session) => {
       const done = activity.findLast(session, (e) => e.kind === 'done');

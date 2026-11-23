@@ -28,6 +28,10 @@ test('what becomes a notification', () => {
 test('secrets are redacted from what leaves the computer', () => {
   const item = pushFor('approval', { status: 'pending', id: 'abcdefgh', kind: 'run', command: 'curl -H "Authorization: Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" https://x.io' });
   assert.ok(!item.body.includes('abcdefghijklmnopqrstuvwxyz0123456789'), item.body);
+  const redaction = { home: '/home/example-user', secrets: ['opaque-configured-secret-42'] };
+  const alert = pushFor('approval', { status: 'pending', command: 'cat /home/example-user/file opaque-configured-secret-42' }, { redaction });
+  assert.doesNotMatch(alert.body, /example-user|opaque-configured-secret-42/);
+  assert.match(alert.body, /Answer on desktop/);
 });
 
 function rig(devices, opts = {}) {
@@ -37,7 +41,7 @@ function rig(devices, opts = {}) {
   const open = new Set(opts.open ?? []);
   const remote = { pushTargets: () => devices, forgetSubscription: (id, sub) => { updates.push([id, sub]); return true; } };
   const hub = { open: (id) => open.has(id) };
-  const send = async (sub, body, vapid, o) => { sent.push({ sub, body: JSON.parse(body), o }); return opts.result ?? { ok: true, status: 201, gone: false }; };
+  const send = async (sub, body, vapid, o) => { sent.push({ sub, body: JSON.parse(body), o }); return opts.send?.(sub) ?? opts.result ?? { ok: true, status: 201, gone: false }; };
   const pusher = createPusher({ remote, hub, send, vapid: () => ({}), subject: 'mailto:a@b.co', turn: () => ({ ms: 60_000, prompt: 'p' }), now: () => clock });
   return { sent, updates, pusher, tick: (ms) => { clock += ms; } };
 }
@@ -52,13 +56,38 @@ test('each device gets what its own preferences allow, and not while it has the 
   assert.equal(r.sent[0].body.test, false, 'a real notification is not a test');
 });
 
-test('an approval only reaches a device that is allowed to answer it, and is urgent and short-lived', async () => {
+test('a desktop approval reminder is urgent and only reaches controlling devices', async () => {
   const r = rig([dev('a', {}), { ...dev('b'), control: false }]);
   r.pusher.handle('approval', { status: 'pending', id: 'abcdefgh', kind: 'run', command: 'ls' });
   await wait(10);
   assert.deepEqual(r.sent.map((s) => s.sub.endpoint), ['https://p/a']);
   assert.equal(r.sent[0].o.urgency, 'high');
   assert.equal(r.sent[0].o.ttl, 120);
+  assert.match(r.sent[0].body.body, /Answer on desktop/);
+});
+
+test('a slow provider does not delay another phone', async () => {
+  let finish;
+  const stalled = new Promise((resolve) => { finish = resolve; });
+  const r = rig([dev('a'), dev('b')], { send: (sub) => sub.endpoint.endsWith('/a') ? stalled : undefined });
+  try {
+    r.pusher.handle('stuck', { session: 's', text: 'waiting' });
+    await wait(10);
+    assert.deepEqual(r.sent.map(({ sub }) => sub.endpoint), ['https://p/a', 'https://p/b']);
+    assert.equal(r.pusher.last('b').ok, true);
+  } finally { finish({ ok: true }); }
+});
+
+test('one context reminder per crossing, rearmed after compaction', async () => {
+  const r = rig([dev('a', { context: true })]);
+  const context = (used) => r.pusher.handle('context', { known: true, size: 100, used, session: 's' });
+  context(90);
+  r.tick(15_000);
+  context(94);
+  assert.equal(r.sent.length, 1);
+  context(55);
+  context(96);
+  assert.equal(r.sent.length, 2);
 });
 
 test('the same thing is not sent twice in 10 seconds, and a device gets at most 20 a minute', async () => {
@@ -121,17 +150,18 @@ test('context labels are redacted at the send boundary even with quiet mode off'
 });
 
 test('an in-flight send cannot authorize a later send to a device that signed out', async () => {
-  const devices = [dev('a'), dev('b')];
+  const started = ['a', 'b', 'c', 'd'].map((id) => `https://p/${id}`);
+  const devices = ['a', 'b', 'c', 'd', 'e'].map((id) => dev(id));
   const calls = [];
   let release;
   const first = new Promise((resolve) => { release = resolve; });
   const pusher = createPusher({ remote: { pushTargets: () => [...devices] }, hub: { open: () => false }, vapid: () => ({}), turn: () => ({ ms: 60_000 }), send: async (sub) => { calls.push(sub.endpoint); return first; } });
   pusher.handle('message', { state: 'done', session: 'a' });
-  assert.deepEqual(calls, ['https://p/a']);
+  assert.deepEqual(calls, started);
   devices.pop();
   release({ ok: true });
   await wait(10);
-  assert.deepEqual(calls, ['https://p/a']);
+  assert.deepEqual(calls, started);
 });
 
 test('revoking a device forgets its diagnostics', async () => {
