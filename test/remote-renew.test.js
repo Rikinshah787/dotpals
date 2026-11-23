@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { X509Certificate } from 'node:crypto';
 import { createServer as createNet } from 'node:net';
 import { connect } from 'node:tls';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRemoteServer, hostAllowed, pairingUrl, servesTls } from '../bridge/remote-server.js';
@@ -20,8 +20,8 @@ const port = await freePort();
 const port2 = await freePort();
 
 /** What certificate does a TLS client see on this port right now (trusting nothing: we only want to read it). */
-const peerCert = () => new Promise((ok, no) => {
-  const s = connect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => { const c = s.getPeerCertificate(); const raw = c.raw; s.end(); ok(new X509Certificate(raw)); });
+const peerCert = (at = port) => new Promise((ok, no) => {
+  const s = connect({ host: '127.0.0.1', port: at, rejectUnauthorized: false }, () => { const c = s.getPeerCertificate(); const raw = c.raw; s.end(); ok(new X509Certificate(raw)); });
   s.on('error', no);
 });
 
@@ -99,24 +99,36 @@ test('when the address changes, the running server serves a certificate for the 
   await server.stop();
 });
 
-test('a failed renewal is reported and the old certificate keeps serving', { skip: !openssl && 'needs openssl' }, async (t) => {
+test('a rejected TLS context keeps the old certificate and retries the same address', { skip: !openssl && 'needs openssl' }, async (t) => {
   let ips = ['192.168.1.69'];
   let broken = false;
-  const cfg = { enabled: true, bind: 'local', port: port2, tlsAuto: true, tlsCert: '', tlsKey: '', publicUrl: '' };
+  const invalidKey = join(home, 'invalid.pem');
+  writeFileSync(invalidKey, 'not a PEM key');
+  const cfg = { enabled: true, bind: 'lan', port: port2, tlsAuto: true, tlsCert: '', tlsKey: '', publicUrl: '' };
   const server = createRemoteServer({
     config: () => cfg, file: () => join(home, 'remote2.json'), certHome: home, root: process.cwd(), version: 't',
     api: () => {}, snapshot: () => {}, turn: () => null,
-    renewMs: 40, addressesNow: () => ips, certs: (o) => { if (broken) throw new Error('openssl req failed: disk full'); return ensureCerts({ ...o, openssl, name: 'NIGHTHAWK' }); },
+    renewMs: 40, addressesNow: () => ips, certs: (o) => {
+      const made = ensureCerts({ ...o, openssl, name: 'NIGHTHAWK' });
+      return broken ? { ...made, key: invalidKey } : made;
+    },
   });
   t.after(() => server.stop());
   await server.apply();
   assert.equal(server.state().running, true);
+  const first = await peerCert(port2);
   broken = true;
   ips = ['192.168.1.99'];
   for (let i = 0; i < 30 && !server.state().error; i++) await wait(50);
-  assert.match(server.state().error, /Couldn’t renew the certificate: openssl req failed: disk full/);
-  const s = connect({ host: '127.0.0.1', port: port2, rejectUnauthorized: false });
-  await new Promise((ok, no) => { s.on('secureConnect', ok); s.on('error', no); });
-  s.end();
-  await server.stop();
+  assert.match(server.state().error, /Couldn’t renew the certificate/);
+  assert.equal(server.state().addresses, '192.168.1.69');
+  assert.equal((await peerCert(port2)).fingerprint256, first.fingerprint256);
+  const pair = () => server.controlApi({ method: 'POST' }, {}, '/api/remote/pair', { json: (_, status, body) => ({ status, body }), readBody: async () => '{}' });
+  assert.equal((await pair()).status, 409);
+  broken = false;
+  for (let i = 0; i < 60 && server.state().error; i++) await wait(50);
+  assert.equal(server.state().error, null);
+  assert.equal(server.state().addresses, '192.168.1.99');
+  assert.match((await peerCert(port2)).subjectAltName, /IP Address:192\.168\.1\.99/);
+  assert.match((await pair()).body.url, /^https:\/\/192\.168\.1\.99:/);
 });
