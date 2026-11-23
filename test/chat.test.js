@@ -15,7 +15,9 @@ process.env.DOTPALS_HISTORY = '0';
 const home = await mkdtemp(join(tmpdir(), 'dotpals-home-'));
 process.env.DOTPALS_HOME = home;
 const project = await mkdtemp(join(tmpdir(), 'dotpals-project-'));
-after(() => Promise.all([rm(home, { recursive: true, force: true }), rm(project, { recursive: true, force: true })]));
+// Windows keeps a folder busy for a moment after the bridge's last write (EBUSY): try again instead of failing the file.
+const gone = (dir) => rm(dir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+after(() => Promise.all([gone(home), gone(project)]));
 
 const { startBridge } = await import('../bridge/server.js');
 

@@ -1,0 +1,228 @@
+/* The remote client's layer over the dashboard: safe areas, touch, an app-like shell, and foldables.
+   The dashboard's own stylesheet stays as it is; this file only adds. Loaded after it, in <head>. */
+
+:root {
+  --safe-t: env(safe-area-inset-top, 0px); --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px);
+  --fold-gap: 0px;
+  --tap: 44px;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overscroll-behavior: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+body { padding-left: var(--safe-l); padding-right: var(--safe-r); min-height: 100dvh; }
+.app { height: 100dvh; }
+main { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+
+/* Window Controls Overlay (installed on a desktop or a large foldable in desktop mode): the title bar is ours. */
+html[data-wco] aside { padding-top: calc(env(titlebar-area-height, 0px) + 8px); app-region: drag; -webkit-app-region: drag; }
+html[data-wco] aside a, html[data-wco] aside button { app-region: no-drag; -webkit-app-region: no-drag; }
+
+/* A phone or any touch screen: the targets are fingers. */
+@media (pointer: coarse) {
+  button, select, input:not([type="checkbox"]):not([type="radio"]), nav a, summary { min-height: var(--tap); }
+  nav a { padding-top: 10px; padding-bottom: 10px; }
+  input.switch { min-width: 44px; min-height: 26px; }
+  .row { padding: 14px 0; }
+  table td, table th { padding-top: 11px; padding-bottom: 11px; }
+}
+@media (hover: none) { button:hover, select:hover { border-color: var(--line-strong); } nav a:hover { background: transparent; } nav a[aria-current="page"]:hover { background: var(--raise); } }
+
+/* Small screens: the nav becomes a bottom bar you can reach with a thumb. */
+@media (max-width: 720px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  aside { order: 2; border-right: 0; border-top: 1px solid var(--line); border-bottom: 0; padding: 6px 8px calc(6px + var(--safe-b)); flex-direction: row; justify-content: space-between; overflow: visible; }
+  aside .brand, aside .live { display: none; }
+  nav { display: flex; flex: 1; justify-content: space-around; gap: 2px; }
+  nav a { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 11px; flex: 1; justify-content: center; text-align: center; }
+  nav svg, nav a svg { display: block; width: 20px; height: 20px; }
+  main { order: 1; padding: calc(14px + var(--safe-t)) 14px 24px; }
+  .head h1 { font-size: 20px; }
+  .toast, .rw-note { bottom: calc(76px + var(--safe-b)); }
+}
+@media (max-width: 560px) { nav svg { display: block; } nav a { font-size: 10.5px; } }
+
+/* A horizontal swipe on the page belongs to the tab swipe, not to the browser's own "swipe back" (which would leave the app for the pairing page).
+   touch-action stops at the nearest scroll container, so a table or chart that scrolls sideways still does. */
+main { touch-action: pan-y pinch-zoom; }
+
+/* Swiping to another tab: the new page slides in from the side you swiped towards (not with reduced motion; swipe.js skips it). */
+@media (prefers-reduced-motion: no-preference) {
+  main[data-slide="next"] { animation: rc-slide-next .2s ease-out; }
+  main[data-slide="prev"] { animation: rc-slide-prev .2s ease-out; }
+  @keyframes rc-slide-next { from { opacity: .4; transform: translateX(28px); } }
+  @keyframes rc-slide-prev { from { opacity: .4; transform: translateX(-28px); } }
+}
+
+/* ---- Agent pals, the agent picker, and Talk ------------------------------------------------------ */
+
+/* The tray: one animated pal per live agent, at the top of every page. Tap one to open its session. */
+#rc-tray { max-width: 1120px; margin: 0 auto 14px; display: grid; gap: 8px; }
+.rc-tray-head { display: flex; align-items: center; gap: 10px; min-height: 20px; }
+.rc-sum { flex: 1; font-size: 12px; color: var(--muted); }
+.rc-talk-btn { border-radius: 999px; padding: 4px 16px; }
+/* The room above is for a pal's own speech bubble ("?", the progress bar): a scroll container would clip it. */
+.rc-pals { display: flex; gap: 8px; overflow-x: auto; padding: 18px 0 2px; margin-top: -6px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.rc-pals::-webkit-scrollbar { display: none; }
+.rc-pal { flex: 0 0 auto; width: 148px; scroll-snap-align: start; display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 10px 6px 6px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); }
+.rc-pal dot-pal { grid-row: 1 / 3; }
+.rc-chip .n { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+/* A pal's name may take two lines: "Claude · web" and "Claude · shop" must stay tellable apart in a narrow column. */
+.rc-pal .n { font-size: 12px; font-weight: 600; line-height: 1.25; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.rc-pal small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-pal[data-state="waiting"] { border-color: var(--warn); }
+.rc-pal[data-state="error"] { border-color: var(--bad); }
+.rc-pal[data-state="working"], .rc-pal[data-state="thinking"], .rc-pal[data-state="speaking"] { border-color: color-mix(in srgb, var(--link) 45%, var(--line)); }
+.rc-pal[data-state="sleeping"] { opacity: .6; }
+
+/* The agent picker in Sessions: the dashboard's Agent filter, as buttons with a pal each. */
+#rc-chips { display: flex; gap: 8px; overflow-x: auto; padding: 14px 0 6px; scrollbar-width: none; }
+#rc-chips::-webkit-scrollbar { display: none; }
+.rc-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 6px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+.rc-chip:first-child { padding-left: 12px; }
+.rc-chip[aria-pressed="true"] { background: var(--raise); border-color: var(--link); }
+.rc-chip .live { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--link); color: #06121f; font-size: 11px; line-height: 18px; text-align: center; }
+.rc-chip .live[hidden] { display: none; }
+.view[id="view-sessions"] .toolbar select#f-agent { display: none; }
+
+/* Talk and Story: a notch-style island that drops from the top, clear of the status bar and the hinge. */
+#rc-talk { position: fixed; z-index: 40; top: calc(8px + var(--safe-t)); left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 20px)); max-height: calc(100dvh - 24px - var(--safe-t) - var(--safe-b)); overflow-y: auto; display: grid; gap: 10px; padding: 12px 14px 14px; background: color-mix(in srgb, var(--bg) 92%, #000); border: 1px solid var(--line-strong); border-radius: 26px; box-shadow: 0 14px 44px rgba(0, 0, 0, .6); overscroll-behavior: contain; touch-action: pan-y; }
+#rc-talk[hidden] { display: none; }
+#rc-talk:focus { outline: none; } /* focus lands on the panel itself on a touch screen; the controls inside keep their own rings */
+.rc-talk-top { display: flex; align-items: center; gap: 10px; }
+.rc-talk-top strong { flex: 1; }
+.rc-x { width: var(--tap); height: var(--tap); border-radius: 50%; font-size: 22px; line-height: 1; padding: 0; }
+.rc-who { display: flex; gap: 6px; overflow-x: auto; padding: 14px 0 4px; scrollbar-width: none; }
+.rc-who::-webkit-scrollbar { display: none; }
+.rc-story-text { margin: 4px 0 0; font-size: 15px; line-height: 1.45; }
+.rc-warn { margin: 6px 0 0; padding-left: 18px; color: var(--warn); font-size: 13px; }
+.rc-ask { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.rc-ask textarea { min-height: 48px; resize: none; border-radius: 14px; font: inherit; }
+.rc-send { border-radius: 14px; background: var(--link); color: #06121f; border-color: transparent; font-weight: 600; padding: 8px 18px; }
+.rc-send:disabled { opacity: .5; }
+.rc-note { margin: 0; min-height: 0; font-size: 12px; color: var(--muted); }
+.rc-note:empty { display: none; }
+.rc-say { margin: 0; font-size: 15px; line-height: 1.45; }
+.rc-did { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.rc-plan { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel); }
+.rc-plan p { margin: 0; font-size: 14px; }
+.rc-plan ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.rc-plan small { color: var(--muted); }
+html[data-talk="open"] main { overflow: hidden; }
+
+@media (prefers-reduced-motion: no-preference) {
+  #rc-talk { animation: rc-drop .22s cubic-bezier(.2, .9, .3, 1); }
+  @keyframes rc-drop { from { opacity: 0; transform: translate(-50%, -18px) scale(.96); } }
+}
+
+/* BOOK: the pals in the first column, the story and Talk in the second, off the hinge. */
+html[data-fold="book"] #rc-tray { width: var(--col0); max-width: var(--col0); margin-left: 0; margin-right: 0; } /* on the first screen: nothing crosses the hinge */
+html[data-fold="book"] #rc-talk { left: calc(var(--rail) + var(--pad) + var(--col0) + var(--hinge) + 2 * var(--gutter) + var(--col1) / 2); width: calc(var(--col1) - 8px); transform: translateX(-50%); }
+html[data-fold="book"] .rc-pal { width: 138px; } /* three pals fit the first screen's column (448 px on a Fold) without wrapping */
+/* The picker and the search are one column on the first screen, above the list they filter (a grid item would otherwise be placed in the second, over the detail). */
+html[data-fold="book"] #rc-chips, html[data-fold="book"] .view > .toolbar { grid-column: 1; min-width: 0; }
+html[data-fold="book"] .view > .toolbar input[type="search"] { min-width: 0; }
+/* TABLE: one row of pals, scrolling sideways: a wrapped tray would take a quarter of the half you read in. */
+html[data-fold="table"] .rc-pals { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+
+/* The Report card: its row labels may wrap on a narrow screen, so more of it is the agents (a phone, either half of a fold). */
+@media (max-width: 720px) { .rc th[scope="row"], .rc thead th.corner { min-width: 138px; max-width: 150px; white-space: normal; } .rc thead th.ag { min-width: 104px; } }
+html[data-fold="book"] .rc th[scope="row"], html[data-fold="book"] .rc thead th.corner,
+html[data-fold="table"] .rc th[scope="row"], html[data-fold="table"] .rc thead th.corner { min-width: 138px; max-width: 170px; white-space: normal; }
+html[data-fold="book"] .rc thead th.ag, html[data-fold="table"] .rc thead th.ag { min-width: 104px; }
+/* TABLE: Talk drops onto the upper half and the pals sit just above the hinge: nothing is under your thumbs' reach but the nav. */
+html[data-fold="table"] #rc-talk { max-height: calc(var(--seg-top) - 16px - var(--safe-t)); }
+html[data-fold="table"] #rc-tray { margin-bottom: 8px; }
+/* Roomy but flat (a tablet, an unfolded foldable): the pals wrap instead of scrolling. */
+@media (min-width: 640px) { .rc-pals { flex-wrap: wrap; overflow: visible; } .rc-pal { width: 176px; } }
+@media (max-width: 720px) { #rc-tray { margin-bottom: 10px; } }
+
+/* The connection, always visible: a thin bar that only shows when something is wrong. */
+#rc-status { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); top: calc(8px + var(--safe-t)); max-width: calc(100vw - 24px); padding: 6px 12px; border-radius: 999px; background: var(--raise); border: 1px solid var(--line-strong); font-size: 12px; color: var(--muted); box-shadow: 0 4px 18px rgba(0, 0, 0, .45); }
+#rc-status[hidden] { display: none; }
+
+/* "An update is ready": the same pill as the connection one, but at the bottom (above the nav) and only when there IS an update. */
+/* width: max-content, because `left: 50%` otherwise leaves only half the screen to fit in and the words wrap one to a line. */
+#rc-update { position: fixed; z-index: 31; left: 50%; transform: translateX(-50%); bottom: calc(84px + var(--safe-b)); width: max-content; max-width: calc(100vw - 24px); white-space: nowrap; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border-radius: 999px; background: var(--raise); border: 1px solid var(--link); font-size: 13px; color: var(--text); box-shadow: 0 6px 22px rgba(0, 0, 0, .55); }
+#rc-update[hidden] { display: none; }
+#rc-update button { min-height: 0; padding: 4px 14px; border-radius: 999px; }
+#rc-update button:not(.rc-later) { background: var(--link); color: #06121f; border-color: transparent; font-weight: 600; }
+#rc-update .rc-later { background: transparent; border-color: transparent; color: var(--muted); }
+html[data-fold="book"] #rc-update { left: calc(var(--rail) + var(--pad)); transform: none; bottom: 20px; max-width: var(--col0); }
+html[data-fold="table"] #rc-update { bottom: calc(var(--seg-bottom) + var(--hinge) + 12px); }
+@media (min-width: 721px) { #rc-update { bottom: 20px; } }
+@media (prefers-reduced-motion: no-preference) { #rc-update { animation: rc-in-up .18s ease-out; } @keyframes rc-in-up { from { opacity: 0; transform: translate(-50%, 6px); } } }
+#rc-status.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line-strong)); }
+#rc-status button { margin-left: 8px; padding: 2px 10px; min-height: 0; }
+
+@media (prefers-reduced-motion: no-preference) { #rc-status { animation: rc-in .18s ease-out; } @keyframes rc-in { from { opacity: 0; transform: translate(-50%, -6px); } } }
+
+/* ---- Foldables --------------------------------------------------------------------------------
+   boot.js reads the Device Posture API and the Viewport Segments API and sets ONE attribute:
+     <html data-fold="book">   two screens (or two halves) side by side, the hinge vertical
+     <html data-fold="table">  one above the other, the hinge horizontal ("tabletop" / "laptop")
+     (no attribute)            flat, or not a foldable
+   plus --fold-gap (the hinge's width in px, from the real segments when the browser gives them).
+   Nothing is ever laid across the hinge: a book puts one pane on each screen; a table puts the
+   content on the upper half and the controls on the lower. To test on a normal browser:
+   localStorage.setItem('dotpals.posture','folded') and ('dotpals.span','horizontal'|'vertical'). */
+
+/* Flat but roomy (a tablet, an unfolded foldable): list and detail side by side from 640px, not 1000. */
+@media (min-width: 640px) and (max-width: 1000px) {
+  .split { grid-template-columns: 250px minmax(0, 1fr); }
+  .list { max-height: none; }
+  .grid2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* BOOK: a left rail, then two columns, one per screen, the hinge between them. */
+/* Widths add up exactly: rail + pad + col1 + (hinge + 2 gutters) + col2 + pad = the viewport. With real
+   segments, --seg0/--seg1 are the two screens and --fold-gap the real hinge between them; with only a
+   `folded` posture (one continuous screen with a crease) each half is half the screen and the hinge is
+   0, so the two gutters alone keep content off the crease. */
+html[data-fold="book"] {
+  --pad: 16px; --rail: 72px; --gutter: 14px; --hinge: var(--fold-gap);
+  --seg0: env(viewport-segment-width 0 0, calc((100vw - var(--hinge)) / 2));
+  --seg1: env(viewport-segment-width 1 0, calc((100vw - var(--hinge)) / 2));
+  --col0: calc(var(--seg0) - var(--rail) - var(--pad) - var(--gutter));
+  --col1: calc(var(--seg1) - var(--pad) - var(--gutter));
+}
+html[data-fold="book"] body { padding-left: 0; padding-right: 0; }
+html[data-fold="book"] .app { grid-template-columns: var(--rail) minmax(0, 1fr); grid-template-rows: none; }
+html[data-fold="book"] aside { order: 0; width: var(--rail); flex-direction: column; align-items: stretch; padding: 14px 6px; border: 0; border-right: 1px solid var(--line); overflow: hidden; }
+html[data-fold="book"] aside .brand { justify-content: center; font-size: 0; padding: 0 0 14px; }
+html[data-fold="book"] aside .live { display: none; }
+html[data-fold="book"] nav { display: flex; flex-direction: column; }
+html[data-fold="book"] nav a { flex-direction: column; justify-content: center; text-align: center; font-size: 10px; gap: 3px; padding: 8px 2px; }
+html[data-fold="book"] nav svg { display: block; width: 20px; height: 20px; }
+html[data-fold="book"] main { padding: 20px var(--pad) 40px; }
+html[data-fold="book"] .view { max-width: none; margin: 0; align-items: start; column-gap: calc(var(--hinge) + 2 * var(--gutter)); row-gap: 18px;
+  grid-template-columns: minmax(0, var(--col0)) minmax(0, var(--col1)); }
+html[data-fold="book"] .view > * { min-width: 0; }
+html[data-fold="book"] .view > .head { grid-column: 1; }
+/* Two-pane views (list | detail, two cards) become one pane per screen. */
+html[data-fold="book"] .view > .split, html[data-fold="book"] .view > .grid2 { grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: inherit; }
+html[data-fold="book"] .list { max-height: none; }
+/* Fixed things stay on the first screen, clear of the hinge. */
+html[data-fold="book"] .toast, html[data-fold="book"] .rw-note { bottom: 20px; left: calc(var(--rail) + var(--pad)); transform: none; max-width: var(--col0); }
+html[data-fold="book"] #rc-status { left: calc(var(--rail) + var(--pad)); transform: none; max-width: var(--col0); }
+
+/* TABLE: the hinge is horizontal. Content on the upper half (read), navigation on the lower (touch),
+   the hinge between them. With real segments the rows are the two screens' heights; with only a
+   `folded` posture, each is half the screen. */
+html[data-fold="table"] {
+  --hinge: var(--fold-gap);
+  --seg-top: env(viewport-segment-height 0 0, calc((100dvh - var(--hinge)) / 2));
+  --seg-bottom: env(viewport-segment-height 0 1, calc((100dvh - var(--hinge)) / 2));
+}
+html[data-fold="table"] .app { height: 100dvh; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--seg-top) var(--hinge) var(--seg-bottom); }
+html[data-fold="table"] main { grid-row: 1; padding: calc(12px + var(--safe-t)) 16px 12px; }
+html[data-fold="table"] aside { grid-row: 3; order: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 64px; gap: 10px; align-content: center; padding: 14px 16px calc(14px + var(--safe-b)); border: 0; overflow: auto; }
+html[data-fold="table"] aside .brand { display: none; }
+html[data-fold="table"] aside .live { display: flex; grid-column: 1 / -1; justify-content: center; margin: 0; }
+html[data-fold="table"] nav { display: contents; }
+html[data-fold="table"] nav a { flex-direction: column; justify-content: center; text-align: center; gap: 4px; font-size: 13px; border: 1px solid var(--line); background: var(--raise); border-radius: 12px; }
+html[data-fold="table"] nav a[aria-current="page"] { border-color: var(--link); }
+html[data-fold="table"] nav svg { display: block; width: 22px; height: 22px; }
+html[data-fold="table"] .toast, html[data-fold="table"] .rw-note { bottom: calc(var(--seg-bottom) + var(--hinge) + 12px); }
+html[data-fold="table"] #rc-status { top: calc(8px + var(--safe-t)); }
+
+/* Keep a three-column rail from becoming a two-line cramp on a narrow tabletop. */
+@media (max-width: 420px) { html[data-fold="table"] aside { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

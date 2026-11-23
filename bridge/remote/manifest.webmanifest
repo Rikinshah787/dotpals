@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "dotpals",
+  "short_name": "dotpals",
+  "description": "Your coding agents, live: what they're doing, what needs you, and a nudge when they're done.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0b0b0e",
+  "theme_color": "#0b0b0e",
+  "categories": ["developer", "productivity", "utilities"],
+  "launch_handler": { "client_mode": ["focus-existing", "auto"] },
+  "icons": [
+    { "src": "/bridge/remote/icons/icon-96.png", "sizes": "96x96", "type": "image/png", "purpose": "any" },
+    { "src": "/bridge/remote/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/bridge/remote/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/bridge/remote/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Needs me", "short_name": "Needs me", "description": "Sessions waiting for you", "url": "/?source=shortcut#sessions", "icons": [{ "src": "/bridge/remote/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Overview", "short_name": "Overview", "description": "Today at a glance", "url": "/?source=shortcut#overview", "icons": [{ "src": "/bridge/remote/icons/icon-96.png", "sizes": "96x96", "type": "image/png" }] }
+  ]
+}

@@ -670,7 +670,7 @@
       <section class="view" id="view-settings" aria-labelledby="t-settings" hidden>
         <div class="head"><h1 id="t-settings">Settings</h1><span class="spacer"></span><span class="faint" id="saved"></span></div>
         <div class="seg stabs" role="group" aria-label="Settings" id="s-tabs">
-          <button type="button" data-tab="pal">Pal</button><button type="button" data-tab="agents">Agents</button><button type="button" data-tab="blu">Blu</button><button type="button" data-tab="apps">Apps</button><button type="button" data-tab="more">History &amp; about</button>
+          <button type="button" data-tab="pal">Pal</button><button type="button" data-tab="agents">Agents</button><button type="button" data-tab="blu">Blu</button><button type="button" data-tab="apps">Apps</button><button type="button" data-tab="remote">Remote</button><button type="button" data-tab="more">History &amp; about</button>
         </div>
         <div class="settings">
           <div class="card" data-tab="pal">
@@ -870,6 +870,8 @@
             <div id="c-checks" class="checks" hidden></div>
           </div>
 
+          <div class="card" data-tab="remote" id="remote-card"><h2>Remote</h2><p class="muted" id="remote-loading">Loading…</p></div>
+
           <div class="card" data-tab="more">
             <h2>History</h2>
             <div class="row"><div class="text">Keep history<small id="history-where">Saved on this computer only.</small></div><input type="checkbox" class="switch" id="s-history" aria-label="Keep history"></div>
@@ -967,8 +969,9 @@
       const res = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
       if (!res.ok) {
         let message = `${res.status}`;
-        try { message = (await res.json()).error ?? message; } catch {}
-        throw new Error(message);
+        // A paired phone without the control switch gets { error: 'control', message: <what to do> }: say that, not "control".
+        try { const data = await res.json(); message = data.error === 'control' && data.message ? data.message : data.error ?? message; } catch {}
+        throw Object.assign(new Error(message), { status: res.status });
       }
       return res.json();
     }
@@ -2453,7 +2456,7 @@
         $('saved').textContent = 'Saved';
         clearTimeout(save.t); save.t = setTimeout(() => ($('saved').textContent = ''), 1500);
         renderSettings();
-      } catch { toast('Couldn’t save. Is the bridge running?'); }
+      } catch (err) { toast(err.status ? err.message : 'Couldn’t save. Is the bridge running?'); }
     }
     $('s-character').onchange = (e) => { save({ character: e.target.value }); preview.character = e.target.value; preview.play('jump'); };
 
@@ -2714,7 +2717,9 @@
     renderApps();
 
     // -- Settings, a tab at a time (#settings/<tab>) -------------------------------------------
-    const SETTINGS_TABS = ['pal', 'agents', 'blu', 'apps', 'more'];
+    const pairedDevice = document.querySelector('meta[name="dotpals-face"]')?.content === 'device';
+    if (pairedDevice) document.querySelector('button[data-tab="apps"]').hidden = true;
+    const SETTINGS_TABS = ['pal', 'agents', 'blu', ...(!pairedDevice ? ['apps'] : []), 'remote', 'more'];
     let settingsTab = (() => { try { return localStorage.getItem('dotpals.settings.tab'); } catch { return null; } })() || 'pal';
     function showSettingsTab(tab) {
       settingsTab = SETTINGS_TABS.includes(tab) ? tab : 'pal';
@@ -2821,7 +2826,7 @@
       try {
         const r = await api('/api/brain/test', { id });
         $('b-test-note').textContent = r.ok ? `✓ ${r.by} answered in ${(r.ms / 1000).toFixed(1)} s` : `✗ ${r.error}`;
-      } catch { $('b-test-note').textContent = 'Couldn’t ask. Is the bridge running?'; }
+      } catch (err) { $('b-test-note').textContent = err.status ? `✗ ${err.message}` : 'Couldn’t ask. Is the bridge running?'; }
     };
     loadBrain();
     $('c-test').onclick = async () => {
@@ -3236,5 +3241,6 @@ npm test && s=done || s=error; curl -s ${url} -d "{\\"session\\":\\"sh\\",\\"har
 
     route();
   </script>
+  <script type="module" src="/bridge/remote/settings.js"></script>
 </body>
 </html>

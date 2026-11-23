@@ -1,0 +1,250 @@
+// Settings → Remote, in the dashboard. One module, two faces:
+//  - on the COMPUTER (the dashboard at 127.0.0.1): turn the remote client on, make a pairing QR code,
+//    see and manage paired devices (rename, let one control, sign one out).
+//  - on a PAIRED DEVICE: this device's own settings: install the app, notifications and which kinds,
+//    send a test, sign this device out.
+// Built with DOM calls only (no innerHTML), so nothing from the network is ever parsed as markup.
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const card = $('remote-card');
+if (card) init();
+
+function init() {
+  // The remote server adds this tag to the pages it serves to a device; the computer's own dashboard has none.
+  const onDevice = document.querySelector('meta[name="dotpals-face"]')?.content === 'device';
+  const call = async (path, body) => {
+    const res = await fetch(path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-dotpals': '1' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(data.message || data.error || `Error ${res.status}`), { status: res.status, data });
+    return data;
+  };
+  const toast = (text) => { const t = $('toast'); if (!t) return; t.textContent = text; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2200); };
+  const row = (title, note, control) => {
+    const r = el('div', 'row');
+    const text = el('div', 'text', title);
+    if (note) text.append(el('small', '', note));
+    r.append(text);
+    if (control) r.append(control);
+    return r;
+  };
+  const sw = (checked, onchange, label) => { const i = el('input', 'switch'); i.type = 'checkbox'; i.checked = !!checked; i.setAttribute('aria-label', label); i.onchange = () => onchange(i); return i; };
+  const btn = (text, onclick, cls = '') => { const b = el('button', cls, text); b.type = 'button'; b.onclick = onclick; return b; };
+  // -- on the computer ---------------------------------------------------------------------------------
+  function drawQr(rows) {
+    const scale = 6, quiet = 4, n = rows.length, size = (n + quiet * 2) * scale;
+    const c = el('canvas', 'rc-qr');
+    c.width = c.height = size;
+    c.setAttribute('role', 'img');
+    c.setAttribute('aria-label', 'Pairing QR code');
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, size, size);
+    g.fillStyle = '#000';
+    rows.forEach((r, y) => { for (let x = 0; x < n; x++) if (r[x] === '1') g.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale); });
+    c.style.cssText = 'width:min(240px,100%);height:auto;image-rendering:pixelated;border-radius:10px;background:#fff';
+    return c;
+  }
+  const when = (at) => { if (!at) return 'never'; const s = Math.round((Date.now() - at) / 1000); return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
+
+  async function computerFace() {
+    let state = null;
+    let pairing = null; // { code, url, qr, secure, expiresAt }
+    let tick = null;
+    const pendingControl = new Set();
+    const unknownControl = new Set();
+    const editing = () => card.contains(document.activeElement) && document.activeElement.matches('input, select, textarea');
+    let revision = 0;
+    let deviceChange = false;
+    const visible = () => card.getClientRects().length > 0;
+    const draw = () => {
+      if (!state) return;
+      const nodes = [el('h2', '', 'Remote')];
+      nodes.push(el('p', 'muted', 'Use dotpals from your phone or tablet: the same dashboard, live. Off until you turn it on.'));
+      nodes.push(row('Remote client', state.error || (state.running ? `Listening on port ${state.port}${state.bind === 'lan' ? ' (your network)' : ' (this computer only: put a tunnel or Tailscale in front)'}.` : 'Off.'),
+        sw(state.enabled, async (i) => { try { await save({ enabled: i.checked }); } catch (e) { i.checked = state.enabled; toast(e.message); } }, 'Remote client')));
+      if (state.enabled) {
+        const where = el('select'); where.setAttribute('aria-label', 'Who can reach it');
+        for (const [v, t] of [['local', 'This computer only (use a tunnel or Tailscale)'], ['lan', 'Anything on my network']]) where.add(new Option(t, v, false, v === state.bind));
+        where.onchange = () => save({ bind: where.value });
+        const port = el('input'); port.type = 'number'; port.min = 1024; port.max = 65535; port.value = state.port;
+        port.setAttribute('aria-label', 'Remote port');
+        port.onchange = () => {
+          if (!port.value || !port.validity.valid) { port.reportValidity(); return; }
+          save({ port: Number(port.value) }).catch((e) => toast(e.message));
+        };
+        nodes.push(row('Port', 'Use this port in the HTTPS address or proxy configuration.', port));
+        nodes.push(row('Reachable from', 'A phone needs https to install the app and get notifications: use a tunnel (Cloudflare, Tailscale) or your own certificate.', where));
+        const url = el('input'); url.type = 'url'; url.placeholder = 'https://dotpals.example.com'; url.value = state.publicUrl; url.setAttribute('aria-label', 'Public address');
+        url.onchange = () => {
+          const value = url.value.trim();
+          if (value) {
+            try { const u = new URL(value); if (u.protocol !== 'https:' || u.username || u.password) throw new Error(); }
+            catch { toast('Enter an HTTPS address without a username or password.'); return; }
+          }
+          save({ publicUrl: value }).catch((e) => toast(e.message));
+        };
+        nodes.push(row('Address your devices open', 'The https address of your tunnel or proxy. Leave empty to use this computer’s address on your network. It goes in the QR code.', url));
+        if (state.bind === 'lan') {
+          const lan = state.lan ?? {};
+          const auto = sw(lan.auto, (i) => save({ tlsAuto: i.checked }).catch((e) => toast(e.message)), 'https on my network');
+          nodes.push(row('https on my network', lan.auto
+            ? `dotpals keeps its own certificate and renews it when this computer’s address changes${lan.note ? `. ${lan.note}` : ''}. It needs openssl (Git for Windows has one).`
+            : 'Turn on to serve https here with a private certificate, no tunnel. Each phone trusts it once.', auto));
+          if (lan.auto) {
+            const names = [...(lan.addresses ?? []), lan.name].filter(Boolean).join('  ·  ');
+            nodes.push(row('Covers', names || 'No private network address found: connect to Wi-Fi or Ethernet.'));
+            const fp = el('code', 'mono', lan.caFingerprint ?? 'not made yet'); fp.style.cssText = 'font-size:11px;word-break:break-all;display:block;max-width:100%';
+            nodes.push(row('Install this certificate on each device, once', lan.caFile ? `Copy ${lan.caFile} to the phone and install it as a CA certificate (the file is public; its key never leaves this computer). Check the fingerprint matches:` : 'Made the first time https starts.', fp));
+          }
+        }
+      }
+      if (state.running) {
+        const box = el('div', 'rc-pair');
+        box.style.cssText = 'display:grid;gap:12px;justify-items:center;padding:14px 0';
+        if (pairing) {
+          box.append(drawQr(pairing.qr));
+          const code = el('code', '', pairing.code); code.style.cssText = 'font-size:20px;letter-spacing:.1em';
+          box.append(code, el('small', 'muted', pairing.url));
+          if (pairing.byName) box.append(el('small', 'muted', `By name, if this phone can look up .local names: ${pairing.byName}`));
+          if (!pairing.secure) box.append(el('small', 'bad', 'This address isn’t https, so a phone can’t finish pairing over it. Set an https address above.'));
+          const left = el('small', 'muted'); left.id = 'rc-left';
+          box.append(left, btn('Cancel', cancel));
+        } else box.append(btn('Pair a device', start, 'primary'));
+        nodes.push(box);
+      }
+      if (state.devices.length) {
+        nodes.push(el('h3', '', 'Paired devices'));
+        for (const d of state.devices) nodes.push(deviceRow(d));
+        nodes.push(row('Sign out every device', 'Removes all of them at once.', btn('Sign out all', async () => { if (confirm('Sign out every paired device?')) await mutateDevice('/api/remote/revoke-all', {}, 'Sign out not confirmed'); }, 'danger')));
+      }
+      card.replaceChildren(...nodes);
+      clearInterval(tick);
+      if (pairing) tick = setInterval(countdown, 1000);
+      countdown();
+    };
+    function countdown() {
+      const left = $('rc-left'); if (!left || !pairing) return;
+      const s = Math.max(0, Math.round((pairing.expiresAt - Date.now()) / 1000));
+      left.textContent = s ? `Expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}. Works once.` : 'Expired.';
+      if (!s) {
+        pairing = null;
+        clearInterval(tick);
+        if (!editing() && !pendingControl.size) draw();
+      }
+    }
+    const refresh = async ({ preserveEdit = false } = {}) => {
+      if (deviceChange || (preserveEdit && editing())) return;
+      const requestRevision = revision;
+      const stale = () => requestRevision !== revision || deviceChange || (preserveEdit && editing());
+      try {
+        const next = await call('/api/remote');
+        if (stale()) return;
+        state = next;
+        unknownControl.clear();
+        if (pairing && state.claimed?.includes(pairing.id)) { pairing = null; toast('Device paired'); }
+        else if (pairing && (!state.enabled || (state.pendingPairs && !state.pendingPairs.includes(pairing.id)))) pairing = null;
+        draw();
+      } catch (e) { if (!stale() && !state) card.replaceChildren(el('h2', '', 'Remote'), el('p', 'bad', e.message)); }
+    };
+    async function save(patch) { revision++; await call('/api/config', { remote: patch }); if (patch.enabled === false) pairing = null; await new Promise((r) => setTimeout(r, 250)); await refresh(); }
+    async function mutateDevice(path, patch, failure, id) {
+      if (deviceChange) { toast('Wait for the current device change, then try again.'); return; }
+      deviceChange = true;
+      revision++;
+      try { state = await call(path, patch); }
+      catch (e) {
+        toast(`${failure}: ${e.message}`);
+        try { state = await call('/api/remote'); unknownControl.clear(); }
+        catch { if (id) unknownControl.add(id); }
+      } finally { if (id) pendingControl.delete(id); deviceChange = false; draw(); }
+    }
+    async function start() { try { pairing = await call('/api/remote/pair', {}); draw(); } catch (e) { toast(e.message); } }
+    async function cancel() { try { await call('/api/remote/pair/cancel', {}); pairing = null; draw(); } catch (e) { toast(e.message); } }
+    function deviceRow(d) {
+      const box = el('div', 'rc-device');
+      box.style.cssText = 'border-top:1px solid var(--line);padding:6px 0';
+      const name = el('input'); name.value = d.name; name.maxLength = 40; name.setAttribute('aria-label', `Name of ${d.name}`);
+      name.onchange = () => mutateDevice(`/api/remote/devices/${d.id}`, { name: name.value }, 'Rename not confirmed');
+      const status = d.open ? 'Open now' : `Last seen ${when(d.lastSeen)}`;
+      box.append(row(status, "Shown on your computer.", name));
+      const unknown = unknownControl.has(d.id);
+      const controlSwitch = sw(d.control, async (i) => {
+          const control = i.checked;
+          i.checked = d.control;
+          if (control && !confirm(`Let “${d.name}” control dotpals, including starting coding tasks?`)) return;
+          if (deviceChange) { toast('Wait for the current device change, then try again.'); return; }
+          pendingControl.add(d.id);
+          i.disabled = true;
+          await mutateDevice(`/api/remote/devices/${d.id}`, { control }, 'Control change not confirmed', d.id);
+        }, unknown ? `Control permission for ${d.name} is unknown. Refresh to check.` : `Let ${d.name} control`);
+      controlSwitch.disabled = pendingControl.has(d.id) || unknown;
+      controlSwitch.indeterminate = unknown;
+      box.append(row('Let this device control', unknown ? 'Permission is unknown. Refresh to check.' : 'Off: it can look and change appearance. On: it can also hand off sessions, rewind and start coding tasks. Permission prompts and Apps stay on the desktop.', controlSwitch));
+      const acts = el('div', 'acts'); acts.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;padding-bottom:8px';
+      acts.append(btn('Sign out', () => mutateDevice(`/api/remote/devices/${d.id}/revoke`, {}, 'Sign out not confirmed'), 'danger'));
+      box.append(acts);
+      return box;
+    }
+    refresh();
+    addEventListener('hashchange', () => requestAnimationFrame(() => { if (visible()) refresh({ preserveEdit: true }); }));
+    setInterval(() => { if (visible() && !document.hidden) refresh({ preserveEdit: true }); }, 4000);
+  }
+  // -- on a paired device --------------------------------------------------------------------------------
+  async function deviceFace() {
+    let me = null;
+    const name = el('input'); name.maxLength = 40; name.setAttribute('aria-label', 'Name of this device');
+    const nameBusy = () => document.activeElement === name || name.disabled;
+    const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } finally { await load(); } };
+    const set = (patch) => call('/api/remote/me/prefs', patch);
+    function draw() {
+      if (nameBusy()) return;
+      const nodes = [el('h2', '', 'This device')];
+      name.value = me.name;
+      name.onchange = async () => {
+        name.disabled = true;
+        try { await set({ name: name.value }); } catch (e) { toast(e.message); }
+        finally { name.disabled = false; await load(); }
+      };
+      nodes.push(row('Name', 'Shown on your computer.', name));
+      nodes.push(row(me.control ? 'This device can control dotpals' : 'This device can look, not control', me.control ? 'Hand-offs, rewinds, coding tasks and settings are allowed. Permission cards and desktop actions still need the desktop.' : 'Turn it on from the computer: Settings → Remote → Let this device control.'));
+
+      nodes.push(el('h3', '', 'App'));
+      const inst = window.dotpalsInstall;
+      if (inst?.done) nodes.push(row('Installed', 'dotpals is on your home screen.'));
+      else if (inst?.prompt) nodes.push(row('Install dotpals', 'Opens like an app, with its own icon.', btn('Install', async () => { inst.prompt.prompt(); await inst.prompt.userChoice; inst.prompt = null; draw(); }, 'primary')));
+      else nodes.push(row('Install dotpals', /iPhone|iPad|Macintosh/.test(navigator.userAgent) && 'ontouchend' in document ? 'Tap Share, then “Add to Home Screen”.' : 'Use your browser’s menu: “Install app” or “Add to Home screen”.'));
+
+      // Check for an update by hand, and apply it: the same explicit check the pdsvc dashboard has.
+      const U = window.dotpalsUpdate;
+      if (U) {
+        const s = U.state();
+        const w = U.words(s);
+        const act = w.action === 'update' ? btn('Update', () => { U.apply(); }, 'primary')
+          : w.action === 'check' ? btn('Check for updates', async () => { await U.check(); draw(); })
+            : null;
+        nodes.push(row(w.title, w.note, act));
+      }
+
+      nodes.push(el('h3', '', 'Foldable'));
+      const fold = window.dotpalsFold?.fold?.();
+      nodes.push(row('Layout', fold === 'book' ? 'Two screens side by side: one pane on each, nothing across the hinge.' : fold === 'table' ? 'Half-open: content above, controls below the hinge.' : 'Flat. Fold or span the device and the layout follows.'));
+      nodes.push(el('h3', '', 'Sign out'));
+      nodes.push(row('Sign this device out', 'You’ll pair again to use it.', btn('Sign out', async () => {
+        if (!confirm('Sign this device out?')) return;
+        try { await call('/api/remote/me/signout', {}); location.replace('/pair'); }
+        catch (e) { toast(`Sign out not confirmed: ${e.message}`); }
+      }, 'danger')));
+      card.replaceChildren(...nodes);
+    }
+    async function load() { try { me = await call('/api/remote/me'); draw(); } catch (e) { card.replaceChildren(el('h2', '', 'This device'), el('p', 'bad', e.message)); } }
+    load();
+    const redraw = () => { if (me && document.activeElement !== name) draw(); };
+    name.addEventListener('blur', () => setTimeout(redraw, 0));
+    addEventListener('dotpals:install', redraw);
+    // The update row follows the updater (checking, ready, applying), without redrawing when it isn't on screen.
+    const watchUpdate = () => window.dotpalsUpdate?.onChange(() => { if (card.getClientRects().length) redraw(); });
+    if (window.dotpalsUpdate) watchUpdate(); else addEventListener('load', watchUpdate, { once: true });
+    addEventListener('hashchange', () => { if (location.hash.startsWith('#settings/remote')) load(); });
+  }
+  (onDevice ? deviceFace : computerFace)();
+}

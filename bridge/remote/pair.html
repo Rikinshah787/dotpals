@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pair with dotpals</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b0b0e">
+<link rel="icon" href="/desktop/icon.png">
+<link rel="apple-touch-icon" href="/bridge/remote/icons/icon-180.png">
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0e; --panel: #121217; --raise: #1a1a20; --line: #26262d; --text: #f2f2f5; --muted: #9a9aa5; --bad: #f2555a; --ok: #46a758; --link: #6cb6ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--bg); color: var(--text); font: 15px/1.5 ui-rounded, "Segoe UI Variable Text", system-ui, sans-serif; }
+  main { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 26px 22px; display: grid; gap: 16px; }
+  img { width: 56px; height: 56px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+  p { margin: 0; color: var(--muted); }
+  label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
+  input, button { font: inherit; color: inherit; border-radius: 10px; border: 1px solid #34343c; background: var(--raise); padding: 12px 14px; min-height: 48px; }
+  input#code { font: 600 22px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .12em; text-align: center; text-transform: uppercase; }
+  button { cursor: pointer; font-weight: 650; }
+  button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  button:disabled { opacity: .5; }
+  #msg { min-height: 1.4em; font-size: 14px; }
+  #msg.bad { color: var(--bad); } #msg.ok { color: var(--ok); }
+  small { color: var(--muted); }
+  :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <img src="/desktop/icon.png" alt="">
+  <h1>Pair with dotpals</h1>
+  <p>Scan the QR code on your computer with this device’s camera, or type the code it shows.</p>
+  <form id="form" autocomplete="off">
+    <label>Pairing code
+      <input id="code" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="14" placeholder="XXXX-XXXX-XXXX" aria-describedby="msg" required>
+    </label>
+    <label>Name this device
+      <input id="name" maxlength="40" autocomplete="off" placeholder="My phone" required>
+    </label>
+    <button class="primary" id="go" type="submit">Pair</button>
+  </form>
+  <div id="msg" role="status" aria-live="polite"></div>
+  <small>The code works once and expires in 5 minutes. It never leaves this page except to your computer.</small>
+</main>
+<script src="/bridge/remote/pair.js"></script>
+</body>
+</html>
